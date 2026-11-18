@@ -4,7 +4,7 @@ import { env } from '../env.js';
 
 const privateKey = importPKCS8(env.JWT_PRIVATE_KEY_PEM.replace(/\\n/g, '\n'), 'RS256');
 const publicKey = importSPKI(env.JWT_PUBLIC_KEY_PEM.replace(/\\n/g, '\n'), 'RS256');
-export async function issueToken(subject: string, sessionVersion = 0, sessionId = randomUUID()) {
+export async function issueToken(subject: string, sessionVersion = 0, sessionId: string = randomUUID()) {
   const key = await privateKey;
   return new SignJWT({ sv: sessionVersion, refreshAfter: env.SESSION_REFRESH_INTERVAL_SECONDS })
     .setProtectedHeader({ alg: 'RS256', typ: 'JWT', kid: 'tcg-rs256-v1' })

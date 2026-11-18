@@ -3,7 +3,7 @@ import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { clearSession, getApiBaseUrl, readSession, instanceFetch, renewIfActive } from '../auth/session';
+import { clearSession, getApiBaseUrl, readSession, instanceFetch } from '../auth/session';
 
 export type GradingCompany = 'PSA' | 'CollectAura' | 'PCA' | 'CCC';
 
@@ -150,7 +150,6 @@ async function request<T>(
   body?: unknown,
   method: 'POST' | 'PATCH' = 'POST',
 ): Promise<T> {
-  try { await renewIfActive(); } catch { /* Preserve the request's own result; renewal can retry on later activity. */ }
   const baseUrl = getApiBaseUrl();
   const token = await readSession();
   if (!baseUrl) throw new Error('Configurez l’adresse de votre instance.');

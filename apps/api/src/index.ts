@@ -16,8 +16,8 @@ app.use(
   cors({
     origin: env.WEB_ORIGIN,
     credentials: true,
-    allowHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Platform'],
-    exposeHeaders: ['X-CSRF-Token'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Platform', 'X-Session-Activity'],
+    exposeHeaders: ['X-CSRF-Token', 'X-Access-Token'],
     allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
   }),
 );

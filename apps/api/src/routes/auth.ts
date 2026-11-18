@@ -261,30 +261,5 @@ export function authRoutes(repo: ConvexAccountRepository) {
       return c.body(null, 204);
     },
   );
-  app.openapi(
-    createRoute({
-      method: 'post',
-      path: '/refresh',
-      middleware: [authMiddleware(repo)],
-      responses: { 200: { description: 'Jeton renouvelé' } },
-    }),
-    async (c) => {
-      const account = await repo.byId(c.get('ownerId'));
-      if (!account) return c.json({ error: 'UNAUTHENTICATED' }, 401);
-      const session = await verifyToken(c.get('accessToken'));
-      if (account.sessionVersion !== session.sessionVersion || !await repo.isSessionValid(account.id, session.jti, session.sessionVersion))
-        return c.json({ error: 'UNAUTHENTICATED' }, 401);
-      // Preserve session identity so renewal does not invalidate concurrent requests
-      // or read-only realtime credentials. Logout revokes the whole session identity.
-      const token = await issueToken(account.id, account.sessionVersion, c.get('tokenJti'));
-      setSessionCookies(c, token, getCookie(c, 'csrf'));
-      return c.json({
-        ...(c.req.header('x-client-platform') === 'ios' ? { accessToken: token } : {}),
-        expiresIn: env.JWT_TTL_SECONDS,
-        refreshAfterSeconds: env.SESSION_REFRESH_INTERVAL_SECONDS,
-        renewedAt: Date.now(),
-      });
-    },
-  );
   return app;
 }

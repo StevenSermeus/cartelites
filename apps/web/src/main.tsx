@@ -1,4 +1,3 @@
-import { createActivitySession, type SessionTiming } from '../../../packages/domain/src/sessionActivity';
 import { ConventionPhoto } from './ConventionPhoto';
 import { API, realtime, publicRealtime } from './realtime';
 import { ItemThumbnail } from './ItemThumbnail';
@@ -275,20 +274,15 @@ function dateAtCurrentLocalTime(value: string, timeSource = new Date()) {
   ).getTime();
 }
 let csrfToken: string | undefined;
-const sessionActivity = createActivitySession(async () => {
-  const refresh = async (): Promise<SessionTiming> => {
-    const status = await request<{ authenticated: boolean; issuedAt: number; expiresAt: number; refreshAfterSeconds: number }>('/auth/status');
-    if (!status.authenticated) { sessionActivity.stop(); throw new Error('UNAUTHENTICATED'); }
-    // Another tab may already have renewed the shared cookie.
-    if (Date.now() - status.issuedAt < status.refreshAfterSeconds * 1000) return status;
-    await request('/auth/csrf');
-    const result = await request<{ expiresIn: number; renewedAt: number; refreshAfterSeconds: number }>('/auth/refresh', { method: 'POST' });
-    return { issuedAt: result.renewedAt, expiresAt: result.renewedAt + result.expiresIn * 1000, refreshAfterSeconds: result.refreshAfterSeconds };
-  };
-  return navigator.locks ? navigator.locks.request('tcg-session-refresh', refresh) : refresh();
-});
+let lastUserActivity = -Infinity;
+const markWebActivity = () => { if (document.visibilityState === 'visible') lastUserActivity = Date.now(); };
+function sessionActivityHeaders(): Record<string, string> {
+  return document.visibilityState === 'visible' && Date.now() - lastUserActivity < 60_000
+    ? { 'X-Session-Activity': '1' } : {};
+}
 async function request<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
+  for (const [key, value] of Object.entries(sessionActivityHeaders())) headers.set(key, value);
   headers.set('Content-Type', 'application/json');
   if (csrfToken && init.method && init.method !== 'GET') headers.set('X-CSRF-Token', csrfToken);
   const r = await fetch(`${API}${path}`, { ...init, headers, credentials: 'include' });
@@ -317,10 +311,6 @@ async function request<T = unknown>(path: string, init: RequestInit = {}): Promi
     throw new Error(payload.error ?? `Erreur serveur (${r.status})`);
   }
   const result = r.status === 204 ? null : await r.json();
-  if (path === '/auth/status') {
-    if (result?.authenticated && Number.isFinite(result.issuedAt) && Number.isFinite(result.expiresAt)) sessionActivity.setSession(result);
-    else sessionActivity.stop();
-  }
   return result as T;
 }
 type ReadPage<T> = { items: T[]; nextCursor: string | null; isDone: boolean };
@@ -739,18 +729,14 @@ function ConventionCatalog() {
 }
 function App() {
   useEffect(() => {
-    const activity = () => { sessionActivity.activity(); void sessionActivity.tick(); };
-    const visibility = () => sessionActivity.setForeground(document.visibilityState === 'visible');
-    visibility();
     const events = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
-    for (const event of events) window.addEventListener(event, activity, { passive: true });
+    for (const event of events) window.addEventListener(event, markWebActivity, { passive: true });
+    const visibility = () => { if (document.visibilityState !== 'visible') lastUserActivity = -Infinity; };
     document.addEventListener('visibilitychange', visibility);
-    const timer = window.setInterval(() => void sessionActivity.tick(), 30_000);
     return () => {
-      clearInterval(timer);
-      for (const event of events) window.removeEventListener(event, activity);
+      for (const event of events) window.removeEventListener(event, markWebActivity);
       document.removeEventListener('visibilitychange', visibility);
-      sessionActivity.stop();
+      lastUserActivity = -Infinity;
     };
   }, []);
   const catalogRequests = useRef(new Map<string, number>());
@@ -963,7 +949,7 @@ function App() {
     setLoading(true);
     try {
       const result = await request<{ expiresIn: number; refreshAfterSeconds: number }>(`/auth/${path}`, { method: 'POST', body: JSON.stringify({ email, password }) });
-      sessionActivity.setSession({ issuedAt: Date.now(), expiresAt: Date.now() + result.expiresIn * 1000, refreshAfterSeconds: result.refreshAfterSeconds });
+      markWebActivity();
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Connexion impossible');
@@ -1504,7 +1490,7 @@ function App() {
     const form = new FormData();
     form.append('itemId', itemId);
     form.append('file', file);
-    const headers = new Headers();
+    const headers = new Headers(sessionActivityHeaders());
     if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
     const response = await fetch(`${API}/attachments`, {
       method: 'POST',
@@ -1754,8 +1740,7 @@ function App() {
     }
   }
   async function logout() {
-    await sessionActivity.tick();
-    sessionActivity.stop();
+    lastUserActivity = -Infinity;
     try {
       await request('/auth/logout', { method: 'POST' });
     } finally {

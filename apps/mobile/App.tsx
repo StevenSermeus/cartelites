@@ -1,4 +1,4 @@
-import { markUserActivity, renewIfActive, setSessionForeground } from './src/auth/session';
+import { markUserActivity, setSessionForeground } from './src/auth/session';
 import * as Crypto from 'expo-crypto';
 import { SalePaymentFields, SalePaymentHistory, emptyPaymentDraft, buildSaleSettlement } from './src/components/SalePaymentFields';
 import { ConsignmentScreen } from './src/screens/ConsignmentScreen';
@@ -181,8 +181,7 @@ export default function App() {
   useEffect(() => {
     setSessionForeground(authenticated && AppState.currentState === 'active');
     const listener = AppState.addEventListener('change', state => setSessionForeground(authenticated && state === 'active'));
-    const timer = setInterval(() => { if (authenticated) void renewIfActive(); }, 30_000);
-    return () => { listener.remove(); clearInterval(timer); setSessionForeground(false); };
+    return () => { listener.remove(); setSessionForeground(false); };
   }, [authenticated]);
 
   const [instanceReady, setInstanceReady] = useState(false);

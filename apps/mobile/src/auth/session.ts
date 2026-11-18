@@ -1,4 +1,3 @@
-import { createActivitySession, type SessionTiming } from '../../../../packages/domain/src/sessionActivity';
 import * as SecureStore from 'expo-secure-store';
 
 const TOKEN_KEY = 'tcg-marge.session.jwt';
@@ -8,35 +7,16 @@ export type SessionResult = { accessToken: string; expiresIn: number; id: string
 const INSTANCE_KEY = 'tcg-marge.instance.api-url';
 let apiBaseUrl: string | undefined;
 let generation = 0;
-let observedToken: string | null = null;
-function timingFromToken(token: string): SessionTiming {
-  const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-  const payload = JSON.parse(atob(part.padEnd(Math.ceil(part.length / 4) * 4, '=')));
-  if (!Number.isFinite(payload.iat) || !Number.isFinite(payload.exp)) throw new Error('INVALID_SESSION');
-  return { issuedAt: payload.iat * 1000, expiresAt: payload.exp * 1000, refreshAfterSeconds: payload.refreshAfter ?? 900 };
+let foreground = false;
+let lastActivity = -Infinity;
+export function markUserActivity() { if (foreground) lastActivity = Date.now(); }
+export function setSessionForeground(value: boolean) { foreground = value; if (!value) lastActivity = -Infinity; }
+function tokenExpiry(token: string): number {
+  try {
+    const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return Number(JSON.parse(atob(part.padEnd(Math.ceil(part.length / 4) * 4, '='))).exp) || 0;
+  } catch { return 0; }
 }
-const activitySession = createActivitySession(async () => {
-  const base = apiBaseUrl, revision = generation, token = await readSession();
-  if (!base || !token) throw new Error('UNAUTHENTICATED');
-  const response = await instanceFetch('/auth/refresh', { method: 'POST', headers: { 'X-Client-Platform': 'ios' } }, true);
-  if (!response.ok) {
-    if (response.status === 401) activitySession.stop();
-    throw new Error('SESSION_RENEWAL_FAILED');
-  }
-  const payload = await response.json() as { accessToken?: string };
-  if (!payload.accessToken || base !== apiBaseUrl || revision !== generation || await readSession() !== token) throw new Error('SESSION_CHANGED');
-  await SecureStore.setItemAsync(TOKEN_KEY, payload.accessToken, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
-  if (base !== apiBaseUrl || revision !== generation) {
-    // Never leave an in-flight replacement installed after logout/instance switch.
-    if (await SecureStore.getItemAsync(TOKEN_KEY) === payload.accessToken) await SecureStore.deleteItemAsync(TOKEN_KEY);
-    throw new Error('SESSION_CHANGED');
-  }
-  observedToken = payload.accessToken;
-  return timingFromToken(payload.accessToken);
-});
-export function markUserActivity() { activitySession.activity(); void activitySession.tick(); }
-export function setSessionForeground(value: boolean) { activitySession.setForeground(value); }
-export function renewIfActive() { return activitySession.tick(); }
 const requests = new Set<AbortController>();
 const invalidationListeners = new Set<() => void>();
 export function onSessionInvalidated(listener: () => void) {
@@ -44,8 +24,7 @@ export function onSessionInvalidated(listener: () => void) {
   return () => { invalidationListeners.delete(listener); };
 }
 function invalidateRequests() {
-  activitySession.stop();
-  observedToken = null;
+  lastActivity = -Infinity;
   for (const listener of invalidationListeners) listener();
   generation++;
   for (const request of requests) request.abort();
@@ -62,9 +41,21 @@ export async function instanceFetch(path: string, init: RequestInit = {}, authen
   requests.add(controller);
   try {
     const response = await fetch(`${base}/api/v1${path}`, { ...init, redirect: 'error', signal: controller.signal,
-      headers: { ...init.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+      headers: { ...init.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(authenticated && foreground && Date.now() - lastActivity < 60_000 ? { 'X-Session-Activity': '1' } : {}) } });
     const body = response.status === 204 ? null : await response.arrayBuffer();
     if (base !== apiBaseUrl || revision !== generation) throw new Error('L’instance a changé.');
+    const replacement = response.headers.get('X-Access-Token');
+    if (authenticated && replacement) {
+      const current = await readSession();
+      if (base === apiBaseUrl && revision === generation && current && tokenExpiry(replacement) > tokenExpiry(current)) {
+        await SecureStore.setItemAsync(TOKEN_KEY, replacement, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
+        if (base !== apiBaseUrl || revision !== generation) {
+          if (await SecureStore.getItemAsync(TOKEN_KEY) === replacement) await SecureStore.deleteItemAsync(TOKEN_KEY);
+          throw new Error('La session a changé.');
+        }
+      }
+    }
     return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
   } finally { clearTimeout(timeout); requests.delete(controller); }
 }
@@ -102,12 +93,7 @@ export function getApiBaseUrl() {
 }
 export async function readSession(): Promise<string | null> {
   const [token, origin] = await Promise.all([SecureStore.getItemAsync(TOKEN_KEY), SecureStore.getItemAsync(TOKEN_INSTANCE_KEY)]);
-  const current = origin === apiBaseUrl ? token : null;
-  if (current && current !== observedToken) {
-    try { activitySession.setSession(timingFromToken(current)); observedToken = current; }
-    catch { activitySession.stop(); }
-  }
-  return current;
+  return origin === apiBaseUrl ? token : null;
 }
 export async function clearSession(): Promise<void> {
   invalidateRequests();
@@ -119,8 +105,7 @@ export async function changeInstance(input: string): Promise<void> {
   await saveInstanceUrl(next);
 }
 export async function revokeSession(): Promise<boolean> {
-  await activitySession.tick();
-  activitySession.stop();
+  lastActivity = -Infinity;
   const [token, baseUrl] = await Promise.all([readSession(), Promise.resolve(apiBaseUrl)]);
   if (!token || !baseUrl) return false;
   try {
@@ -166,8 +151,7 @@ export async function authenticate(mode: AuthMode, email: string, password: stri
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
   await SecureStore.setItemAsync(TOKEN_INSTANCE_KEY, base);
-  observedToken = payload.accessToken;
-  activitySession.setSession(timingFromToken(payload.accessToken));
+  markUserActivity();
   if (base !== apiBaseUrl || revision !== generation) { await clearSession(); throw new Error('L’instance a changé. Reconnectez-vous.'); }
 }
 
