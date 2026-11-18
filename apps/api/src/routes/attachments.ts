@@ -7,7 +7,8 @@ import type { Variables } from '../auth/middleware.js';
 import { authMiddleware } from '../auth/middleware.js';
 import type { ConvexAccountRepository } from '../db/accountRepository.js';
 import { env } from '../env.js';
-import { requestMinio } from '../storage/minio.js';
+import { requestR2 } from '../storage/r2.js';
+import { readImage } from '../storage/images.js';
 
 const allowedTypes = new Set(['image/jpeg', 'image/png', 'application/pdf']);
 const createAttachment = makeFunctionReference<'mutation'>('operations:createAttachment');
@@ -57,14 +58,20 @@ export function attachmentRoutes(repo: ConvexAccountRepository) {
         return c.json({ error: 'ATTACHMENT_SIZE_NOT_ALLOWED' }, 413);
 
       const ownerId = c.get('ownerId');
-      const objectKey = `${ownerId}/${randomUUID()}`;
-      const upload = await requestMinio(
+      const objectKey = itemId && file.type.startsWith('image/')
+        ? `cards/${ownerId}/${randomUUID()}`
+        : `attachments/${ownerId}/${randomUUID()}`;
+      const upload = await requestR2(
         'PUT',
         objectKey,
         new Uint8Array(await file.arrayBuffer()),
         file.type,
       );
-      if (!upload.ok) return c.json({ error: 'ATTACHMENT_STORAGE_UNAVAILABLE' }, 502);
+      if (!upload.ok) return c.json({
+        error: upload.status === 401 || upload.status === 403
+          ? 'ATTACHMENT_STORAGE_ACCESS_DENIED'
+          : 'ATTACHMENT_STORAGE_UNAVAILABLE',
+      }, 502);
 
       const client = new ConvexHttpClient(env.CONVEX_URL);
       client.setAuth(c.get('accessToken'));
@@ -79,7 +86,7 @@ export function attachmentRoutes(repo: ConvexAccountRepository) {
         } as never);
         return c.json({ id, filename: file.name, contentType: file.type, size: file.size }, 201);
       } catch {
-        await requestMinio('DELETE', objectKey).catch(() => undefined);
+        await requestR2('DELETE', objectKey).catch(() => undefined);
         return c.json({ error: 'ATTACHMENT_TARGET_INVALID' }, 400);
       }
     },
@@ -118,7 +125,9 @@ export function attachmentRoutes(repo: ConvexAccountRepository) {
       const attachment = (await client.query(attachmentById, {
         attachmentId: c.req.valid('param').attachmentId,
       } as never)) as { objectKey: string; filename: string; contentType: string };
-      const stored = await requestMinio('GET', attachment.objectKey);
+      const stored = ['image/jpeg', 'image/png'].includes(attachment.contentType)
+        ? await readImage(attachment.objectKey)
+        : await requestR2('GET', attachment.objectKey);
       if (!stored.ok || !stored.body) return c.json({ error: 'ATTACHMENT_NOT_FOUND' }, 404);
       c.header('Content-Type', attachment.contentType);
       c.header(

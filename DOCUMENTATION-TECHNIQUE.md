@@ -4,6 +4,8 @@
 
 ## Décisions confirmées depuis cette proposition
 
+Le stockage objet utilise désormais un bucket privé Cloudflare R2 via son API S3, avec la région de signature `auto`. Les mentions de MinIO et de Docker Compose ci-dessous appartiennent à la proposition historique. La configuration actuelle est décrite dans le README et `apps/api/.env.example` : `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID` et `R2_SECRET_ACCESS_KEY`. Les fichiers transitent par l’API Hono authentifiée pour le téléversement et le téléchargement; les identifiants R2 restent côté serveur. Les objets existants doivent être copiés en conservant leurs clés avant la bascule. Ce changement ne modifie pas le stockage interne de Convex.
+
 Le PRD v1 a depuis été révisé : Internet est requis sur web et iOS ; il n’y a pas de cache métier iOS ni de file de synchronisation différée. Expo/React Native remplace SwiftUI. Les deux clients utilisent l’API Hono commune ; aucun client n’appelle directement Convex. Convex est le stockage applicatif central, y compris pour les comptes et révocations, et Hono ne stocke pas de données applicatives dans SQLite. Les éléments ci-dessous décrivent la proposition d’origine et ne prévalent pas sur ces décisions.
 
 ## Objectif

@@ -10,7 +10,10 @@
 
 import type * as auth from "../auth.js";
 import type * as authService from "../authService.js";
+import type * as consignmentOperations from "../consignmentOperations.js";
 import type * as operations from "../operations.js";
+import type * as readModels from "../readModels.js";
+import type * as salePayments from "../salePayments.js";
 
 import type {
   ApiFromModules,
@@ -21,7 +24,10 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authService: typeof authService;
+  consignmentOperations: typeof consignmentOperations;
   operations: typeof operations;
+  readModels: typeof readModels;
+  salePayments: typeof salePayments;
 }>;
 
 /**

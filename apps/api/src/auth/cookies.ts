@@ -11,11 +11,11 @@ function cookie(context: CookieContext, name: string, value: string, options: st
   });
 }
 
-export function setSessionCookies(context: CookieContext, token: string) {
+export function setSessionCookies(context: CookieContext, token: string, existingCsrf?: string) {
   const secure = env.COOKIE_SECURE ? ' Secure;' : '';
   const maxAge = ` Max-Age=${env.JWT_TTL_SECONDS};`;
   cookie(context, 'session', encodeURIComponent(token), `HttpOnly;${secure}${maxAge}`);
-  const csrfToken = randomBytes(24).toString('hex');
+  const csrfToken = existingCsrf ?? randomBytes(24).toString('hex');
   cookie(context, 'csrf', csrfToken, `${secure}${maxAge}`);
   context.header('X-CSRF-Token', csrfToken);
 }

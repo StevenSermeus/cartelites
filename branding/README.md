@@ -50,3 +50,11 @@ Le bordereau web réutilise automatiquement `branding/logo.png` et `brand.colors
 Dans **Paramètres → Votre signature sur les bordereaux**, chaque utilisateur enregistre son prénom, son nom et sa qualité. Ce profil est stocké sur son compte dans Convex, via `GET/PATCH /auth/profile` authentifiés. Le serveur déduit le compte depuis la session ; le navigateur ne choisit pas un identifiant de compte. Les comptes existants ont initialement des champs vides, affichés « À renseigner » dans le PDF.
 
 La zone « Acheteur · Société » utilise ce profil ; la zone « Vendeur · Client » utilise le nom de la fiche client. Les signatures restent manuscrites : aucune signature n’est générée. Un téléchargement utilise le profil courant du compte connecté, y compris pour un ancien rachat ; il ne constitue pas un archivage immuable des noms au jour de l’opération. Déployer les fonctions et le schéma Convex ainsi que l’API avec cette version du web.
+
+### Bon de dépôt-vente
+
+Le bon de dépôt utilise la même identité visuelle que le rachat, avec prix convenu, commission, part du déposant, échéance et signatures. Le PDF est généré par `packages/domain/src/consignmentReceipt.ts` pour le web et le mobile. Les données et le profil de signature sont ceux en vigueur au téléchargement ; ce document ne constitue pas un archivage immuable du contrat initial ni une preuve de versement.
+
+Le mobile conserve son fonctionnement commun à plusieurs instances : il reçoit l'identité publique et le logo de l'API authentifiée `/receipt-identity`, sans embarquer les coordonnées d'une société. `pnpm --filter @tcg-marge/api receipt:identity` régénère cette configuration depuis `branding/brand.ts`, `legal.ts` et `receiptLogoData.ts` ; cette commande est aussi exécutée au démarrage de développement et au build de l'API. Déployer l'API avec le mobile pour activer le téléchargement de cette identité.
+
+`receiptLogoData.ts` est la version JPEG incorporable du logo PNG, sur fond blanc, redimensionnée à 512 px maximum. Après remplacement du PNG, la régénérer avec `python3 branding/generate-receipt-logo.py` (Pillow requis), puis reconstruire l'API. Le web utilise directement le PNG courant.

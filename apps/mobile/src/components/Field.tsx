@@ -1,3 +1,4 @@
+import { markUserActivity } from '../auth/session';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 export function Field({
   label,
@@ -22,7 +23,7 @@ export function Field({
       <TextInput
         accessibilityLabel={label}
         value={value}
-        onChangeText={onChangeText}
+        onChangeText={(text) => { markUserActivity(); onChangeText(text); }}
         keyboardType={keyboardType}
         placeholder={placeholder}
         secureTextEntry={secureTextEntry}
@@ -41,7 +42,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingVertical: 12,
+    minHeight: 48,
     fontSize: 16,
   },
 });

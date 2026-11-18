@@ -1,7 +1,19 @@
+import { createActivitySession, type SessionTiming } from '../../../packages/domain/src/sessionActivity';
+import { ConventionPhoto } from './ConventionPhoto';
+import { API, realtime, publicRealtime } from './realtime';
+import { ItemThumbnail } from './ItemThumbnail';
+import { ClientPicker } from './ClientPicker';
+import { useReadPage, ReadPagination } from './useReadPage';
+import { StockVisibilityToolbar } from './StockVisibilityToolbar';
+import { SalePaymentEditor, newPaymentDraft, paymentPayload, paymentStatusLabel, paymentDetail, type SalePayment, type PaymentDraft } from './SalePaymentEditor';
+import ConsignmentsPage, { type Consignment, type ConsignmentBalances, money } from './ConsignmentsPage';
+import { PurchaseEditor } from './PurchaseEditor';
+import { searchRiftbound, type Tcg } from '../../../packages/domain/src/riftbound';
+import { TcgChoices } from './TcgChoices';
 import { loadReceiptLogo } from './receiptLogo';
 import { LegalPage, legalPages, SiteFooter, type LegalPath } from './LegalPages';
 import { brand, BrandIdentity } from './brand';
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPurchaseReceiptPdf, type SignatoryProfile } from './receiptPdf';
 import './style.css';
@@ -10,8 +22,15 @@ const DashboardPage = lazy(() => import('./DashboardPage'));
 const SettingsPage = lazy(() => import('./SettingsPage'));
 
 type Item = {
+  hiddenFromCatalogue?: boolean;
+  description?: string;
+  origin?: 'purchase' | 'consignment';
+  productType?: 'card' | 'sealed' | 'other';
+  commissionRateBps?: number;
+  agreedPriceCents?: number;
   _id: string;
   name: string;
+  tcg?: 'pokemon' | 'riftbound';
   series?: string;
   identifier?: string;
   serialNumber?: string;
@@ -33,6 +52,12 @@ type Item = {
   purchaseReference: string;
   vatRegime: 'margin' | 'other';
 };
+function consignmentSplitLabel(item: Item, value?: string) {
+  const price = value === undefined ? item.askingPriceCents ?? 0 : Math.round(Number(value.replace(',', '.')) * 100);
+  if (!Number.isFinite(price) || price < 0) return 'Saisissez un prix valide.';
+  const commission = Math.round(price * (item.commissionRateBps ?? 3000) / 10000);
+  return `Commission : ${money(commission)} · Au déposant : ${money(price - commission)}${price < (item.agreedPriceCents ?? item.askingPriceCents ?? 0) ? ' · Prix inférieur à l’accord : autorisation requise' : ''}`;
+}
 type GradingCompany = 'PSA' | 'CollectAura' | 'PCA' | 'CCC';
 const gradingLogos: Record<GradingCompany, string> = {
   PSA: 'https://cdn.shopify.com/s/files/1/0618/5998/7608/files/psa-logo-2.png?v=1768810462',
@@ -40,24 +65,37 @@ const gradingLogos: Record<GradingCompany, string> = {
   PCA: 'https://primary.jwwb.nl/public/r/b/j/temp-profycumnjgwqpqpzroz/pca_logo-high.png?crop=1.6667%3A1&enable=upscale&enable-io=true&width=800',
   CCC: 'https://cccgrading.com/files/certificateur-cartes-de-collection-logo-full_006763bd90f3307d49ddfba936a02c5a.svg',
 };
-function GradingBadge({ company, grade, certificate }: {
+function GradingBadge({
+  company,
+  grade,
+  certificate,
+}: {
   company: GradingCompany;
   grade?: string;
   certificate?: string;
 }) {
-  const label = company === 'CollectAura' ? 'Collect Aura' : company === 'CCC' ? 'CCC Grading' : company;
+  const label =
+    company === 'CollectAura' ? 'Collect Aura' : company === 'CCC' ? 'CCC Grading' : company;
   return (
-    <div className={`grading-badge grading-badge--${company.toLowerCase()}`} aria-label={`${label}, note ${grade || 'non renseignée'}${certificate ? `, certificat ${certificate}` : ''}`}>
+    <div
+      className={`grading-badge grading-badge--${company.toLowerCase()}`}
+      aria-label={`${label}, note ${grade || 'non renseignée'}${certificate ? `, certificat ${certificate}` : ''}`}
+    >
       <img className="grading-badge-logo" src={gradingLogos[company]} alt={label} loading="lazy" />
-      <span className="grading-badge-grade"><small>GRADÉE</small><strong>{grade || 'Note —'}</strong></span>
+      <span className="grading-badge-grade">
+        <small>GRADÉE</small>
+        <strong>{grade || 'Note —'}</strong>
+      </span>
       {certificate && <span className="grading-badge-cert">Cert. {certificate}</span>}
     </div>
   );
 }
 type Client = { _id: string; name: string; email?: string; phone?: string; address?: string };
-type PurchaseDraft = {
+export type PurchaseDraft = {
+  included?: boolean;
   key: string;
   name: string;
+  tcg?: 'pokemon' | 'riftbound';
   series: string;
   identifier: string;
   marketValue: string;
@@ -79,7 +117,7 @@ type PurchaseDraft = {
   searching?: boolean;
 };
 type CatalogLanguage = 'fr' | 'en' | 'ja';
-type CatalogCard = {
+export type CatalogCard = {
   id: string;
   localId: string;
   name: string;
@@ -108,14 +146,22 @@ const cardConditions = [
   { id: 'PL', name: 'Played (PL)' },
   { id: 'PO', name: 'Poor (PO)' },
 ] as const;
-const languageLabel = (id?: string) => cardLanguages.find((language) => language.id === id)?.name ?? 'Français';
-const conditionLabel = (id?: string) => cardConditions.find((condition) => condition.id === id)?.name ?? 'Near Mint (NM)';
+const languageLabel = (id?: string) =>
+  cardLanguages.find((language) => language.id === id)?.name ?? 'Français';
+const conditionLabel = (id?: string) =>
+  cardConditions.find((condition) => condition.id === id)?.name ?? 'Near Mint (NM)';
 const normalizeCardNumber = (value: string | number) => {
   const trimmed = String(value).trim().toLocaleLowerCase();
-  return /^\d+$/.test(trimmed) ? trimmed.replace(/^0+(?=\d)/, '') : trimmed.replace(/[^a-z0-9]/g, '');
+  return /^\d+$/.test(trimmed)
+    ? trimmed.replace(/^0+(?=\d)/, '')
+    : trimmed.replace(/[^a-z0-9]/g, '');
 };
 const normalizeCardName = (value: string) =>
-  value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().replace(/[^a-z0-9]/g, '');
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]/g, '');
 const parseCardSearch = (term: string) => {
   const collectorNumber = term.match(/(?:^|\s)([a-z0-9]+)\s*\/\s*(\d+)(?:\s|$)/i);
   if (collectorNumber)
@@ -138,6 +184,14 @@ type Purchase = {
   items: Item[];
 };
 type Sale = {
+  catalogueImageUrl?: string;
+  photos?: { _id: string; filename: string; contentType?: string }[];
+  paymentStatus?: 'pending' | 'received';
+  payment?: SalePayment;
+  origin?: 'purchase' | 'consignment';
+  commissionRateBps?: number;
+  commissionCents?: number;
+  depositorAmountCents?: number;
   _id: string;
   itemId: string;
   itemName: string;
@@ -170,32 +224,69 @@ type SaleConflict = {
   salePriceCents: number;
 };
 type Attachment = { _id: string; filename: string; contentType: string; size: number };
-type AdminPage = 'dashboard' | 'clients' | 'purchases' | 'stock' | 'sales' | 'saleSummary' | 'settings';
+type AdminPage =
+  | 'purchaseHistory'
+  | 'dashboard'
+  | 'clients'
+  | 'purchases'
+  | 'stock'
+  | 'sales'
+  | 'saleSummary'
+  | 'salesHistory'
+  | 'saleConflicts'
+  | 'settings'
+  | 'consignments'
+  | 'consignmentNew'
+  | 'consignmentPayouts'
+  | 'exports';
 const adminPagePaths: Record<AdminPage, string> = {
   dashboard: '/admin/dashboard',
   clients: '/admin/clients',
   purchases: '/admin/purchases',
+  purchaseHistory: '/admin/purchase-history',
   stock: '/admin/stock',
   sales: '/admin/sales',
   saleSummary: '/admin/sales/cart',
+  salesHistory: '/admin/sales/history',
+  saleConflicts: '/admin/sales/conflicts',
   settings: '/admin/settings',
+  exports: '/admin/exports',
+  consignments: '/admin/consignments',
+  consignmentNew: '/admin/consignments/new',
+  consignmentPayouts: '/admin/consignments/payouts',
 };
 function adminPageFromPath(path: string): AdminPage {
   const entry = Object.entries(adminPagePaths).find(([, route]) => route === path);
   return (entry?.[0] as AdminPage | undefined) ?? 'dashboard';
 }
-const configuredApiUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:3001').replace(/\/$/, '');
-const API = configuredApiUrl.endsWith('/api/v1')
-  ? configuredApiUrl
-  : `${configuredApiUrl}/api/v1`;
 function localDateInputValue(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 function dateAtCurrentLocalTime(value: string, timeSource = new Date()) {
   const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, month - 1, day, timeSource.getHours(), timeSource.getMinutes(), timeSource.getSeconds(), timeSource.getMilliseconds()).getTime();
+  return new Date(
+    year,
+    month - 1,
+    day,
+    timeSource.getHours(),
+    timeSource.getMinutes(),
+    timeSource.getSeconds(),
+    timeSource.getMilliseconds(),
+  ).getTime();
 }
 let csrfToken: string | undefined;
+const sessionActivity = createActivitySession(async () => {
+  const refresh = async (): Promise<SessionTiming> => {
+    const status = await request<{ authenticated: boolean; issuedAt: number; expiresAt: number; refreshAfterSeconds: number }>('/auth/status');
+    if (!status.authenticated) { sessionActivity.stop(); throw new Error('UNAUTHENTICATED'); }
+    // Another tab may already have renewed the shared cookie.
+    if (Date.now() - status.issuedAt < status.refreshAfterSeconds * 1000) return status;
+    await request('/auth/csrf');
+    const result = await request<{ expiresIn: number; renewedAt: number; refreshAfterSeconds: number }>('/auth/refresh', { method: 'POST' });
+    return { issuedAt: result.renewedAt, expiresAt: result.renewedAt + result.expiresIn * 1000, refreshAfterSeconds: result.refreshAfterSeconds };
+  };
+  return navigator.locks ? navigator.locks.request('tcg-session-refresh', refresh) : refresh();
+});
 async function request<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
@@ -204,18 +295,43 @@ async function request<T = unknown>(path: string, init: RequestInit = {}): Promi
   csrfToken = r.headers.get('X-CSRF-Token') ?? csrfToken;
   if (!r.ok) {
     const payload = (await r.json().catch(() => ({}))) as { error?: string };
+    if (payload.error === 'SALE_NOT_FOUND') throw new Error('Cette vente est introuvable. Actualisez l’historique.');
     if (r.status === 404)
-      throw new Error(`Route API introuvable (${API}${path}). Vérifiez que l’API tourne sur le port 3001 et que VITE_API_URL pointe vers son adresse.`);
+      throw new Error(
+        `Route API introuvable (${API}${path}). Vérifiez que l’API tourne sur le port 3001 et que VITE_API_URL pointe vers son adresse.`,
+      );
+    if (['PRICE_BELOW_AGREEMENT', 'SALE_BELOW_AGREED_PRICE', 'PRICE_BELOW_AGREED', 'CONSINGMENT_PRICE_TOO_LOW', 'CONSIGNMENT_PRICE_BELOW_AGREED', 'BELOW_AGREED_PRICE'].includes(payload.error ?? '')) throw new Error('Le prix est inférieur à l’accord du déposant. Modifiez l’accord dans Dépôts-ventes après son autorisation.');
+    if (payload.error === 'INVALID_SALE_PAYMENT') throw new Error('Vérifiez les montants : espèces et virement doivent couvrir exactement le total de la vente.');
+    if (payload.error === 'INVALID_SALE_PAYMENT_DATE') throw new Error('La réception du paiement ne peut pas précéder le jour de la vente.');
+    if (payload.error === 'SALE_CANCELLED') throw new Error('Cette vente a été annulée. Son encaissement ne peut plus être modifié.');
+    if (payload.error === 'INVALID_PAYMENT_DATE') throw new Error('Le solde est insuffisant à cette date ou l’encaissement n’a pas encore été reçu.');
+    if (payload.error === 'PAYMENT_EXCEEDS_BALANCE') throw new Error('Le versement dépasse le solde dû au déposant. Actualisez les données.');
+    if (payload.error === 'AUTHORIZATION_REQUIRED') throw new Error('Indiquez l’autorisation du déposant pour modifier cet accord.');
+    if (payload.error === 'INVALID_STOCK_SELECTION') throw new Error('Sélectionnez entre 1 et 500 articles distincts du stock.');
+    if (payload.error === 'ITEM_UNAVAILABLE') throw new Error('Cet article n’est plus disponible. Actualisez les données.');
     if (payload.error === 'SALE_BEFORE_PURCHASE')
-      throw new Error('La date de vente ne peut pas précéder le jour du rachat.');
+      throw new Error('La date de vente ne peut pas précéder le jour du rachat ou du dépôt.');
     if (payload.error === 'ITEM_NOT_FOUND') throw new Error('Carte introuvable dans votre stock.');
     if (payload.error === 'PURCHASE_DATE_AFTER_SALE')
       throw new Error('Impossible de déplacer le rachat après une vente déjà enregistrée.');
     throw new Error(payload.error ?? `Erreur serveur (${r.status})`);
   }
-  return r.status === 204 ? (null as T) : ((await r.json()) as T);
+  const result = r.status === 204 ? null : await r.json();
+  if (path === '/auth/status') {
+    if (result?.authenticated && Number.isFinite(result.issuedAt) && Number.isFinite(result.expiresAt)) sessionActivity.setSession(result);
+    else sessionActivity.stop();
+  }
+  return result as T;
+}
+type ReadPage<T> = { items: T[]; nextCursor: string | null; isDone: boolean };
+async function firstReadPage<T>(path: string): Promise<T[]> {
+  const params = new URLSearchParams({ size: '25' });
+  const page = await request<ReadPage<T>>(`${path}?${params}`);
+  return page.items;
 }
 type PublicCard = {
+  hasPhoto?: boolean;
+  productType?: 'card' | 'sealed' | 'other';
   id: string;
   name: string;
   series: string;
@@ -230,6 +346,7 @@ type PublicCard = {
 };
 function ConventionCatalog() {
   const [cards, setCards] = useState<PublicCard[]>([]);
+  const [tcg, setTcg] = useState<Tcg | 'all'>('all');
   const [totalCount, setTotalCount] = useState(0);
   const [search, setSearch] = useState('');
   const [minimum, setMinimum] = useState('');
@@ -248,35 +365,60 @@ function ConventionCatalog() {
   useEffect(() => {
     setCursorHistory([null]);
     setPage(1);
-  }, [search, minimum, maximum, gradingStatus, gradingCompany, gradingGrade, pageSize]);
+  }, [tcg, search, minimum, maximum, gradingStatus, gradingCompany, gradingGrade, pageSize]);
   useEffect(() => {
     setLoading(true);
-    const timer = window.setTimeout(() => {
-    const params = new URLSearchParams({ size: String(pageSize), search, gradingStatus,
-      gradingCompany: gradingCompany === 'all' ? '' : gradingCompany, gradingGrade });
-    if (minimum) params.set('min', minimum);
-    if (maximum) params.set('max', maximum);
-    const cursor = cursorHistory[page - 1];
-    if (cursor) params.set('cursor', cursor);
-    fetch(`${API}/catalogue?${params}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Erreur serveur (${response.status})`);
-        const result = await response.json() as { page: PublicCard[]; totalCount: number; continueCursor: string; isDone: boolean };
-        setCards(result.page);
-        setTotalCount(result.totalCount);
-        setNextCursor(result.continueCursor);
-        setIsDone(result.isDone);
-      })
-      .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : 'Catalogue indisponible'),
-      )
-      .finally(() => setLoading(false));
-    }, search ? 250 : 0);
-    return () => window.clearTimeout(timer);
-  }, [page, pageSize, search, minimum, maximum, gradingStatus, gradingCompany, gradingGrade, cursorHistory]);
+    let active = true;
+    setError('');
+    let unsubscribe: (() => void) | undefined;
+    const timer = window.setTimeout(
+      () => {
+        unsubscribe = publicRealtime.subscribe<{
+          page: PublicCard[]; totalCount: number; continueCursor: string; isDone: boolean;
+        }>('operations:publicCatalogue', {
+          tcg, search, gradingStatus, gradingCompany: gradingCompany === 'all' ? '' : gradingCompany,
+          gradingGrade, paginationOpts: { numItems: pageSize, cursor: cursorHistory[page - 1] ?? null },
+          ...(minimum ? { minPrice: Math.round(Number(minimum) * 100) } : {}),
+          ...(maximum ? { maxPrice: Math.round(Number(maximum) * 100) } : {}),
+        }, result => {
+          if (!active) return;
+          setCards(result.page); setTotalCount(result.totalCount);
+          setNextCursor(result.continueCursor); setIsDone(result.isDone);
+          setLoading(false); setError('');
+        }, reason => {
+          if (active) { setCards([]); setError(reason.message); setLoading(false); }
+        });
+      },
+      search ? 250 : 0,
+    );
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      unsubscribe?.();
+    };
+  }, [
+    tcg,
+    page,
+    pageSize,
+    search,
+    minimum,
+    maximum,
+    gradingStatus,
+    gradingCompany,
+    gradingGrade,
+    cursorHistory,
+  ]);
   const formatPrice = (cents: number) =>
     new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR' }).format(cents / 100);
-  const hasFilters = Boolean(search.trim() || minimum !== '' || maximum !== '' || gradingStatus !== 'all' || gradingCompany !== 'all' || gradingGrade.trim());
+  const hasFilters = Boolean(
+    tcg !== 'all' ||
+      search.trim() ||
+      minimum !== '' ||
+      maximum !== '' ||
+      gradingStatus !== 'all' ||
+      gradingCompany !== 'all' ||
+      gradingGrade.trim(),
+  );
   const visible = cards;
   const currentPage = page;
   const pageCards = cards;
@@ -303,13 +445,22 @@ function ConventionCatalog() {
           }}
           aria-label="Nombre de cartes par page"
         >
-          {[12, 24, 48].map((size) => <option key={size} value={size}>{size}</option>)}
+          {[12, 24, 48].map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
         </select>
       </label>
       <button
         type="button"
         className="secondary public-catalogue-page-button"
-        onClick={() => { if (nextCursor) { setCursorHistory((history) => [...history.slice(0, page), nextCursor]); setPage((current) => current + 1); } }}
+        onClick={() => {
+          if (nextCursor) {
+            setCursorHistory((history) => [...history.slice(0, page), nextCursor]);
+            setPage((current) => current + 1);
+          }
+        }}
         disabled={isDone}
       >
         Suivant
@@ -325,16 +476,22 @@ function ConventionCatalog() {
           <span>cartes en stock</span>
         </div>
       </header>
-      <section className="panel public-catalogue-tools" aria-label="Rechercher et filtrer les cartes">
+      <section
+        className="panel public-catalogue-tools"
+        aria-label="Rechercher et filtrer les cartes"
+      >
         <div className="public-catalogue-tools-heading">
           <div>
             <h2>Explorer le stock</h2>
             <p>Recherchez par nom, série ou numéro de carte.</p>
           </div>
           <span className="public-catalogue-result-count" aria-live="polite">
-            {loading ? 'Chargement…' : `${visible.length} résultat${visible.length === 1 ? '' : 's'}`}
+            {loading
+              ? 'Chargement…'
+              : `${visible.length} résultat${visible.length === 1 ? '' : 's'}`}
           </span>
         </div>
+        <TcgChoices value={tcg} all onChange={setTcg} />
         <div className="form-grid public-catalogue-filters">
           <label className="public-catalogue-search-field">
             Recherche
@@ -349,59 +506,89 @@ function ConventionCatalog() {
               autoComplete="off"
             />
           </label>
-          <label>
-            Prix minimum (€)
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              inputMode="decimal"
-              value={minimum}
-              onChange={(event) => {
-                setMinimum(event.target.value);
-                setPage(1);
-              }}
-            />
-          </label>
-          <label>
-            Prix maximum (€)
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              inputMode="decimal"
-              value={maximum}
-              onChange={(event) => {
-                setMaximum(event.target.value);
-                setPage(1);
-              }}
-            />
-          </label>
-          <label>
-            État de gradation
-            <select value={gradingStatus} onChange={(event) => { setGradingStatus(event.target.value as typeof gradingStatus); setPage(1); }}>
-              <option value="all">Toutes les cartes</option>
-              <option value="graded">Gradées uniquement</option>
-              <option value="ungraded">Non gradées uniquement</option>
-            </select>
-          </label>
-          <label>
-            Société de gradation
-            <select value={gradingCompany} onChange={(event) => { setGradingCompany(event.target.value as typeof gradingCompany); setPage(1); }}>
-              <option value="all">Toutes les sociétés</option>
-              {gradingCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
-            </select>
-          </label>
-          <label>
-            Note de gradation
-            <input type="search" value={gradingGrade} onChange={(event) => { setGradingGrade(event.target.value); setPage(1); }} placeholder="Ex. 10, Gem Mint, 9.5" />
-          </label>
         </div>
+        <details className="convention-advanced">
+          <summary>Filtres avancés · prix et gradation</summary>
+          <div className="form-grid public-catalogue-filters">
+            <label>
+              Prix minimum (€)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={minimum}
+                onChange={(event) => {
+                  setMinimum(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </label>
+            <label>
+              Prix maximum (€)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={maximum}
+                onChange={(event) => {
+                  setMaximum(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </label>
+            <label>
+              État de gradation
+              <select
+                value={gradingStatus}
+                onChange={(event) => {
+                  setGradingStatus(event.target.value as typeof gradingStatus);
+                  setPage(1);
+                }}
+              >
+                <option value="all">Toutes les cartes</option>
+                <option value="graded">Gradées uniquement</option>
+                <option value="ungraded">Non gradées uniquement</option>
+              </select>
+            </label>
+            <label>
+              Société de gradation
+              <select
+                value={gradingCompany}
+                onChange={(event) => {
+                  setGradingCompany(event.target.value as typeof gradingCompany);
+                  setPage(1);
+                }}
+              >
+                <option value="all">Toutes les sociétés</option>
+                {gradingCompanies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Note de gradation
+              <input
+                type="search"
+                value={gradingGrade}
+                onChange={(event) => {
+                  setGradingGrade(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="Ex. 10, Gem Mint, 9.5"
+              />
+            </label>
+          </div>
+        </details>
         {hasFilters && (
           <button
             className="secondary public-catalogue-reset"
             type="button"
             onClick={() => {
+              setTcg('all');
               setSearch('');
               setMinimum('');
               setMaximum('');
@@ -428,18 +615,33 @@ function ConventionCatalog() {
         <>
           <div className="public-catalogue-results-toolbar">
             <span className="public-catalogue-result-summary">
-              {visible.length} carte{visible.length === 1 ? '' : 's'} trouvée{visible.length === 1 ? '' : 's'}
+              {visible.length} carte{visible.length === 1 ? '' : 's'} trouvée
+              {visible.length === 1 ? '' : 's'}
             </span>
-            <div className="public-catalogue-layout-toggle" role="group" aria-label="Disposition des cartes">
+            <div
+              className="public-catalogue-layout-toggle"
+              role="group"
+              aria-label="Disposition des cartes"
+            >
               <button
                 type="button"
-                className={layout === 'grid' ? 'public-catalogue-layout-option is-active' : 'public-catalogue-layout-option'}
+                className={
+                  layout === 'grid'
+                    ? 'public-catalogue-layout-option is-active'
+                    : 'public-catalogue-layout-option'
+                }
                 aria-pressed={layout === 'grid'}
                 aria-label="Afficher en grille"
                 title="Afficher en grille"
                 onClick={() => setLayout('grid')}
               >
-                <svg className="public-catalogue-layout-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+                <svg
+                  className="public-catalogue-layout-icon"
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                  focusable="false"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
                   <rect x="2" y="2" width="6" height="6" rx="1" />
                   <rect x="12" y="2" width="6" height="6" rx="1" />
                   <rect x="2" y="12" width="6" height="6" rx="1" />
@@ -448,13 +650,23 @@ function ConventionCatalog() {
               </button>
               <button
                 type="button"
-                className={layout === 'list' ? 'public-catalogue-layout-option is-active' : 'public-catalogue-layout-option'}
+                className={
+                  layout === 'list'
+                    ? 'public-catalogue-layout-option is-active'
+                    : 'public-catalogue-layout-option'
+                }
                 aria-pressed={layout === 'list'}
                 aria-label="Afficher une carte par ligne"
                 title="Afficher une carte par ligne"
                 onClick={() => setLayout('list')}
               >
-                <svg className="public-catalogue-layout-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+                <svg
+                  className="public-catalogue-layout-icon"
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                  focusable="false"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
                   <rect x="2" y="3" width="4" height="4" rx="1" />
                   <rect x="8" y="3" width="10" height="4" rx="1" />
                   <rect x="2" y="9" width="4" height="4" rx="1" />
@@ -471,49 +683,43 @@ function ConventionCatalog() {
             aria-label="Cartes disponibles"
             aria-live="polite"
           >
-          {pageCards.map((card) => (
-            <article className="public-catalogue-card" key={card.id}>
-              <div className="public-catalogue-image-wrap">
-                {card.catalogueImageUrl ? (
-                  <img
-                    className="public-catalogue-image"
-                    src={card.catalogueImageUrl}
-                    alt={`Illustration de ${card.name}`}
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="public-catalogue-no-image" aria-label="Image indisponible">
-                    Image indisponible
+            {pageCards.map((card) => (
+              <article className="public-catalogue-card" key={card.id}>
+                <div className="public-catalogue-image-wrap">
+                  <ConventionPhoto key={`${card.id}:${card.hasPhoto}`} {...card} apiBase={API} />
+                </div>
+                <div className="public-catalogue-card-details">
+                  <div className="public-catalogue-card-title">
+                    <h3>{card.name}</h3>
+                    <strong className="public-catalogue-price">
+                      {formatPrice(card.salePriceCents)}
+                    </strong>
                   </div>
-                )}
-              </div>
-              <div className="public-catalogue-card-details">
-                <div className="public-catalogue-card-title">
-                  <h3>{card.name}</h3>
-                  <strong className="public-catalogue-price">{formatPrice(card.salePriceCents)}</strong>
+                  <p className="public-catalogue-series">{card.series || 'Série non renseignée'}</p>
+                  <div className="public-catalogue-tags">
+                    {card.identifier && <span>N° {card.identifier}</span>}
+                    {card.language && <span>{languageLabel(card.language)}</span>}
+                    {(!card.productType || card.productType === 'card') && <span>{conditionLabel(card.condition)}</span>}{card.productType === 'sealed' && <span>Produit scellé</span>}{card.productType === 'other' && <span>Autre article</span>}
+                  </div>
+                  {card.gradingCompany && (
+                    <GradingBadge company={card.gradingCompany} grade={card.gradingGrade} />
+                  )}
                 </div>
-                <p className="public-catalogue-series">{card.series || 'Série non renseignée'}</p>
-                <div className="public-catalogue-tags">
-                  {card.identifier && <span>N° {card.identifier}</span>}
-              <span>{languageLabel(card.language)}</span>
-                  <span>{conditionLabel(card.condition)}</span>
-                </div>
-                {card.gradingCompany && <GradingBadge company={card.gradingCompany} grade={card.gradingGrade} />}
-              </div>
-            </article>
-          ))}
+              </article>
+            ))}
           </section>
           {pagination()}
         </>
       ) : (
         <section className="panel public-catalogue-state">
-          <h2>Aucune carte trouvée</h2>
+          <h2>Aucun article trouvé</h2>
           <p>Essayez un autre nom, numéro ou une plage de prix différente.</p>
           {hasFilters && (
             <button
               className="secondary"
               type="button"
               onClick={() => {
+                setTcg('all');
                 setSearch('');
                 setMinimum('');
                 setMaximum('');
@@ -532,6 +738,52 @@ function ConventionCatalog() {
   );
 }
 function App() {
+  useEffect(() => {
+    const activity = () => { sessionActivity.activity(); void sessionActivity.tick(); };
+    const visibility = () => sessionActivity.setForeground(document.visibilityState === 'visible');
+    visibility();
+    const events = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
+    for (const event of events) window.addEventListener(event, activity, { passive: true });
+    document.addEventListener('visibilitychange', visibility);
+    const timer = window.setInterval(() => void sessionActivity.tick(), 30_000);
+    return () => {
+      clearInterval(timer);
+      for (const event of events) window.removeEventListener(event, activity);
+      document.removeEventListener('visibilitychange', visibility);
+      sessionActivity.stop();
+    };
+  }, []);
+  const catalogRequests = useRef(new Map<string, number>());
+  function beginCatalog(key: string) {
+    const token = (catalogRequests.current.get(key) ?? 0) + 1;
+    catalogRequests.current.set(key, token);
+    return () => catalogRequests.current.get(key) === token;
+  }
+  function changeTcg(draft: PurchaseDraft, tcg: Tcg, reset = false) {
+    if (!reset && (draft.tcg ?? 'pokemon') === tcg) return;
+    beginCatalog(draft.key);
+    setError('');
+    setPurchaseItems((rows) =>
+      rows.map((row) =>
+        row.key === draft.key
+          ? {
+              ...row,
+              tcg,
+              name: '',
+              series: '',
+              identifier: '',
+              cardResults: [],
+              searching: false,
+              catalogueCardId: undefined,
+              catalogueImageUrl: undefined,
+              availableLanguages: undefined,
+              language: tcg === 'riftbound' ? 'en' : 'fr',
+            }
+          : row,
+      ),
+    );
+  }
+
   const resetFromLink = new URLSearchParams(window.location.search).get('reset') ?? '';
   const [email, setEmail] = useState(''),
     [password, setPassword] = useState(''),
@@ -551,7 +803,9 @@ function App() {
     [selectedClient, setSelectedClient] = useState(''),
     [purchaseClientSearch, setPurchaseClientSearch] = useState(''),
     [editingClientId, setEditingClientId] = useState(''),
-    [adminPage, setAdminPage] = useState<AdminPage>(() => adminPageFromPath(window.location.pathname)),
+    [adminPage, setAdminPage] = useState<AdminPage>(() =>
+      adminPageFromPath(window.location.pathname),
+    ),
     [clientSearch, setClientSearch] = useState(''),
     [clientPage, setClientPage] = useState(1),
     [purchaseItems, setPurchaseItems] = useState<PurchaseDraft[]>([
@@ -574,6 +828,12 @@ function App() {
     [saleDates, setSaleDates] = useState<Record<string, string>>({}),
     [purchaseDates, setPurchaseDates] = useState<Record<string, string>>({}),
     [stockSearch, setStockSearch] = useState(''),
+    [stockOrigin, setStockOrigin] = useState('all'),
+    [stockVisibility, setStockVisibility] = useState<'all' | 'visible' | 'hidden'>('all'),
+    [visibilitySelectedIds, setVisibilitySelectedIds] = useState<string[]>([]),
+    [visibilityBusy, setVisibilityBusy] = useState(false),
+    [visibilityNotice, setVisibilityNotice] = useState(''),
+    [consignmentBalances, setConsignmentBalances] = useState<ConsignmentBalances>({ balances: [], payments: [] }),
     [stockGradingStatus, setStockGradingStatus] = useState<'all' | 'graded' | 'ungraded'>('all'),
     [stockGradingCompany, setStockGradingCompany] = useState<'all' | GradingCompany>('all'),
     [stockGradingGrade, setStockGradingGrade] = useState(''),
@@ -585,10 +845,86 @@ function App() {
     [logged, setLogged] = useState(false),
     [signupEnabled, setSignupEnabled] = useState<boolean | null>(null),
     [loading, setLoading] = useState(false);
+  const [salePaymentDraft, setSalePaymentDraft] = useState<PaymentDraft>(newPaymentDraft);
+  const [paymentSale, setPaymentSale] = useState<Sale | null>(null);
+  const [editPaymentDraft, setEditPaymentDraft] = useState<PaymentDraft>(newPaymentDraft);
+  const [collectionFilter, setCollectionFilter] = useState('all');
+  const [clientEditorOpen, setClientEditorOpen] = useState(false);
+  const [clientReturnToPurchase, setClientReturnToPurchase] = useState(false);
+  const visibilityAttempt = useRef<{ signature: string; body: string } | null>(null);
+  const visibilityRunning = useRef(false);
+  const saleAttempt = useRef<{ signature: string; body: string } | null>(null);
+  const paymentAttempt = useRef<{ signature: string; body: string } | null>(null);
+  const [historyRows, setHistoryRows] = useState<Purchase[]>([]);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyStatus, setHistoryStatus] = useState('all');
+  const [historyFrom, setHistoryFrom] = useState('');
+  const [historyTo, setHistoryTo] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historySize, setHistorySize] = useState(12);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyPages, setHistoryPages] = useState(1);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [historyRevision, setHistoryRevision] = useState(0);
+  useEffect(() => {
+    if (!logged || adminPage !== 'purchaseHistory') return;
+    let active = true;
+    setHistoryBusy(true);
+    setHistoryError('');
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({
+        page: String(historyPage),
+        size: String(historySize),
+        search: historySearch,
+        status: historyStatus,
+      });
+      if (historyFrom) params.set('from', String(new Date(`${historyFrom}T00:00:00`).getTime()));
+      if (historyTo) params.set('to', String(new Date(`${historyTo}T23:59:59.999`).getTime()));
+      void request<{ rows: Purchase[]; page: number; totalPages: number; totalCount: number }>(
+        `/purchases/page?${params}`,
+      )
+        .then((result) => {
+          if (!active) return;
+          setHistoryRows(result.rows);
+          setHistoryTotal(result.totalCount);
+          setHistoryPages(result.totalPages);
+          setHistoryPage(result.page);
+        })
+        .catch((e) => {
+          if (active) setHistoryError(e instanceof Error ? e.message : 'Historique indisponible');
+        })
+        .finally(() => {
+          if (active) setHistoryBusy(false);
+        });
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [
+    logged,
+    adminPage,
+    historySearch,
+    historyStatus,
+    historyFrom,
+    historyTo,
+    historyPage,
+    historySize,
+    historyRevision,
+  ]);
+  const stockRead = useReadPage<Item>(request, '/stock', { search: stockSearch, origin: stockOrigin, visibility: adminPage === 'stock' ? stockVisibility : 'all', gradingStatus: stockGradingStatus, gradingCompany: stockGradingCompany, gradingText: stockGradingGrade }, logged && (adminPage === 'stock' || adminPage === 'sales'), historyRevision);
+  const clientsRead = useReadPage<Client>(request, '/sellers', { search: clientSearch }, logged && adminPage === 'clients', historyRevision);
+  useEffect(() => {
+    setItems(previous => [...previous.filter(item => selectedItemIds.includes(item._id) && !stockRead.items.some(row => row._id === item._id)), ...stockRead.items]);
+  }, [stockRead.items, selectedItemIds]);
+  const salesHistoryRead = useReadPage<Sale>(request, '/sales', { paymentStatus: collectionFilter }, logged && adminPage === 'salesHistory', historyRevision);
+  const conflictsRead = useReadPage<SaleConflict>(request, '/conflicts', {}, logged && adminPage === 'saleConflicts', historyRevision);
   function navigateAdminPage(page: AdminPage, replace = false) {
     const url = adminPagePaths[page];
     window.history[replace ? 'replaceState' : 'pushState']({}, '', url);
     setAdminPage(page);
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }
   useEffect(() => {
     const syncPage = () => setAdminPage(adminPageFromPath(window.location.pathname));
@@ -605,26 +941,18 @@ function App() {
       } catch {
         // An unauthenticated first visit has no CSRF cookie yet.
       }
-      const [stockData, purchaseData, sales, conflictsData, clientData, authStatus] = await Promise.all([
-        request<Item[]>('/stock'),
-        request<Purchase[]>('/purchases'),
-        request<Sale[]>('/sales'),
-        request<SaleConflict[]>('/conflicts'),
-        request<Client[]>('/sellers'),
+      const [authStatus] = await Promise.all([
         request<{ signupEnabled: boolean }>('/auth/status'),
       ]);
-      setItems(stockData);
-      setClients(clientData);
-      setPurchases(purchaseData);
-      setSalesData(sales);
-      setConflicts(conflictsData);
+      setHistoryRevision((value) => value + 1);
       setSignupEnabled(authStatus.signupEnabled);
       setLogged(true);
       setError('');
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Connexion impossible';
       if (message === 'UNAUTHENTICATED' || message === 'INVALID_SESSION') {
-        setLogged(false);
+        realtime.reset();
+      setLogged(false);
         setError('');
       } else setError(message);
     } finally {
@@ -634,7 +962,8 @@ function App() {
   async function auth(path: string) {
     setLoading(true);
     try {
-      await request(`/auth/${path}`, { method: 'POST', body: JSON.stringify({ email, password }) });
+      const result = await request<{ expiresIn: number; refreshAfterSeconds: number }>(`/auth/${path}`, { method: 'POST', body: JSON.stringify({ email, password }) });
+      sessionActivity.setSession({ issuedAt: Date.now(), expiresAt: Date.now() + result.expiresIn * 1000, refreshAfterSeconds: result.refreshAfterSeconds });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Connexion impossible');
@@ -706,6 +1035,9 @@ function App() {
       setClientEmail('');
       setClientPhone('');
       setClientAddress('');
+      clientsRead.reload();
+      setClientEditorOpen(false);
+      if (clientReturnToPurchase) { setSelectedClient(saved.id); setClientReturnToPurchase(false); navigateAdminPage('purchases'); }
       setError(editingClientId ? 'Fiche client modifiée.' : 'Fiche client créée.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Enregistrement de la fiche impossible.');
@@ -716,12 +1048,24 @@ function App() {
   async function searchPokemonCards(draft: PurchaseDraft) {
     const term = draft.cardSearch?.trim();
     if (!term) return setError('Saisissez un nom ou un numéro de carte à rechercher.');
+    const current = beginCatalog(draft.key);
     const search = parseCardSearch(term);
     setError('');
     setPurchaseItems((rows) =>
       rows.map((row) => (row.key === draft.key ? { ...row, searching: true } : row)),
     );
     try {
+      if (draft.tcg === 'riftbound') {
+        const results = await searchRiftbound(term);
+        if (!current()) return;
+        setPurchaseItems((rows) =>
+          rows.map((row) =>
+            row.key === draft.key ? { ...row, cardResults: results, searching: false } : row,
+          ),
+        );
+        if (!results.length) setError(`Aucune carte Riftbound trouvée pour « ${term} » (FR/EN).`);
+        return;
+      }
       const localized = await Promise.all(
         cardLanguages.map(async ({ id: language }) => {
           const filter = search.localId
@@ -731,28 +1075,42 @@ function App() {
             `https://api.tcgdex.net/v2/${language}/cards?${filter}&pagination:page=1&pagination:itemsPerPage=100`,
           );
           if (!response.ok) throw new Error('Catalogue Pokémon indisponible.');
-          const cards = await response.json() as Omit<CatalogCard, 'language'>[];
+          const cards = (await response.json()) as Omit<CatalogCard, 'language'>[];
           return cards
-            .filter((card) => !search.localId || normalizeCardNumber(card.localId) === normalizeCardNumber(search.localId!))
+            .filter(
+              (card) =>
+                !search.localId ||
+                normalizeCardNumber(card.localId) === normalizeCardNumber(search.localId!),
+            )
             .map((card) => ({ ...card, language }));
         }),
       );
       let results = localized.flat();
       const setMetadata = new Map<string, { official?: number; total?: number; name?: string }>();
       if (search.denominator !== undefined && results.length) {
-        const setIds = [...new Set(results.map((card) => card.id.slice(0, card.id.lastIndexOf('-'))))];
-        await Promise.all(setIds.map(async (setId) => {
-          if (!setId) return;
-          const cardLanguage = results.find((card) => card.id.startsWith(`${setId}-`))?.language ?? 'en';
-          try {
-            const response = await fetch(`https://api.tcgdex.net/v2/${cardLanguage}/sets/${encodeURIComponent(setId)}`);
-            if (!response.ok) return;
-            const set = await response.json() as { cardCount?: { official?: number; total?: number }; name?: string };
-            setMetadata.set(setId, { ...set.cardCount, name: set.name });
-          } catch {
-            // An unverified denominator must not return a potentially wrong card.
-          }
-        }));
+        const setIds = [
+          ...new Set(results.map((card) => card.id.slice(0, card.id.lastIndexOf('-')))),
+        ];
+        await Promise.all(
+          setIds.map(async (setId) => {
+            if (!setId) return;
+            const cardLanguage =
+              results.find((card) => card.id.startsWith(`${setId}-`))?.language ?? 'en';
+            try {
+              const response = await fetch(
+                `https://api.tcgdex.net/v2/${cardLanguage}/sets/${encodeURIComponent(setId)}`,
+              );
+              if (!response.ok) return;
+              const set = (await response.json()) as {
+                cardCount?: { official?: number; total?: number };
+                name?: string;
+              };
+              setMetadata.set(setId, { ...set.cardCount, name: set.name });
+            } catch {
+              // An unverified denominator must not return a potentially wrong card.
+            }
+          }),
+        );
         results = results.filter((card) => {
           const setId = card.id.slice(0, card.id.lastIndexOf('-'));
           const count = setMetadata.get(setId);
@@ -763,27 +1121,41 @@ function App() {
       if (search.localId && normalizedName) {
         const scoreName = (card: CatalogCard) => {
           const setId = card.id.slice(0, card.id.lastIndexOf('-'));
-          const candidates = [normalizeCardName(card.name), normalizeCardName(setMetadata.get(setId)?.name ?? '')];
+          const candidates = [
+            normalizeCardName(card.name),
+            normalizeCardName(setMetadata.get(setId)?.name ?? ''),
+          ];
           if (candidates.some((name) => name === normalizedName)) return 0;
           if (candidates.some((name) => name.startsWith(normalizedName))) return 1;
           if (candidates.some((name) => name.includes(normalizedName))) return 2;
           return Number.POSITIVE_INFINITY;
         };
         const bestScore = Math.min(...results.map(scoreName));
-        results = Number.isFinite(bestScore) ? results.filter((card) => scoreName(card) === bestScore) : [];
+        results = Number.isFinite(bestScore)
+          ? results.filter((card) => scoreName(card) === bestScore)
+          : [];
       }
       results = results
         .sort((a, b) => {
           const nameScore = (card: CatalogCard) => {
             if (!normalizedName) return 0;
             const name = normalizeCardName(card.name);
-            return name === normalizedName ? 0 : name.startsWith(normalizedName) ? 1 : name.includes(normalizedName) ? 2 : 3;
+            return name === normalizedName
+              ? 0
+              : name.startsWith(normalizedName)
+                ? 1
+                : name.includes(normalizedName)
+                  ? 2
+                  : 3;
           };
           return nameScore(a) - nameScore(b) || a.id.localeCompare(b.id);
         })
         .slice(0, search.localId ? 30 : 15);
+      if (!current()) return;
       if (!results.length) {
-        setError(`Aucune correspondance exacte pour « ${term} ». Aucun résultat approximatif n’a été affiché.`);
+        setError(
+          `Aucune correspondance exacte pour « ${term} ». Aucun résultat approximatif n’a été affiché.`,
+        );
       }
       const languagesByCard = new Map<string, CatalogLanguage[]>();
       for (const card of results) {
@@ -795,12 +1167,14 @@ function App() {
         ...card,
         availableLanguages: languagesByCard.get(card.id) ?? [card.language],
       }));
+      if (!current()) return;
       setPurchaseItems((rows) =>
         rows.map((row) =>
-        row.key === draft.key ? { ...row, cardResults: hydrated, searching: false } : row,
+          row.key === draft.key ? { ...row, cardResults: hydrated, searching: false } : row,
         ),
       );
     } catch (e) {
+      if (!current()) return;
       setPurchaseItems((rows) =>
         rows.map((row) => (row.key === draft.key ? { ...row, searching: false } : row)),
       );
@@ -808,21 +1182,61 @@ function App() {
     }
   }
   async function selectPokemonCard(draft: PurchaseDraft, card: CatalogCard) {
+    const current = beginCatalog(draft.key);
+    if (draft.tcg === 'riftbound') {
+      setPurchaseItems((rows) =>
+        rows.map((row) =>
+          row.key === draft.key
+            ? {
+                ...row,
+                name: card.name,
+                series: card.setName ?? '',
+                identifier: card.localId,
+                language: card.language,
+                catalogueCardId: card.id,
+                catalogueImageUrl: card.image,
+                availableLanguages: [card.language],
+                cardResults: [],
+                searching: false,
+              }
+            : row,
+        ),
+      );
+      return;
+    }
+    setPurchaseItems((rows) =>
+      rows.map((row) => (row.key === draft.key ? { ...row, searching: true } : row)),
+    );
     let setName = draft.series;
     let selectedName = card.name;
     let localId = card.localId;
     let image = card.image;
-    const localizedDetails = await Promise.all(cardLanguages.map(async ({ id: language }) => {
-      try {
-        const response = await fetch(`https://api.tcgdex.net/v2/${language}/cards/${encodeURIComponent(card.id)}`);
-        if (!response.ok) return null;
-        return { language, card: await response.json() as { image?: string; set?: { name?: string }; localId?: string; name?: string } };
-      } catch {
-        return null;
-      }
-    }));
-    const availableLanguages = localizedDetails.filter((entry) => entry !== null).map((entry) => entry.language);
+    const localizedDetails = await Promise.all(
+      cardLanguages.map(async ({ id: language }) => {
+        try {
+          const response = await fetch(
+            `https://api.tcgdex.net/v2/${language}/cards/${encodeURIComponent(card.id)}`,
+          );
+          if (!response.ok) return null;
+          return {
+            language,
+            card: (await response.json()) as {
+              image?: string;
+              set?: { name?: string };
+              localId?: string;
+              name?: string;
+            },
+          };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const availableLanguages = localizedDetails
+      .filter((entry) => entry !== null)
+      .map((entry) => entry.language);
     const selected = localizedDetails.find((entry) => entry?.language === card.language)?.card;
+    if (!current()) return;
     setName = selected?.set?.name ?? setName;
     image = selected?.image ?? image;
     localId = selected?.localId ?? localId;
@@ -833,6 +1247,7 @@ function App() {
           ? {
               ...row,
               name: selectedName,
+              searching: false,
               series: setName,
               identifier: localId,
               language: card.language,
@@ -846,8 +1261,13 @@ function App() {
     );
   }
   async function changeCatalogCardLanguage(draft: PurchaseDraft, language: CatalogLanguage) {
+    const current = beginCatalog(draft.key);
+    if (draft.tcg === 'riftbound' && draft.catalogueCardId) return;
     if (!draft.catalogueCardId) {
-      setPurchaseItems((rows) => rows.map((row) => row.key === draft.key ? { ...row, language } : row));
+      if (!current()) return;
+      setPurchaseItems((rows) =>
+        rows.map((row) => (row.key === draft.key ? { ...row, language } : row)),
+      );
       return;
     }
     try {
@@ -855,16 +1275,29 @@ function App() {
         `https://api.tcgdex.net/v2/${language}/cards/${encodeURIComponent(draft.catalogueCardId)}`,
       );
       if (!response.ok) throw new Error('Cette édition n’existe pas dans cette langue.');
-      const card = (await response.json()) as { name: string; localId: string; image?: string; set?: { name?: string } };
-      setPurchaseItems((rows) => rows.map((row) => row.key === draft.key ? {
-        ...row,
-        language,
-        name: card.name,
-        series: card.set?.name ?? row.series,
-        identifier: card.localId,
-        catalogueImageUrl: card.image ? `${card.image}/low.webp` : undefined,
-      } : row));
+      const card = (await response.json()) as {
+        name: string;
+        localId: string;
+        image?: string;
+        set?: { name?: string };
+      };
+      if (!current()) return;
+      setPurchaseItems((rows) =>
+        rows.map((row) =>
+          row.key === draft.key
+            ? {
+                ...row,
+                language,
+                name: card.name,
+                series: card.set?.name ?? row.series,
+                identifier: card.localId,
+                catalogueImageUrl: card.image ? `${card.image}/low.webp` : undefined,
+              }
+            : row,
+        ),
+      );
     } catch (e) {
+      if (!current()) return;
       setError(e instanceof Error ? e.message : 'Version dans cette langue introuvable.');
     }
   }
@@ -883,17 +1316,20 @@ function App() {
     setClientPhone('');
     setClientAddress('');
   }
-  async function createPurchase() {
+  async function createPurchase(downloadReceipt: boolean) {
     setLoading(true);
     try {
       const client = clients.find((entry) => entry._id === selectedClient);
       if (!client) throw new Error('Sélectionnez un client existant.');
       const clientId = client._id;
-      const validItems = purchaseItems.filter((item) => item.name.trim());
+      const validItems = purchaseItems.filter((item) => item.included);
       if (!validItems.length) throw new Error('Ajoutez au moins une carte avec un nom.');
       const items = validItems.map((item) => {
-        if (!item.marketValue.trim()) throw new Error(`Saisissez la valeur actuelle de « ${item.name} ».`);
-        if (!item.discountPercent.trim()) throw new Error(`Saisissez la décote de « ${item.name} ».`);
+        if (!item.name.trim()) throw new Error('Renseignez le nom de chaque carte ajoutée.');
+        if (!item.marketValue.trim())
+          throw new Error(`Saisissez la valeur actuelle de « ${item.name} ».`);
+        if (!item.discountPercent.trim())
+          throw new Error(`Saisissez la décote de « ${item.name} ».`);
         const marketValue = Number(item.marketValue.replace(',', '.'));
         const discountPercent = Number(item.discountPercent.replace(',', '.'));
         if (!Number.isFinite(marketValue) || marketValue < 0)
@@ -909,6 +1345,7 @@ function App() {
         return {
           operationId: crypto.randomUUID(),
           name: item.name.trim(),
+          tcg: item.tcg ?? 'pokemon',
           series: item.series.trim() || undefined,
           identifier: item.identifier.trim() || undefined,
           marketValueCents: Math.round(marketValue * 100),
@@ -927,7 +1364,6 @@ function App() {
       });
       const reference = purchaseReference.trim() || `R-${Date.now()}`;
       const occurredAt = dateAtCurrentLocalTime(purchaseDate);
-      await loadReceiptLogo();
       const purchase = await request<{ purchaseId: string; itemIds: string[] }>('/purchases', {
         method: 'POST',
         body: JSON.stringify({
@@ -943,12 +1379,12 @@ function App() {
         if (!item.photo || !purchase.itemIds[index]) continue;
         try {
           await uploadItemAttachment(purchase.itemIds[index], item.photo);
-        } catch {
-          photoFailures.push(item.name);
+        } catch (error) {
+          photoFailures.push(`${item.name} (${error instanceof Error ? error.message : 'Échec de l’envoi'})`);
         }
       }
       let receiptFailure = '';
-      await downloadPurchaseReceipt({
+      if (downloadReceipt) await downloadPurchaseReceipt({
         reference,
         occurredAt,
         status: 'pending',
@@ -957,8 +1393,11 @@ function App() {
           name: item.name.trim(),
           series: item.series.trim(),
           identifier: item.identifier.trim(),
-          language: item.language === 'en' ? 'Anglais' : item.language === 'ja' ? 'Japonais' : 'Français',
-          condition: cardConditions.find((condition) => condition.id === item.condition)?.name ?? 'Near Mint (NM)',
+          language:
+            item.language === 'en' ? 'Anglais' : item.language === 'ja' ? 'Japonais' : 'Français',
+          condition:
+            cardConditions.find((condition) => condition.id === item.condition)?.name ??
+            'Near Mint (NM)',
           gradingCompany: item.gradingCompany,
           gradingGrade: item.gradingGrade,
           gradingCertificate: item.gradingCertificate,
@@ -970,7 +1409,9 @@ function App() {
               Number(item.discountPercent.replace(',', '.')),
           ),
         })),
-      }).catch((error) => { receiptFailure = error instanceof Error ? error.message : 'Génération du PDF impossible.'; });
+      }).catch((error) => {
+        receiptFailure = error instanceof Error ? error.message : 'Génération du PDF impossible.';
+      });
       setSelectedClient('');
       setPurchaseReference('');
       setPurchaseDate(localDateInputValue());
@@ -989,10 +1430,15 @@ function App() {
       ]);
       await load();
       if (receiptFailure)
-        setError(`Rachat ${reference} enregistré. Le bordereau n’a pas pu être téléchargé : ${receiptFailure} Réessayez depuis l’historique.${photoFailures.length ? ` Photos non envoyées : ${photoFailures.join(', ')}.` : ''}`);
+        setError(
+          `Rachat ${reference} enregistré. Le bordereau n’a pas pu être téléchargé : ${receiptFailure} Réessayez depuis l’historique.${photoFailures.length ? ` Photos non envoyées : ${photoFailures.join(', ')}.` : ''}`,
+        );
       else if (photoFailures.length)
-        setError(`Rachat et reçu créés. Photo non envoyée pour : ${photoFailures.join(', ')}.`);
-      else setError(`Rachat ${reference} enregistré en attente de validation du client. Le bordereau PDF a été téléchargé.`);
+        setError(`Rachat ${reference} enregistré.${downloadReceipt ? ' Le bordereau PDF a été téléchargé.' : ''} Photo non envoyée pour : ${photoFailures.join(', ')}.`);
+      else
+        setError(
+          `Rachat ${reference} enregistré en attente de validation du client.${downloadReceipt ? ' Le bordereau PDF a été téléchargé.' : ' Le bordereau reste disponible dans l’historique.'}`,
+        );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Rachat impossible.');
     } finally {
@@ -1000,8 +1446,7 @@ function App() {
     }
   }
   async function savePurchaseDate(purchase: Purchase) {
-    const value =
-      purchaseDates[purchase._id] ?? localDateInputValue(new Date(purchase.occurredAt));
+    const value = purchaseDates[purchase._id] ?? localDateInputValue(new Date(purchase.occurredAt));
     const occurredAt = dateAtCurrentLocalTime(value, new Date(purchase.occurredAt));
     if (!Number.isFinite(occurredAt)) return setError('Saisissez une date de rachat valide.');
     setLoading(true);
@@ -1012,10 +1457,12 @@ function App() {
         body: JSON.stringify({ occurredAt }),
       });
       let receiptFailure = '';
-      const receiptDownloaded = await downloadSavedPurchaseReceipt(purchase, occurredAt).catch((error) => {
-        receiptFailure = error instanceof Error ? error.message : 'Génération du PDF impossible.';
-        return false;
-      });
+      const receiptDownloaded = await downloadSavedPurchaseReceipt(purchase, occurredAt).catch(
+        (error) => {
+          receiptFailure = error instanceof Error ? error.message : 'Génération du PDF impossible.';
+          return false;
+        },
+      );
       await load();
       setError(
         receiptDownloaded
@@ -1066,10 +1513,23 @@ function App() {
       body: form,
     });
     csrfToken = response.headers.get('X-CSRF-Token') ?? csrfToken;
-    if (!response.ok) throw new Error(`Erreur serveur (${response.status})`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: string } | null;
+      const messages: Record<string, string> = {
+        ATTACHMENT_STORAGE_ACCESS_DENIED: 'Accès R2 refusé : vérifiez les droits du jeton sur le bucket',
+        ATTACHMENT_STORAGE_UNAVAILABLE: 'Stockage R2 indisponible',
+        ATTACHMENT_TYPE_NOT_ALLOWED: 'Format refusé : utilisez une image JPEG ou PNG',
+        ATTACHMENT_SIZE_NOT_ALLOWED: 'La photo est vide ou dépasse la taille autorisée',
+        ATTACHMENT_TOO_LARGE: 'La photo dépasse la taille autorisée',
+      };
+      throw new Error(messages[payload?.error ?? ''] ?? `Envoi de la photo impossible (${response.status})`);
+    }
   }
   async function downloadPurchaseReceipt(receipt: Parameters<typeof createPurchaseReceiptPdf>[0]) {
-    const [logo, signatory] = await Promise.all([loadReceiptLogo(), request<SignatoryProfile>('/auth/profile')]);
+    const [logo, signatory] = await Promise.all([
+      loadReceiptLogo(),
+      request<SignatoryProfile>('/auth/profile'),
+    ]);
     const url = URL.createObjectURL(createPurchaseReceiptPdf({ ...receipt, signatory }, logo));
     const link = document.createElement('a');
     link.href = url;
@@ -1080,8 +1540,11 @@ function App() {
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
   }
-  async function downloadSavedPurchaseReceipt(purchase: Purchase, occurredAt = purchase.occurredAt) {
-    const client = clients.find((entry) => entry._id === purchase.sellerId);
+  async function downloadSavedPurchaseReceipt(
+    purchase: Purchase,
+    occurredAt = purchase.occurredAt,
+  ) {
+    const client = clients.find((entry) => entry._id === purchase.sellerId) ?? await request<Client>(`/sellers/${encodeURIComponent(purchase.sellerId)}`);
     if (!client) {
       setError('Fiche client introuvable : le justificatif ne peut pas être généré.');
       return false;
@@ -1148,28 +1611,28 @@ function App() {
     }
   }
   async function sellSelectedItems() {
-    if (!selectedItemIds.length) return setError('Sélectionnez au moins une carte.');
+    if (!selectedItemIds.length) return setError('Sélectionnez au moins un article.');
     const saleItems = selectedItemIds.map((itemId) => {
       const item = items.find((entry) => entry._id === itemId);
       const text =
         salePrices[itemId] ??
         (item?.askingPriceCents === undefined ? '' : (item.askingPriceCents / 100).toString());
       const amount = Number(text.replace(',', '.'));
-      if (!item || !Number.isFinite(amount) || amount < 0) return null;
+      if (!item || !text.trim() || !Number.isFinite(amount) || amount < 0) return null;
       return { itemId, salePriceCents: Math.round(amount * 100) };
     });
+    if (saleItems.some(sale => { const item = items.find(item => item._id === sale?.itemId); return item?.origin === 'consignment' && sale && sale.salePriceCents < (item.agreedPriceCents ?? item.askingPriceCents ?? 0); })) return setError('Un prix est inférieur à l’accord du déposant. Enregistrez son autorisation dans Dépôts-ventes avant la vente.');
     if (saleItems.some((item) => item === null))
-      return setError('Saisissez un prix de vente valide pour chaque carte du panier.');
+      return setError('Saisissez un prix de vente valide pour chaque article du panier.');
     setLoading(true);
     try {
-      await request('/sales/bulk', {
-        method: 'POST',
-        body: JSON.stringify({
-          operationId: crypto.randomUUID(),
-          items: saleItems,
-          occurredAt: Date.now(),
-        }),
-      });
+      const total = saleItems.reduce((sum, item) => sum + (item?.salePriceCents ?? 0), 0);
+      const payload = { items: saleItems, ...paymentPayload(salePaymentDraft, total) };
+      const signature = JSON.stringify(payload);
+      if (saleAttempt.current?.signature !== signature) saleAttempt.current = { signature, body: JSON.stringify({ operationId: crypto.randomUUID(), occurredAt: Date.now(), ...payload }) };
+      await request('/sales/bulk', { method: 'POST', body: saleAttempt.current.body });
+      saleAttempt.current = null;
+      setSalePaymentDraft(newPaymentDraft());
       setSaleConfirmOpen(false);
       setSelectedItemIds([]);
       await load();
@@ -1177,6 +1640,52 @@ function App() {
       setError(e instanceof Error ? e.message : 'Vente groupée impossible.');
     } finally {
       setLoading(false);
+    }
+  }
+  async function saveSalePayment() {
+    if (!paymentSale) return;
+    setLoading(true);
+    setError('');
+    try {
+      const { payment } = paymentPayload(editPaymentDraft, paymentSale.salePriceCents);
+      if (!payment) throw new Error('Choisissez un mode de paiement reçu.');
+      const payload = { saleId: paymentSale._id, ...payment };
+      const signature = JSON.stringify(payload);
+      if (paymentAttempt.current?.signature !== signature) paymentAttempt.current = { signature, body: JSON.stringify({ operationId: crypto.randomUUID(), ...payload }) };
+      await request('/sales/payment', { method: 'POST', body: paymentAttempt.current.body });
+      paymentAttempt.current = null;
+      setPaymentSale(null);
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Encaissement impossible.'); }
+    finally { setLoading(false); }
+  }
+  async function setCatalogueVisibility(itemIds: string[], hidden: boolean) {
+    if (visibilityRunning.current || !itemIds.length) return;
+    if (itemIds.length > 500) return setError('Sélectionnez au maximum 500 articles par opération.');
+    visibilityRunning.current = true;
+    setVisibilityBusy(true);
+    setVisibilityNotice('');
+    setError('');
+    try {
+      const payload = { itemIds: [...new Set(itemIds)].sort(), hidden };
+      const signature = JSON.stringify(payload);
+      if (visibilityAttempt.current?.signature !== signature) visibilityAttempt.current = { signature, body: JSON.stringify({ operationId: crypto.randomUUID(), ...payload }) };
+      const result = await request<{ updatedCount: number }>('/stock/visibility', { method: 'POST', body: visibilityAttempt.current.body });
+      // Update the local display after server acknowledgement, even if refresh fails.
+      setItems(current => current.map(item => payload.itemIds.includes(item._id) ? { ...item, hiddenFromCatalogue: hidden } : item));
+      visibilityAttempt.current = null;
+      setVisibilitySelectedIds([]);
+      setVisibilityNotice(`${result.updatedCount} article(s) ${hidden ? 'masqué(s) du' : 'visible(s) dans le'} catalogue.`);
+      try {
+        stockRead.reload();
+      } catch {
+        setError('La visibilité est enregistrée, mais le stock n’a pas pu être actualisé. Actualisez la page lorsque la connexion est rétablie.');
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'La visibilité n’a pas pu être enregistrée. Réessayez.');
+    } finally {
+      visibilityRunning.current = false;
+      setVisibilityBusy(false);
     }
   }
   async function saveAskingPrice(itemId: string) {
@@ -1245,10 +1754,13 @@ function App() {
     }
   }
   async function logout() {
+    await sessionActivity.tick();
+    sessionActivity.stop();
     try {
       await request('/auth/logout', { method: 'POST' });
     } finally {
       csrfToken = undefined;
+      realtime.reset();
       setLogged(false);
       setItems([]);
       setPurchases([]);
@@ -1265,13 +1777,17 @@ function App() {
       })
       .catch(() => {
         if (!cancelled) {
-          setLogged(false);
+          realtime.reset();
+      setLogged(false);
           setSignupEnabled(null);
         }
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
   async function exportXlsx() {
+    const [purchases, consignments, balances, exportSales, exportStock, clients] = await Promise.all([request<Purchase[]>('/purchases'), request<Consignment[]>('/consignments'), request<ConsignmentBalances>('/consignments/balances'), request<Sale[]>('/sales'), request<Item[]>('/stock'), request<Client[]>('/sellers')]);
     const { default: ExcelJS } = await import('exceljs');
     const wb = new ExcelJS.Workbook();
     wb.creator = brand.name;
@@ -1351,9 +1867,10 @@ function App() {
       'Régime TVA',
       'Client final',
       'Statut',
+      'Encaissement', 'Espèces reçues (€)', 'Virement reçu (€)', 'Date réception', 'Référence paiement',
     ]);
-    for (const sale of salesData) {
-      if (sale.status !== 'active') continue;
+    for (const sale of exportSales) {
+      if (sale.status !== 'active' || sale.origin === 'consignment') continue;
       salesSheet.addRow([
         sale.itemId,
         sale.itemName,
@@ -1377,6 +1894,7 @@ function App() {
         sale.vatRegime,
         sale.customerName ?? '',
         sale.status,
+        paymentStatusLabel(sale), sale.payment ? sale.payment.cashCents / 100 : '', sale.payment ? sale.payment.transferCents / 100 : '', sale.payment ? new Date(sale.payment.receivedAt) : '', sale.payment?.reference ?? '',
       ]);
     }
     const stock = wb.addWorksheet('Stock');
@@ -1401,9 +1919,10 @@ function App() {
       'Prix vente demandé (€)',
       'Régime TVA',
       'Statut',
+      'Visibilité catalogue',
     ]);
-    for (const item of items) {
-      if (item.status === 'pending' || item.status === 'cancelled') continue;
+    for (const item of exportStock) {
+      if (item.status === 'pending' || item.status === 'cancelled' || item.origin === 'consignment') continue;
       stock.addRow([
         item._id,
         item.name,
@@ -1425,8 +1944,21 @@ function App() {
         item.askingPriceCents === undefined ? '' : item.askingPriceCents / 100,
         item.vatRegime,
         item.status,
+        item.hiddenFromCatalogue ? 'Masqué' : 'Visible',
       ]);
     }
+    const depositSheet = wb.addWorksheet('Dépôts');
+    depositSheet.addRow(['Référence', 'Date dépôt', 'Échéance', 'Déposant', 'Identifiant article', 'Article', 'Type', 'Description', 'Prix convenu (€)', 'Commission (%)', 'Au déposant au prix convenu (€)', 'Statut', 'Conditions']);
+    for (const deposit of consignments) for (const item of deposit.items) depositSheet.addRow([deposit.reference, new Date(deposit.occurredAt), deposit.dueAt ? new Date(deposit.dueAt) : '', deposit.sellerName, item._id, item.name, item.productType, item.description ?? '', (item.agreedPriceCents ?? item.askingPriceCents) / 100, item.commissionRateBps / 100, ((item.agreedPriceCents ?? item.askingPriceCents) - Math.round((item.agreedPriceCents ?? item.askingPriceCents) * item.commissionRateBps / 10000)) / 100, item.status, deposit.notes ?? '']);
+    const commissionSheet = wb.addWorksheet('Commissions');
+    commissionSheet.addRow(['Vente', 'Article', 'Déposant', 'Date', 'Encaissement (€)', 'Commission (%)', 'Commission (€)', 'Part déposant (€)', 'Statut', 'Encaissement', 'Espèces reçues (€)', 'Virement reçu (€)', 'Date réception', 'Référence paiement']);
+    for (const sale of exportSales.filter(sale => sale.origin === 'consignment')) commissionSheet.addRow([sale._id, sale.itemName, sale.sellerName, new Date(sale.occurredAt), sale.salePriceCents / 100, (sale.commissionRateBps ?? 0) / 100, (sale.commissionCents ?? 0) / 100, (sale.depositorAmountCents ?? 0) / 100, sale.status, paymentStatusLabel(sale), sale.payment ? sale.payment.cashCents / 100 : '', sale.payment ? sale.payment.transferCents / 100 : '', sale.payment ? new Date(sale.payment.receivedAt) : '', sale.payment?.reference ?? '']);
+    const paymentsSheet = wb.addWorksheet('Reversements');
+    paymentsSheet.addRow(['Identifiant', 'Déposant', 'Date', 'Montant (€)', 'Mode', 'Référence']);
+    for (const payment of balances.payments) paymentsSheet.addRow([payment._id, payment.sellerName, new Date(payment.occurredAt), payment.amountCents / 100, payment.method, payment.reference ?? '']);
+    const balancesSheet = wb.addWorksheet('Soldes déposants');
+    balancesSheet.addRow(['Déposant', 'Part des ventes actives (€)', 'Versé (€)', 'Solde dû / régularisation négative (€)']);
+    for (const balance of balances.balances) balancesSheet.addRow([balance.sellerName, balance.earnedCents / 100, balance.paidCents / 100, balance.balanceCents / 100]);
     const clientsSheet = wb.addWorksheet('Clients');
     clientsSheet.addRow(['Identifiant client', 'Nom', 'E-mail', 'Téléphone', 'Adresse']);
     for (const client of clients)
@@ -1440,7 +1972,7 @@ function App() {
     const meta = wb.addWorksheet('Export');
     meta.addRow(['Généré le', new Date()]);
     meta.addRow(['Périmètre', 'Données centrales au moment de la génération']);
-    for (const sheet of [purchasesSheet, salesSheet, stock, clientsSheet, meta]) {
+    for (const sheet of [purchasesSheet, salesSheet, stock, depositSheet, commissionSheet, paymentsSheet, balancesSheet, clientsSheet, meta]) {
       const lastColumn = sheet.columnCount;
       sheet.autoFilter = {
         from: 'A1',
@@ -1465,110 +1997,75 @@ function App() {
     a.click();
     URL.revokeObjectURL(url);
   }
-  const filteredItems = items.filter((item) => {
-    const textMatch = [item.name, item.series, item.identifier, item.serialNumber, item.sellerName, item.gradingCompany, item.gradingGrade, item.gradingCertificate, item.gradingNotes]
-      .filter(Boolean).join(' ').toLocaleLowerCase('fr').includes(stockSearch.trim().toLocaleLowerCase('fr'));
-    const graded = Boolean(item.gradingCompany);
-    return textMatch &&
-      (stockGradingStatus === 'all' || (stockGradingStatus === 'graded' ? graded : !graded)) &&
-      (stockGradingCompany === 'all' || item.gradingCompany === stockGradingCompany) &&
-      (!stockGradingGrade.trim() || (item.gradingGrade ?? '').toLocaleLowerCase('fr').includes(stockGradingGrade.trim().toLocaleLowerCase('fr')));
-  });
-  const itemsPerPage = 10;
-  const stockPageCount = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage));
-  const currentStockPage = Math.min(stockPage, stockPageCount);
+  const filteredItems = stockRead.items;
   const selectedSaleTotalCents = selectedItemIds.reduce((total, itemId) => {
     const item = items.find((entry) => entry._id === itemId);
-    const raw = salePrices[itemId] ?? (item?.askingPriceCents === undefined ? '' : (item.askingPriceCents / 100).toString());
+    const raw =
+      salePrices[itemId] ??
+      (item?.askingPriceCents === undefined ? '' : (item.askingPriceCents / 100).toString());
     const amount = Number(raw.replace(',', '.'));
     return total + (Number.isFinite(amount) ? Math.round(amount * 100) : 0);
   }, 0);
-  const visibleItems = filteredItems.slice(
-    (currentStockPage - 1) * itemsPerPage,
-    currentStockPage * itemsPerPage,
-  );
-  const stockPagination = () => filteredItems.length > itemsPerPage ? (
-    <nav className="stock-pagination" aria-label="Pages du stock">
-      <button
-        type="button"
-        className="secondary"
-        disabled={currentStockPage <= 1}
-        onClick={() => setStockPage(Math.max(1, currentStockPage - 1))}
-      >
-        Précédent
-      </button>
-      <span aria-live="polite">Page {currentStockPage} sur {stockPageCount} · {filteredItems.length} cartes</span>
-      <button
-        type="button"
-        className="secondary"
-        disabled={currentStockPage >= stockPageCount}
-        onClick={() => setStockPage(Math.min(stockPageCount, currentStockPage + 1))}
-      >
-        Suivant
-      </button>
-    </nav>
-  ) : null;
-  const filteredClients = clients.filter((client) =>
-    [client.name, client.email, client.phone, client.address]
-      .filter(Boolean)
-      .join(' ')
-      .toLocaleLowerCase('fr')
-      .includes(clientSearch.trim().toLocaleLowerCase('fr')),
-  );
-  const clientsPerPage = 10;
-  const clientPageCount = Math.max(1, Math.ceil(filteredClients.length / clientsPerPage));
-  const currentClientPage = Math.min(clientPage, clientPageCount);
-  const visibleClients = filteredClients.slice(
-    (currentClientPage - 1) * clientsPerPage,
-    currentClientPage * clientsPerPage,
-  );
+  const visibleItems = filteredItems;
+  const filteredItemIds = new Set(filteredItems.map(item => item._id));
+  const selectedVisibilityIds = visibilitySelectedIds.filter(id => filteredItemIds.has(id));
+  const stockPagination = () => <ReadPagination data={stockRead} />;
+  const filteredClients = clientsRead.items;
+  const visibleClients = filteredClients;
   const selectedPurchaseClient = clients.find((client) => client._id === selectedClient);
-  const matchingPurchaseClients = purchaseClientSearch.trim()
-    ? clients
-        .filter((client) =>
-          [client.name, client.email, client.phone, client.address]
-            .filter(Boolean)
-            .join(' ')
-            .toLocaleLowerCase('fr')
-            .includes(purchaseClientSearch.trim().toLocaleLowerCase('fr')),
-        )
-        .slice(0, 8)
-    : [];
   return (
-    <main>
-      <header>
-        <BrandIdentity />
-        {logged && (
-          <div className="actions">
-            <a href="/convention" target="_blank" rel="noreferrer">
-              Catalogue convention
-            </a>
-            <button type="button" onClick={() => void exportXlsx()}>
-              Exporter Excel
-            </button>
-            <button type="button" className="secondary" onClick={() => void logout()}>
-              Déconnexion
-            </button>
-          </div>
-        )}
-      </header>
+    <main className={logged ? "admin-shell" : "auth-shell"}>
+      {!logged && <header className="workspace-header"><BrandIdentity /></header>}
       {logged && (
-        <nav className="admin-nav" aria-label="Navigation administrateur">
-          {(['dashboard', 'clients', 'purchases', 'stock', 'sales', 'settings'] as const).map((page) => (
-            <a
-              key={page}
-              href={adminPagePaths[page]}
-              className={(adminPage === page || (page === 'sales' && adminPage === 'saleSummary')) ? '' : 'secondary'}
-              aria-current={(adminPage === page || (page === 'sales' && adminPage === 'saleSummary')) ? 'page' : undefined}
-              onClick={(event) => {
-                event.preventDefault();
-                navigateAdminPage(page);
-              }}
-            >
-              {{ dashboard: 'Dashboard', clients: 'Clients', purchases: 'Rachats', stock: 'Stock', sales: 'Ventes', settings: 'Paramètres' }[page]}
-            </a>
-          ))}
-        </nav>
+        <>
+          <aside className="workspace-sidebar">
+            <a className="workspace-home" href={adminPagePaths.dashboard} onClick={(event) => { event.preventDefault(); navigateAdminPage('dashboard'); }} aria-label="Vue d’ensemble"><BrandIdentity /></a>
+            <span className="navigation-caption">Espace de gestion</span>
+            <nav className="admin-nav" aria-label="Navigation administrateur">
+              {([
+                ['dashboard', 'Vue d’ensemble', 'overview'],
+                ['stock', 'Stock', 'stock'],
+                ['sales', 'Ventes', 'sales'],
+                ['purchaseHistory', 'Rachats', 'purchases'],
+                ['consignments', 'Dépôts-ventes', 'deposits'],
+                ['clients', 'Clients', 'clients'],
+                ['exports', 'Exports', 'exports'],
+                ['settings', 'Paramètres', 'settings'],
+              ] as const).map(([page, label, icon]) => {
+                const active = adminPage === page || (page === 'sales' && ['saleSummary', 'salesHistory', 'saleConflicts'].includes(adminPage)) || (page === 'purchaseHistory' && adminPage === 'purchases') || (page === 'consignments' && ['consignmentNew', 'consignmentPayouts'].includes(adminPage));
+                const children: [AdminPage, string][] = page === 'sales' ? [['sales', 'Nouvelle vente'], ['salesHistory', 'Historique'], ['saleConflicts', 'Conflits']] : page === 'purchaseHistory' ? [['purchaseHistory', 'Historique'], ['purchases', 'Nouveau rachat']] : page === 'consignments' ? [['consignments', 'Dossiers'], ['consignmentNew', 'Nouveau dépôt'], ['consignmentPayouts', 'Reversements']] : [];
+                return <div key={page} className={`navigation-group ${page === 'exports' ? 'navigation-utilities' : ''}`}><a href={adminPagePaths[page]} aria-current={active ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigateAdminPage(page); }}>
+                  <span className={`navigation-icon navigation-icon-${icon}`} aria-hidden="true" />
+                  <span>{label}</span>
+                </a>{active && children.length > 0 && <div className="navigation-submenu">{children.map(([destination, title]) => <a key={destination} href={adminPagePaths[destination]} aria-current={adminPage === destination ? 'page' : undefined} onClick={event => { event.preventDefault(); navigateAdminPage(destination); }}>{title}</a>)}</div>}</div>;
+              })}
+            </nav>
+            <p className="sidebar-note">Stock, ventes et suivi clients<br />dans un même espace.</p>
+          </aside>
+          <div className="workspace-page-heading">
+            <div><p className="eyebrow">Gestion / {{ dashboard: 'Vue d’ensemble', stock: 'Inventaire', sales: 'Ventes', saleSummary: 'Ventes', salesHistory: 'Ventes', saleConflicts: 'Ventes', purchases: 'Rachats', purchaseHistory: 'Rachats', consignments: 'Dépôts-ventes', consignmentNew: 'Nouveau dépôt', consignmentPayouts: 'Reversements', clients: 'Clients', exports: 'Outils', settings: 'Compte' }[adminPage]}</p>
+              <h1>{{ dashboard: 'Votre activité en un regard', stock: 'Stock disponible', sales: 'Nouvelle vente', saleSummary: 'Panier et confirmation', salesHistory: 'Historique des ventes', saleConflicts: 'Conflits à résoudre', purchases: 'Nouveau rachat', purchaseHistory: 'Historique des rachats', consignments: 'Dépôts-ventes', consignmentNew: 'Nouveau dépôt', consignmentPayouts: 'Reversements', clients: 'Répertoire clients', exports: 'Exports', settings: 'Paramètres' }[adminPage]}</h1>
+              <p>{{ dashboard: 'Suivez les encaissements et les opérations de votre boutique.', stock: 'Retrouvez vos articles et gérez leur visibilité au catalogue.', sales: 'Recherchez les articles à ajouter au panier.', saleSummary: 'Vérifiez les articles et renseignez le règlement.', salesHistory: 'Consultez les ventes et suivez leurs encaissements.', saleConflicts: 'Examinez les ventes concurrentes et consignez leur résolution.', purchases: 'Sélectionnez un client, puis ajoutez les articles du rachat.', purchaseHistory: 'Consultez les dossiers et poursuivez les opérations en attente.', consignments: 'Retrouvez les dossiers et les articles confiés.', consignmentNew: 'Identifiez le déposant et les articles confiés à la boutique.', consignmentPayouts: 'Consultez les soldes et enregistrez les paiements aux déposants.', clients: 'Retrouvez les coordonnées de vos vendeurs et déposants.', exports: 'Téléchargez vos données de gestion.', settings: 'Gérez votre signataire et les préférences de votre espace.' }[adminPage]}</p>
+            </div>
+            {adminPage === 'purchaseHistory' && <button onClick={() => navigateAdminPage('purchases')}>+ Nouveau rachat</button>}
+            {adminPage === 'stock' && <div className="actions"><a href="/convention" target="_blank" rel="noreferrer">Catalogue convention ↗</a><button onClick={() => navigateAdminPage('sales')}>+ Nouvelle vente</button></div>}
+            {adminPage === 'consignments' && <button onClick={() => navigateAdminPage('consignmentNew')}>+ Nouveau dépôt</button>}
+            {adminPage === 'dashboard' && <button onClick={() => navigateAdminPage('sales')}>+ Nouvelle vente</button>}
+          </div>
+          {(() => {
+            const links: [AdminPage, string][] = ['sales', 'saleSummary', 'salesHistory', 'saleConflicts'].includes(adminPage) ? [['sales', 'Nouvelle vente'], ['salesHistory', 'Historique'], ['saleConflicts', 'Conflits']] : ['purchases', 'purchaseHistory'].includes(adminPage) ? [['purchaseHistory', 'Historique'], ['purchases', 'Nouveau rachat']] : ['consignments', 'consignmentNew', 'consignmentPayouts'].includes(adminPage) ? [['consignments', 'Dossiers'], ['consignmentNew', 'Nouveau dépôt'], ['consignmentPayouts', 'Reversements']] : [];
+            return links.length ? <nav className="sales-section-nav" aria-label="Navigation de la section">{links.map(([page, label]) => <a key={page} href={adminPagePaths[page]} aria-current={adminPage === page ? 'page' : undefined} onClick={event => { event.preventDefault(); navigateAdminPage(page); }}>{label}</a>)}</nav> : null;
+          })()}
+        </>
+      )}
+      {logged && adminPage === 'exports' && (
+        <section className="panel export-page">
+          <p className="eyebrow">Outils de gestion</p>
+          <h2>Télécharger les données</h2>
+          <p>Créez un classeur Excel avec les données de gestion actuellement disponibles pour votre compte.</p>
+          <div className="actions"><button type="button" onClick={() => void exportXlsx()}>Télécharger le classeur Excel</button></div>
+          <p className="muted">Le téléchargement utilise les exports métier existants et conserve leurs règles de calcul.</p>
+        </section>
       )}
       {!logged ? (
         <section className="panel">
@@ -1636,77 +2133,150 @@ function App() {
       ) : (
         <>
           {adminPage === 'dashboard' && (
-            <Suspense fallback={<section className="panel"><p>Chargement du dashboard…</p></section>}>
-              <DashboardPage purchases={purchases} sales={salesData} />
+            <Suspense
+              fallback={
+                <section className="panel">
+                  <p>Chargement du dashboard…</p>
+                </section>
+              }
+            >
+              <DashboardPage request={request} onOpenConsignments={() => navigateAdminPage('consignmentPayouts')} />
             </Suspense>
           )}
+          <div hidden={!['consignments', 'consignmentNew', 'consignmentPayouts'].includes(adminPage)}><ConsignmentsPage view={adminPage === 'consignmentNew' ? 'new' : adminPage === 'consignmentPayouts' ? 'payouts' : 'history'} active={['consignments', 'consignmentNew', 'consignmentPayouts'].includes(adminPage)} clients={clients} request={request} upload={uploadItemAttachment} apiBase={API} onChanged={load} onCreateClient={() => { clearClientForm(); setClientEditorOpen(true); setClientReturnToPurchase(false); navigateAdminPage('clients'); }} /></div>
           {adminPage === 'settings' && (
-            <Suspense fallback={<section className="panel"><p>Chargement des paramètres…</p></section>}>
+            <><Suspense
+              fallback={
+                <section className="panel">
+                  <p>Chargement des paramètres…</p>
+                </section>
+              }
+            >
               <SettingsPage
                 loadProfile={() => request<SignatoryProfile>('/auth/profile')}
-                saveProfile={(profile) => request<SignatoryProfile>('/auth/profile', { method: 'PATCH', body: JSON.stringify(profile) })}
+                saveProfile={(profile) =>
+                  request<SignatoryProfile>('/auth/profile', {
+                    method: 'PATCH',
+                    body: JSON.stringify(profile),
+                  })
+                }
                 signupEnabled={signupEnabled ?? true}
                 loading={loading}
                 onToggle={(enabled) => void updateSignupSetting(enabled)}
               />
-            </Suspense>
+            </Suspense><section className="panel"><h2>Session</h2><p>Fermez votre session sur cet appareil.</p><button type="button" className="secondary" onClick={() => void logout()}>Déconnexion</button></section></>
           )}
           <section className="stats" hidden={adminPage !== 'stock'}>
             <strong>
-              {items.length}
-              <span> objets en stock</span>
+              {stockRead.items.length}
+              <span> articles sur cette page</span>
             </strong>
             <span>Source : données centrales · Internet requis</span>
           </section>
           <section className="panel" hidden={adminPage !== 'stock'}>
             <h2>Mon stock</h2>
+            <label>Visibilité du catalogue<select value={stockVisibility} disabled={visibilityBusy} onChange={event => { setStockVisibility(event.target.value as typeof stockVisibility); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="visible">Visibles dans le catalogue</option><option value="hidden">Masqués du catalogue</option></select></label>
+            {visibilityNotice && <p role="status">{visibilityNotice}</p>}
+
+            <label>Origine<select value={stockOrigin} onChange={event => { setStockOrigin(event.target.value); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="purchase">Articles rachetés</option><option value="consignment">Dépôts-ventes</option></select></label>
             {error && <p className="error">{error}</p>}
             <label>
-              Rechercher une carte
+              Rechercher dans le stock
               <input
                 value={stockSearch}
                 onChange={(event) => {
                   setStockSearch(event.target.value);
-                  setStockPage(1);
+                  setStockPage(1); setVisibilitySelectedIds([]);
                 }}
-                placeholder="Nom, série ou identifiant"
+                placeholder="Nom, description, série, référence, client ou certificat"
               />
             </label>
             <div className="form-grid stock-grading-filters" aria-label="Filtres de gradation">
-              <label>Gradation
-                <select value={stockGradingStatus} onChange={(event) => { setStockGradingStatus(event.target.value as typeof stockGradingStatus); setStockPage(1); }}>
-                  <option value="all">Toutes</option><option value="graded">Gradées</option><option value="ungraded">Non gradées</option>
+              <label>
+                Gradation
+                <select
+                  value={stockGradingStatus}
+                  onChange={(event) => {
+                    setStockGradingStatus(event.target.value as typeof stockGradingStatus);
+                    setStockPage(1); setVisibilitySelectedIds([]);
+                  }}
+                >
+                  <option value="all">Toutes</option>
+                  <option value="graded">Gradées</option>
+                  <option value="ungraded">Non gradées</option>
                 </select>
               </label>
-              <label>Société
-                <select value={stockGradingCompany} onChange={(event) => { setStockGradingCompany(event.target.value as typeof stockGradingCompany); setStockPage(1); }}>
-                  <option value="all">Toutes les sociétés</option>{gradingCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+              <label>
+                Société
+                <select
+                  value={stockGradingCompany}
+                  onChange={(event) => {
+                    setStockGradingCompany(event.target.value as typeof stockGradingCompany);
+                    setStockPage(1); setVisibilitySelectedIds([]);
+                  }}
+                >
+                  <option value="all">Toutes les sociétés</option>
+                  {gradingCompanies.map((company) => (
+                    <option key={company.id} value={company.id}>
+                      {company.name}
+                    </option>
+                  ))}
                 </select>
               </label>
-              <label>Note de gradation
-                <input type="search" value={stockGradingGrade} onChange={(event) => { setStockGradingGrade(event.target.value); setStockPage(1); }} placeholder="Ex. 10 ou 9.5" />
+              <label>
+                Note de gradation
+                <input
+                  type="search"
+                  value={stockGradingGrade}
+                  onChange={(event) => {
+                    setStockGradingGrade(event.target.value);
+                    setStockPage(1); setVisibilitySelectedIds([]);
+                  }}
+                  placeholder="Ex. 10 ou 9.5"
+                />
               </label>
             </div>
+            <StockVisibilityToolbar selectedCount={selectedVisibilityIds.length} resultCount={filteredItems.length} pageCount={visibleItems.length} disabled={visibilityBusy || loading}
+              onSelectPage={() => setVisibilitySelectedIds(visibleItems.map(item => item._id))}
+              onSelectResults={() => setVisibilitySelectedIds(filteredItems.slice(0, 500).map(item => item._id))}
+              onClear={() => setVisibilitySelectedIds([])}
+              onHide={() => void setCatalogueVisibility(selectedVisibilityIds, true)}
+              onShow={() => void setCatalogueVisibility(selectedVisibilityIds, false)} />
             <div className="actions">
               <button
                 type="button"
                 className="secondary"
-                onClick={() => setSelectedItemIds(filteredItems.map((item) => item._id))}
+                onClick={() => setSelectedItemIds(previous => [...new Set([...previous, ...filteredItems.map(item => item._id)])])}
               >
-                Tout sélectionner ({filteredItems.length})
+                Ajouter cette page au panier ({filteredItems.length})
               </button>
               <button type="button" className="secondary" onClick={() => setSelectedItemIds([])}>
-                Effacer la sélection
+                Vider le panier
               </button>
             </div>
             {selectedItemIds.length > 0 && (
               <div className="stock-sale-basket">
                 <div className="stock-sale-basket-heading">
-                  <div><h3>Panier de vente · {selectedItemIds.length} carte(s)</h3><span>Ouvrez le résumé pour modifier les prix et vérifier la vente.</span></div>
-                  <button type="button" className="secondary" onClick={() => setSelectedItemIds([])}>Vider</button>
+                  <div>
+                    <h3>Panier de vente · {selectedItemIds.length} carte(s)</h3>
+                    <span>Ouvrez le résumé pour modifier les prix et vérifier la vente.</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setSelectedItemIds([])}
+                  >
+                    Vider
+                  </button>
                 </div>
-                <button type="button" className="cart-summary-link" onClick={() => navigateAdminPage('saleSummary')}>
-                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h2l2.2 11.2a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 1.9-1.4L22 8H6M10 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" /></svg>
+                <button
+                  type="button"
+                  className="cart-summary-link"
+                  onClick={() => navigateAdminPage('saleSummary')}
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M3 3h2l2.2 11.2a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 1.9-1.4L22 8H6M10 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
+                  </svg>
                   Voir le résumé du panier
                 </button>
               </div>
@@ -1716,6 +2286,7 @@ function App() {
                 <label className="stock-select">
                   <input
                     type="checkbox"
+                    aria-label={`Ajouter ${item.name} au panier de vente`}
                     checked={selectedItemIds.includes(item._id)}
                     onChange={(event) =>
                       setSelectedItemIds((ids) =>
@@ -1728,16 +2299,29 @@ function App() {
                 </label>
                 <div className="stock-content">
                   <div className="stock-details">
-                    <b>{item.name}</b>
+                    <div className="stock-visibility-actions">
+                      <label><input type="checkbox" aria-label={`Sélectionner ${item.name} pour modifier sa visibilité`} disabled={visibilityBusy || loading || (!selectedVisibilityIds.includes(item._id) && selectedVisibilityIds.length >= 500)} checked={selectedVisibilityIds.includes(item._id)} onChange={event => setVisibilitySelectedIds(ids => event.target.checked ? [...new Set([...ids, item._id])] : ids.filter(id => id !== item._id))} /> Sélectionner pour la visibilité</label>
+                      <span className={`stock-visibility-badge${item.hiddenFromCatalogue ? ' is-hidden' : ''}`}>{item.hiddenFromCatalogue ? 'Masqué du catalogue' : 'Visible dans le catalogue'}</span>
+                      <button type="button" className="secondary" disabled={visibilityBusy || loading} aria-label={`${item.hiddenFromCatalogue ? 'Afficher' : 'Masquer'} ${item.name} dans le catalogue`} onClick={() => void setCatalogueVisibility([item._id], !item.hiddenFromCatalogue)}>{item.hiddenFromCatalogue ? 'Afficher dans le catalogue' : 'Masquer du catalogue'}</button>
+                    </div>
+                    <b>{item.name}</b>{item.origin === 'consignment' && <span className="consignment-badge">Dépôt-vente{item.productType === 'sealed' ? ' · Scellé' : ''}</span>}
                     <small>
                       {[item.series, item.identifier, item.serialNumber]
                         .filter(Boolean)
-                        .join(' · ') || 'Carte sans détails'} · {languageLabel(item.language)} ·{' '}
-                      {conditionLabel(item.condition)} · Racheté à {item.sellerName} · Achat{' '}
-                      {(item.purchasePriceCents / 100).toFixed(2)} €
+                        .join(' · ') || 'Carte sans détails'}{' '}
+                      {item.language && ` · ${languageLabel(item.language)}`}{(!item.productType || item.productType === 'card') && ` · ${conditionLabel(item.condition)}`}
+                      {item.origin === 'consignment' ? ` · Dépôt de ${item.sellerName} · Commission ${(item.commissionRateBps ?? 3000) / 100} %` : ` · Racheté à ${item.sellerName} · Achat ${(item.purchasePriceCents / 100).toFixed(2)} €`}
                     </small>
-                    {item.gradingCompany && <GradingBadge company={item.gradingCompany} grade={item.gradingGrade} certificate={item.gradingCertificate} />}
-                    {item.gradingCompany && item.gradingNotes && <small>Notes : {item.gradingNotes}</small>}
+                    {item.gradingCompany && (
+                      <GradingBadge
+                        company={item.gradingCompany}
+                        grade={item.gradingGrade}
+                        certificate={item.gradingCertificate}
+                      />
+                    )}
+                    {item.gradingCompany && item.gradingNotes && (
+                      <small>Notes : {item.gradingNotes}</small>
+                    )}
                     {item.photos?.map((photo) => (
                       <a
                         className="item-photo-link"
@@ -1747,6 +2331,7 @@ function App() {
                         Photo : {photo.filename}
                       </a>
                     ))}
+                    {item.origin === 'consignment' && <p>Prix convenu : {money(item.agreedPriceCents ?? item.askingPriceCents ?? 0)}. Pour modifier l’accord, ouvrez <button type="button" className="secondary" onClick={() => navigateAdminPage('consignments')}>Dépôts-ventes</button>.</p>}
                     <div className="price-edit">
                       <input
                         aria-label={`Prix de vente demandé pour ${item.name}`}
@@ -1772,37 +2357,43 @@ function App() {
                       </button>
                     </div>
                   </div>
-                  {item.catalogueImageUrl && (
-                    <img className="stock-card-image" src={item.catalogueImageUrl} alt="" />
-                  )}
+                  <ItemThumbnail name={item.name} catalogueImageUrl={item.catalogueImageUrl} photos={item.photos} apiBase={API} />
                 </div>
                 {item.askingPriceCents !== undefined && (
                   <strong>Vente {(item.askingPriceCents / 100).toFixed(2)} €</strong>
                 )}
               </article>
             ))}
-            {!filteredItems.length && <p>Aucune carte ne correspond à la recherche.</p>}
+            
             {stockPagination()}
           </section>
           <section className="panel" hidden={adminPage !== 'sales'}>
-            <h2>Nouvelle vente</h2>
-            {selectedItemIds.length > 0 && <p className="sale-cart-nudge">{selectedItemIds.length} carte(s) dans le panier. Utilisez le caddie flottant pour ouvrir le résumé.</p>}
+            <h2>Choisir les articles</h2>
+            {error && <p className="error" role="alert">{error}</p>}
+            <label>Origine<select value={stockOrigin} onChange={event => { setStockOrigin(event.target.value); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="purchase">Articles rachetés</option><option value="consignment">Dépôts-ventes</option></select></label>
+            {selectedItemIds.length > 0 && (
+              <p className="sale-cart-nudge">
+                {selectedItemIds.length} article(s) dans le panier. Utilisez le caddie flottant pour
+                ouvrir le résumé.
+              </p>
+            )}
             <label>
               Rechercher dans le stock
               <input
                 value={stockSearch}
                 onChange={(event) => {
                   setStockSearch(event.target.value);
-                  setStockPage(1);
+                  setStockPage(1); setVisibilitySelectedIds([]);
                 }}
                 placeholder="Nom, série ou identifiant"
               />
             </label>
             <div className="sale-search-results">
               {visibleItems.map((item) => (
-                <article key={item._id}>
-                  <div>
-                    <b>{item.name}</b>
+                <article key={item._id} className="sale-search-row">
+                  <ItemThumbnail name={item.name} catalogueImageUrl={item.catalogueImageUrl} photos={item.photos} apiBase={API} />
+                  <div className="sale-item-description">
+                    <b>{item.name}</b>{item.origin === 'consignment' && <span className="consignment-badge">Dépôt-vente{item.productType === 'sealed' ? ' · Scellé' : ''}</span>}
                     <small>{[item.series, item.identifier].filter(Boolean).join(' · ')}</small>
                   </div>
                   <strong>{((item.askingPriceCents ?? 0) / 100).toFixed(2)} €</strong>
@@ -1818,40 +2409,88 @@ function App() {
               ))}
             </div>
             {stockPagination()}
-            {!visibleItems.length && <p>Aucune carte disponible ne correspond à la recherche.</p>}
+            
           </section>
           <section className="panel sale-cart-summary" hidden={adminPage !== 'saleSummary'}>
             <div className="sale-cart-summary-heading">
-              <div><h2>Résumé du panier</h2><p>{selectedItemIds.length} carte(s) sélectionnée(s)</p></div>
-              <button type="button" className="secondary" onClick={() => navigateAdminPage('sales')}>Retour à la recherche</button>
+              <div>
+                <h2>Résumé du panier</h2>
+                {error && <p className="error" role="alert">{error}</p>}
+                <p>{selectedItemIds.length} article(s) sélectionné(s)</p>
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => navigateAdminPage('sales')}
+              >
+                Retour à la recherche
+              </button>
             </div>
             {selectedItemIds.map((itemId) => {
               const item = items.find((entry) => entry._id === itemId);
               if (!item) return null;
-              return <article className="sale-cart-summary-row" key={itemId}>
-                {item.catalogueImageUrl && <img src={item.catalogueImageUrl} alt="" />}
-                <div className="sale-cart-summary-name"><b>{item.name}</b><small>{[item.series, item.identifier].filter(Boolean).join(' · ')}</small></div>
-                <label>Prix de vente (€)<input inputMode="decimal" value={salePrices[itemId] ?? (item.askingPriceCents === undefined ? '' : (item.askingPriceCents / 100).toFixed(2))} onChange={(event) => setSalePrices((values) => ({ ...values, [itemId]: event.target.value }))} /></label>
-                <button type="button" className="secondary" aria-label={`Retirer ${item.name} du panier`} onClick={() => setSelectedItemIds((ids) => ids.filter((id) => id !== itemId))}>Retirer</button>
-              </article>;
+              return (
+                <article className="sale-cart-summary-row" key={itemId}>
+                  <ItemThumbnail name={item.name} catalogueImageUrl={item.catalogueImageUrl} photos={item.photos} apiBase={API} />
+                  <div className="sale-cart-summary-name">
+                    <b>{item.name}</b>{item.origin === 'consignment' && <span className="consignment-badge">Dépôt-vente{item.productType === 'sealed' ? ' · Scellé' : ''}</span>}
+                    <small>{[item.series, item.identifier].filter(Boolean).join(' · ')}</small>
+                    {item.origin === 'consignment' && <small>{consignmentSplitLabel(item, salePrices[itemId])}</small>}
+                  </div>
+                  <label>
+                    Prix de vente (€)
+                    <input
+                      inputMode="decimal"
+                      value={
+                        salePrices[itemId] ??
+                        (item.askingPriceCents === undefined
+                          ? ''
+                          : (item.askingPriceCents / 100).toFixed(2))
+                      }
+                      onChange={(event) =>
+                        setSalePrices((values) => ({ ...values, [itemId]: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="secondary"
+                    aria-label={`Retirer ${item.name} du panier`}
+                    onClick={() => setSelectedItemIds((ids) => ids.filter((id) => id !== itemId))}
+                  >
+                    Retirer
+                  </button>
+                </article>
+              );
             })}
-            {!selectedItemIds.length ? <p>Le panier est vide. Retournez à la recherche pour ajouter des cartes.</p> : <div className="sale-cart-summary-footer">
-              <strong>Total proposé <span>{new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR' }).format(selectedSaleTotalCents / 100)}</span></strong>
-              <p>L’heure actuelle sera utilisée lors de l’enregistrement de la vente.</p>
-              <button type="button" disabled={loading} onClick={() => setSaleConfirmOpen(true)}>Vérifier et confirmer la vente</button>
-            </div>}
+            {!selectedItemIds.length ? (
+              <p>Le panier est vide. Retournez à la recherche pour ajouter des cartes.</p>
+            ) : (
+              <div className="sale-cart-summary-footer">
+                <strong>
+                  Total proposé{' '}
+                  <span>
+                    {new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR' }).format(
+                      selectedSaleTotalCents / 100,
+                    )}
+                  </span>
+                </strong>
+                <p>L’heure actuelle sera utilisée lors de l’enregistrement de la vente.</p>
+                <button type="button" disabled={loading} onClick={() => setSaleConfirmOpen(true)}>
+                  Vérifier et confirmer la vente
+                </button>
+              </div>
+            )}
           </section>
           <section className="panel" hidden={adminPage !== 'clients'}>
             <h2>Clients</h2>
             <p>Créez une fiche client une seule fois, puis associez ses rachats à son dossier.</p>
-            <h3>{editingClientId ? 'Modifier la fiche client' : 'Créer une fiche client'}</h3>
+            <button type="button" className="secondary" onClick={() => { clearClientForm(); setClientEditorOpen(true); }}>+ Nouveau client</button>
+            {clientEditorOpen && <div className="client-editor"><h3>{editingClientId ? 'Modifier la fiche client' : 'Créer une fiche client'}</h3>
             <div className="form-grid">
               <label>
                 Nom du client
-                <input
-                  value={clientName}
-                  onChange={(event) => setClientName(event.target.value)}
-                />
+                <input value={clientName} onChange={(event) => setClientName(event.target.value)} />
               </label>
               <label>
                 E-mail
@@ -1880,12 +2519,9 @@ function App() {
               <button type="button" disabled={loading} onClick={() => void saveClient()}>
                 {editingClientId ? 'Enregistrer les modifications' : 'Créer la fiche client'}
               </button>
-              {editingClientId && (
-                <button type="button" className="secondary" onClick={clearClientForm}>
-                  Annuler
-                </button>
-              )}
+              <button type="button" className="secondary" onClick={() => { clearClientForm(); setClientEditorOpen(false); if (clientReturnToPurchase) { setClientReturnToPurchase(false); navigateAdminPage('purchases'); } }}>Annuler</button>
             </div>
+            </div>}
             <div className="client-search-section">
               <h3>Rechercher une fiche client</h3>
               <label>
@@ -1901,7 +2537,7 @@ function App() {
                 />
               </label>
               <div className="client-search-summary" aria-live="polite">
-                {filteredClients.length} résultat{filteredClients.length === 1 ? '' : 's'}
+                {filteredClients.length} résultat{filteredClients.length === 1 ? '' : 's'} sur cette page
               </div>
               {visibleClients.map((client) => (
                 <article key={client._id}>
@@ -1911,111 +2547,16 @@ function App() {
                       {[client.email, client.phone, client.address].filter(Boolean).join(' · ')}
                     </small>
                   </div>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => editClient(client)}
-                  >
+                  <button type="button" className="secondary" onClick={() => { editClient(client); setClientEditorOpen(true); }}>
                     Modifier
                   </button>
                 </article>
               ))}
-              {!filteredClients.length ? (
-                <p>Aucun client ne correspond à cette recherche.</p>
-              ) : (
-                <nav className="clients-pagination" aria-label="Pages des fiches client">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={currentClientPage <= 1}
-                    onClick={() => setClientPage(Math.max(1, currentClientPage - 1))}
-                  >
-                    Précédent
-                  </button>
-                  <span aria-live="polite">Page {currentClientPage} sur {clientPageCount}</span>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={currentClientPage >= clientPageCount}
-                    onClick={() => setClientPage(Math.min(clientPageCount, currentClientPage + 1))}
-                  >
-                    Suivant
-                  </button>
-                </nav>
-              )}
+              <ReadPagination data={clientsRead} />
             </div>
           </section>
           <section className="panel" hidden={adminPage !== 'purchases'}>
-            <h2>Enregistrer un rachat</h2>
-            {selectedPurchaseClient ? (
-              <div className="purchase-client-selected">
-                <div>
-                  <small>Client sélectionné</small>
-                  <strong>{selectedPurchaseClient.name}</strong>
-                  <span>{[selectedPurchaseClient.email, selectedPurchaseClient.phone].filter(Boolean).join(' · ')}</span>
-                </div>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    setSelectedClient('');
-                    setPurchaseClientSearch('');
-                  }}
-                >
-                  Changer de client
-                </button>
-              </div>
-            ) : (
-              <div className="purchase-client-picker">
-                <label htmlFor="purchase-client-search">Rechercher un client</label>
-                <input
-                  id="purchase-client-search"
-                  type="search"
-                  value={purchaseClientSearch}
-                  onChange={(event) => setPurchaseClientSearch(event.target.value)}
-                  placeholder="Nom, e-mail ou téléphone"
-                  autoComplete="off"
-                />
-                {purchaseClientSearch.trim() ? (
-                  matchingPurchaseClients.length ? (
-                    <div className="purchase-client-results" role="listbox" aria-label="Clients correspondants">
-                      {matchingPurchaseClients.map((client) => (
-                        <button
-                          key={client._id}
-                          type="button"
-                          role="option"
-                          aria-selected="false"
-                          className="purchase-client-result"
-                          onClick={() => {
-                            setSelectedClient(client._id);
-                            setPurchaseClientSearch('');
-                          }}
-                        >
-                          <strong>{client.name}</strong>
-                          <span>{[client.email, client.phone].filter(Boolean).join(' · ')}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="purchase-client-empty">Aucun client ne correspond à cette recherche.</p>
-                  )
-                ) : (
-                  <p className="purchase-client-hint">Saisissez quelques lettres pour retrouver une fiche client.</p>
-                )}
-              </div>
-            )}
-            {clients.length === 0 && (
-              <p>
-                Aucun client enregistré.{' '}
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => navigateAdminPage('clients')}
-                >
-                  Créer une fiche client
-                </button>
-              </p>
-            )}
+            <ClientPicker clients={clients} request={request} value={selectedClient} onChange={setSelectedClient} label="Rechercher un client" onResolved={client => setClients(previous => [...previous.filter(row => row._id !== client._id).slice(-19), client as Client])} onCreate={() => { clearClientForm(); setClientEditorOpen(true); setClientReturnToPurchase(true); navigateAdminPage('clients'); }} />
             <div className="form-grid">
               <label>
                 Référence du rachat
@@ -2034,288 +2575,34 @@ function App() {
                 />
               </label>
             </div>
-            <p>
-              Ajoutez les cartes une par une. Chaque carte peut avoir sa photo, son prix de rachat
-              et ses informations d’identification.
-            </p>
-            {purchaseItems.map((item, index) => (
-              <fieldset className="card-draft" key={item.key}>
-                <legend>Carte {index + 1}</legend>
-                <div className="form-grid">
-                  <label>
-                    Rechercher dans le catalogue Pokémon
-                    <input
-                      value={item.cardSearch ?? ''}
-                      onChange={(event) =>
-                        setPurchaseItems((rows) =>
-                          rows.map((row) => row.key === item.key ? { ...row, cardSearch: event.target.value } : row),
-                        )
-                      }
-                      placeholder="Nom ou numéro de collection"
-                    />
-                  </label>
-                </div>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={item.searching}
-                  onClick={() => void searchPokemonCards(item)}
-                >
-                  {item.searching ? 'Recherche…' : 'Rechercher la carte'}
-                </button>
-                {(item.cardResults ?? []).map((card) => (
-                  <button
-                    type="button"
-                    className="catalog-choice secondary"
-                    key={`${card.language}-${card.id}`}
-                    onClick={() => void selectPokemonCard(item, card)}
-                  >
-                    {card.image && <img src={`${card.image}/low.webp`} alt="" />}
-                    <span>{card.name} · {card.setName ?? card.id} · {card.localId} · {cardLanguages.find((language) => language.id === card.language)?.name}</span>
-                  </button>
-                ))}
-                {item.catalogueImageUrl && (
-                  <img className="card-catalogue-image" src={item.catalogueImageUrl} alt={`Illustration catalogue : ${item.name}`} />
-                )}
-                <div className="form-grid">
-                  <label>
-                    Nom de la carte
-                    <input
-                      value={item.name}
-                      onChange={(event) =>
-                        setPurchaseItems((rows) =>
-                          rows.map((row) =>
-                            row.key === item.key ? { ...row, name: event.target.value } : row,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    Série
-                    <input
-                      value={item.series}
-                      onChange={(event) =>
-                        setPurchaseItems((rows) =>
-                          rows.map((row) =>
-                            row.key === item.key ? { ...row, series: event.target.value } : row,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    Numéro d’identification
-                    <input
-                      value={item.identifier}
-                      onChange={(event) =>
-                        setPurchaseItems((rows) =>
-                          rows.map((row) =>
-                            row.key === item.key ? { ...row, identifier: event.target.value } : row,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    Langue de la carte
-                    <select
-                      value={item.language ?? 'fr'}
-                      onChange={(event) =>
-                        void changeCatalogCardLanguage(item, event.target.value as CatalogLanguage)
-                      }
-                    >
-                      {cardLanguages.filter((language) => !item.catalogueCardId || item.availableLanguages?.includes(language.id)).map((language) => <option key={language.id} value={language.id}>{language.name}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    État (ordre Cardmarket)
-                    <select
-                      value={item.condition ?? 'NM'}
-                      onChange={(event) =>
-                        setPurchaseItems((rows) => rows.map((row) => row.key === item.key ? { ...row, condition: event.target.value as PurchaseDraft['condition'] } : row))
-                      }
-                    >
-                      {cardConditions.map((condition) => <option key={condition.id} value={condition.id}>{condition.name}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    Société de gradation (facultatif)
-                    <select
-                      value={item.gradingCompany ?? ''}
-                      onChange={(event) =>
-                        setPurchaseItems((rows) => rows.map((row) => row.key === item.key
-                          ? { ...row, gradingCompany: (event.target.value || undefined) as PurchaseDraft['gradingCompany'] }
-                          : row))
-                      }
-                    >
-                      <option value="">Non gradée</option>
-                      {gradingCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
-                    </select>
-                  </label>
-                  {item.gradingCompany && <>
-                    <label>
-                      Note de gradation
-                      <input
-                        value={item.gradingGrade ?? ''}
-                        onChange={(event) => setPurchaseItems((rows) => rows.map((row) => row.key === item.key ? { ...row, gradingGrade: event.target.value } : row))}
-                        placeholder="Ex. 10, Gem Mint, 9.5"
-                      />
-                    </label>
-                    <label>
-                      Numéro de certification
-                      <input
-                        value={item.gradingCertificate ?? ''}
-                        onChange={(event) => setPurchaseItems((rows) => rows.map((row) => row.key === item.key ? { ...row, gradingCertificate: event.target.value } : row))}
-                      />
-                    </label>
-                    <label className="grading-notes-field">
-                      Notes de gradation / sous-notes
-                      <textarea
-                        value={item.gradingNotes ?? ''}
-                        onChange={(event) => setPurchaseItems((rows) => rows.map((row) => row.key === item.key ? { ...row, gradingNotes: event.target.value } : row))}
-                        placeholder="Centrage, coins, bords, surface…"
-                        rows={2}
-                      />
-                    </label>
-                  </>}
-                  <label>
-                    Valeur actuelle (€)
-                    <input
-                      inputMode="decimal"
-                      value={item.marketValue}
-                      onChange={(event) =>
-                        setPurchaseItems((rows) =>
-                          rows.map((row) =>
-                            row.key === item.key
-                              ? {
-                                  ...row,
-                                  marketValue: event.target.value,
-                                  askingPrice: row.askingPriceTouched
-                                    ? row.askingPrice
-                                    : event.target.value,
-                                }
-                              : row,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    Décote (%)
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={item.discountPercent}
-                      onChange={(event) =>
-                        setPurchaseItems((rows) =>
-                          rows.map((row) =>
-                            row.key === item.key
-                              ? { ...row, discountPercent: event.target.value }
-                              : row,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    Prix de rachat calculé (€)
-                    <input
-                      readOnly
-                      value={(
-                        ((Number(item.marketValue.replace(',', '.')) || 0) *
-                          (Number(item.discountPercent) || 0)) /
-                        100
-                      ).toFixed(2)}
-                    />
-                  </label>
-                  <label>
-                    Prix de vente proposé (€)
-                    <input
-                      inputMode="decimal"
-                      value={item.askingPriceTouched ? item.askingPrice : item.marketValue}
-                      onChange={(event) =>
-                        setPurchaseItems((rows) =>
-                          rows.map((row) =>
-                            row.key === item.key
-                              ? {
-                                  ...row,
-                                  askingPrice: event.target.value,
-                                  askingPriceTouched: true,
-                                }
-                              : row,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    Photo de la carte (facultative)
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png"
-                      onChange={(event) =>
-                        setPurchaseItems((rows) =>
-                          rows.map((row) =>
-                            row.key === item.key
-                              ? { ...row, photo: event.target.files?.[0] ?? null }
-                              : row,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                </div>
-                {purchaseItems.length > 1 && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() =>
-                      setPurchaseItems((rows) => rows.filter((row) => row.key !== item.key))
-                    }
-                  >
-                    Retirer cette carte
-                  </button>
-                )}
-              </fieldset>
-            ))}
-            <div className="actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() =>
-                  setPurchaseItems((rows) => [
-                    ...rows,
-                    {
-                      key: crypto.randomUUID(),
-                      name: '',
-                      series: '',
-                      identifier: '',
-                      marketValue: '',
-                      discountPercent: '70',
-                      askingPrice: '',
-                      askingPriceTouched: false,
-                      photo: null,
-                    },
-                  ])
-                }
-              >
-                + Ajouter une carte
-              </button>
-              <button type="button" disabled={loading} onClick={() => void createPurchase()}>
-                Mettre en attente et générer le bordereau PDF
-              </button>
-            </div>
+            <PurchaseEditor
+              rows={purchaseItems}
+              setRows={setPurchaseItems}
+              search={searchPokemonCards}
+              select={selectPokemonCard}
+              changeTcg={changeTcg}
+              changeLanguage={changeCatalogCardLanguage}
+              save={createPurchase}
+              busy={loading}
+              hasClient={!!selectedPurchaseClient}
+            />
           </section>
-          <section className="panel" hidden={adminPage !== 'stock' && adminPage !== 'sales'}>
-            <h2>Historique des ventes</h2>
-            {salesData.map((sale) => (
-              <article key={sale._id}>
-                <span>
+          <section className="panel" hidden={adminPage !== 'salesHistory'}>
+            <h2>Encaissements</h2>
+            <label>Encaissement<select value={collectionFilter} onChange={event => setCollectionFilter(event.target.value)}><option value="all">Toutes les ventes</option><option value="pending">À encaisser</option><option value="received">Reçues</option><option value="unknown">Non renseignées</option></select></label>
+            {salesHistoryRead.items.map((sale) => (
+              <article key={sale._id} className="sale-history-row">
+                <ItemThumbnail name={sale.itemName} catalogueImageUrl={sale.catalogueImageUrl} photos={sale.photos} apiBase={API} />
+                <span className="sale-item-description">
                   {sale.itemName} · {sale.sellerName} · {(sale.salePriceCents / 100).toFixed(2)} € ·{' '}
                   {sale.status}
+                  <small>{paymentStatusLabel(sale)}{sale.payment && ` · ${paymentDetail(sale.payment)}`}{sale.status === 'cancelled' && ' · Vente annulée, historique conservé'}</small>
+                  {sale.origin === 'consignment' && <small>Dépôt-vente · Commission {money(sale.commissionCents ?? 0)} · Part déposant {money(sale.depositorAmountCents ?? 0)}</small>}
                 </span>
+                {sale.status === 'active' && <button type="button" className="secondary" disabled={loading} onClick={() => {
+                  setError(''); setPaymentSale(sale);
+                  setEditPaymentDraft(sale.payment ? { mode: sale.payment.cashCents > 0 && sale.payment.transferCents > 0 ? 'mixed' : sale.payment.transferCents > 0 ? 'transfer' : 'cash', cash: (sale.payment.cashCents / 100).toFixed(2), date: new Date(sale.payment.receivedAt).toLocaleDateString('en-CA'), reference: sale.payment.reference ?? '' } : newPaymentDraft());
+                }}>{sale.paymentStatus === 'received' ? 'Corriger l’encaissement' : 'Marquer reçu'}</button>}
                 {sale.status === 'active' && (
                   <button
                     type="button"
@@ -2327,11 +2614,11 @@ function App() {
                 )}
               </article>
             ))}
-            {!salesData.length && <p>Aucune vente enregistrée.</p>}
+            <ReadPagination data={salesHistoryRead} />
           </section>
-          <section className="panel" hidden={adminPage !== 'stock'}>
-            <h2>Conflits à résoudre</h2>
-            {conflicts.map((conflict) => (
+          <section className="panel" hidden={adminPage !== 'saleConflicts'}>
+            <h2>Ventes concurrentes</h2>
+            {conflictsRead.items.map((conflict) => (
               <article key={conflict._id}>
                 <div>
                   <b>{conflict.itemName}</b>
@@ -2360,104 +2647,292 @@ function App() {
                 </button>
               </article>
             ))}
-            {!conflicts.length && <p>Aucun conflit ouvert.</p>}
+            <ReadPagination data={conflictsRead} />
           </section>
-          <section className="panel" hidden={adminPage !== 'purchases'}>
-            <h2>Historique des rachats</h2>
-            {purchases.map((purchase) => (
-              <article key={purchase._id}>
-                <span>
-                  {purchase.reference} · {purchase.sellerName}
-                </span>
-                <strong className={`purchase-status purchase-status-${purchase.status}`}>
-                  {purchase.status === 'pending' ? 'En attente de validation client' : purchase.status === 'cancelled' ? 'Annulé' : 'Validé'}
-                </strong>
-                <strong>{purchase.items.length} objet(s)</strong>
-                {purchase.status === 'pending' && <div className="actions">
-                  <button type="button" disabled={loading} onClick={() => void validatePendingPurchase(purchase)}>Valider le rachat et ajouter au stock</button>
-                  <button type="button" className="secondary" disabled={loading} onClick={() => void cancelPendingPurchase(purchase)}>Annuler le rachat</button>
-                </div>}
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    void downloadSavedPurchaseReceipt(purchase).then((downloaded) => {
-                      if (downloaded) setError(`Justificatif PDF téléchargé pour ${purchase.reference}.`);
-                    }).catch((error) => setError(error instanceof Error ? error.message : 'Génération du PDF impossible.'));
+          <section className="panel" hidden={adminPage !== 'purchaseHistory'}>
+            <div className="form-grid">
+              <label>
+                Recherche
+                <input
+                  type="search"
+                  value={historySearch}
+                  placeholder="Référence ou client"
+                  onChange={(e) => {
+                    setHistorySearch(e.target.value);
+                    setHistoryPage(1);
+                  }}
+                />
+              </label>
+              <label>
+                Statut
+                <select
+                  value={historyStatus}
+                  onChange={(e) => {
+                    setHistoryStatus(e.target.value);
+                    setHistoryPage(1);
                   }}
                 >
-                  Télécharger le justificatif PDF
-                </button>
-                {purchase.items.flatMap((item) =>
-                  (item.photos ?? []).map((photo) => (
-                    <a
-                      key={photo._id}
-                      href={`${API}/attachments/${encodeURIComponent(photo._id)}/download`}
-                    >
-                      {item.name} · {photo.filename}
-                    </a>
-                  )),
-                )}
-                <label>
-                  Date du rachat
-                  <input
-                    type="date"
-                    value={
-                      purchaseDates[purchase._id] ??
-                      localDateInputValue(new Date(purchase.occurredAt))
-                    }
-                    onChange={(event) =>
-                      setPurchaseDates((dates) => ({
-                        ...dates,
-                        [purchase._id]: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void savePurchaseDate(purchase)}
+                  <option value="all">Tous</option>
+                  <option value="pending">En attente</option>
+                  <option value="active">Validés</option>
+                  <option value="cancelled">Annulés</option>
+                </select>
+              </label>
+              <label>
+                Du
+                <input
+                  type="date"
+                  value={historyFrom}
+                  onChange={(e) => {
+                    setHistoryFrom(e.target.value);
+                    setHistoryPage(1);
+                  }}
+                />
+              </label>
+              <label>
+                Au
+                <input
+                  type="date"
+                  value={historyTo}
+                  onChange={(e) => {
+                    setHistoryTo(e.target.value);
+                    setHistoryPage(1);
+                  }}
+                />
+              </label>
+            </div>
+            <div className="purchase-result-pages">
+              <label>
+                Par page
+                <select
+                  value={historySize}
+                  onChange={(e) => {
+                    setHistorySize(Number(e.target.value));
+                    setHistoryPage(1);
+                  }}
                 >
-                  Enregistrer la date
-                </button>
-                <button type="button" onClick={() => void loadAttachments(purchase._id)}>
-                  Justificatifs
-                </button>
-                {(attachmentsByPurchase[purchase._id] ?? []).map((attachment) => (
-                  <a
-                    key={attachment._id}
-                    href={`${API}/attachments/${encodeURIComponent(attachment._id)}/download`}
-                  >
-                    {attachment.filename}
-                  </a>
-                ))}
-              </article>
-            ))}
-            {!purchases.length && <p>Aucun rachat enregistré.</p>}
+                  {[12, 24, 48].map((n) => (
+                    <option key={n}>{n}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setHistorySearch('');
+                  setHistoryStatus('all');
+                  setHistoryFrom('');
+                  setHistoryTo('');
+                  setHistoryPage(1);
+                }}
+              >
+                Effacer les filtres
+              </button>
+              <span>{historyTotal} rachat(s)</span>
+            </div>
+            {historyError && <p role="alert">{historyError}</p>}
+            {historyBusy && <p role="status">Chargement des rachats…</p>}
+            {!historyBusy &&
+              !historyError &&
+              historyRows.map((purchase) => (
+                <details className="purchase-history-row" key={purchase._id}>
+                  <summary>
+                    <span>
+                      {purchase.reference} · {purchase.sellerName}
+                    </span>
+                    <strong className={`purchase-status purchase-status-${purchase.status}`}>
+                      {purchase.status === 'pending'
+                        ? 'En attente de validation client'
+                        : purchase.status === 'cancelled'
+                          ? 'Annulé'
+                          : 'Validé'}
+                    </strong>
+                    <strong>{purchase.items.length} carte(s)</strong>
+                    <span>{new Date(purchase.occurredAt).toLocaleDateString('fr-BE')}</span>
+                  </summary>
+                  <div className="purchase-history-body">
+                    {purchase.status === 'pending' && (
+                      <div className="actions">
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={() => void validatePendingPurchase(purchase)}
+                        >
+                          Valider le rachat et ajouter au stock
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={loading}
+                          onClick={() => void cancelPendingPurchase(purchase)}
+                        >
+                          Annuler le rachat
+                        </button>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        void downloadSavedPurchaseReceipt(purchase)
+                          .then((downloaded) => {
+                            if (downloaded)
+                              setError(`Justificatif PDF téléchargé pour ${purchase.reference}.`);
+                          })
+                          .catch((error) =>
+                            setError(
+                              error instanceof Error
+                                ? error.message
+                                : 'Génération du PDF impossible.',
+                            ),
+                          );
+                      }}
+                    >
+                      Télécharger le justificatif PDF
+                    </button>
+                    {purchase.items.flatMap((item) =>
+                      (item.photos ?? []).map((photo) => (
+                        <a
+                          key={photo._id}
+                          href={`${API}/attachments/${encodeURIComponent(photo._id)}/download`}
+                        >
+                          {item.name} · {photo.filename}
+                        </a>
+                      )),
+                    )}
+                    <label>
+                      Date du rachat
+                      <input
+                        type="date"
+                        value={
+                          purchaseDates[purchase._id] ??
+                          localDateInputValue(new Date(purchase.occurredAt))
+                        }
+                        onChange={(event) =>
+                          setPurchaseDates((dates) => ({
+                            ...dates,
+                            [purchase._id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void savePurchaseDate(purchase)}
+                    >
+                      Enregistrer la date
+                    </button>
+                    <button type="button" onClick={() => void loadAttachments(purchase._id)}>
+                      Justificatifs
+                    </button>
+                    {(attachmentsByPurchase[purchase._id] ?? []).map((attachment) => (
+                      <a
+                        key={attachment._id}
+                        href={`${API}/attachments/${encodeURIComponent(attachment._id)}/download`}
+                      >
+                        {attachment.filename}
+                      </a>
+                    ))}
+                  </div>
+                </details>
+              ))}
+            {!historyBusy && !historyError && !historyRows.length && (
+              <p>Aucun rachat ne correspond aux filtres.</p>
+            )}
+            <nav className="purchase-result-pages" aria-label="Pages de l’historique">
+              <button
+                type="button"
+                className="secondary"
+                disabled={historyBusy || historyPage <= 1}
+                onClick={() => setHistoryPage((p) => p - 1)}
+              >
+                Précédent
+              </button>
+              <span>
+                Page {historyPage} / {historyPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={historyBusy || historyPage >= historyPages}
+                onClick={() => setHistoryPage((p) => p + 1)}
+              >
+                Suivant
+              </button>
+            </nav>
           </section>
-          {selectedItemIds.length > 0 && adminPage !== 'saleSummary' && (
-            <button type="button" className="cart-fab" aria-label={`Ouvrir le résumé du panier, ${selectedItemIds.length} carte(s)`} onClick={() => navigateAdminPage('saleSummary')}>
-              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h2l2.2 11.2a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 1.9-1.4L22 8H6M10 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" /></svg>
-              <span className="cart-fab-count">{selectedItemIds.length}</span>
-            </button>
-          )}
+          {selectedItemIds.length > 0 &&
+            adminPage !== 'saleSummary' &&
+            adminPage !== 'purchases' && (
+              <button
+                type="button"
+                className="cart-fab"
+                aria-label={`Ouvrir le résumé du panier, ${selectedItemIds.length} carte(s)`}
+                onClick={() => navigateAdminPage('saleSummary')}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M3 3h2l2.2 11.2a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 1.9-1.4L22 8H6M10 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
+                </svg>
+                <span className="cart-fab-count">{selectedItemIds.length}</span>
+              </button>
+            )}
+          {paymentSale && <div className="sale-confirm-overlay"><section className="sale-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-sale-title"><h2 id="payment-sale-title">Encaissement de {paymentSale.itemName}</h2>{error && <p className="error" role="alert">{error}</p>}<SalePaymentEditor value={editPaymentDraft} onChange={setEditPaymentDraft} totalCents={paymentSale.salePriceCents} allowPending={false} disabled={loading} /><div className="actions"><button type="button" className="secondary" disabled={loading} onClick={() => setPaymentSale(null)}>Fermer</button><button type="button" disabled={loading} onClick={() => void saveSalePayment()}>Confirmer le paiement reçu</button></div></section></div>}
           {saleConfirmOpen && (
             <div className="sale-confirm-overlay">
-              <section className="sale-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="sale-confirm-title">
+              <section
+                className="sale-confirm-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="sale-confirm-title"
+              >
                 <h2 id="sale-confirm-title">Valider la vente</h2>
-                <p>Vérifiez les cartes et les prix avant d’enregistrer la vente.</p>
+                {error && <p className="error" role="alert">{error}</p>}
+                <p>Vérifiez les articles et les prix avant d’enregistrer la vente.</p>
                 {selectedItemIds.map((itemId) => {
                   const item = items.find((entry) => entry._id === itemId);
                   if (!item) return null;
-                  return <label className="sale-confirm-row" key={itemId}>
-                    <span><b>{item.name}</b><small>{[item.series, item.identifier].filter(Boolean).join(' · ')}</small></span>
-                    Prix (€)<input inputMode="decimal" value={salePrices[itemId] ?? (item.askingPriceCents === undefined ? '' : (item.askingPriceCents / 100).toFixed(2))} onChange={(event) => setSalePrices((values) => ({ ...values, [itemId]: event.target.value }))} />
-                  </label>;
+                  return (
+                    <label className="sale-confirm-row" key={itemId}>
+                      <span>
+                        <b>{item.name}</b>{item.origin === 'consignment' && <span className="consignment-badge">Dépôt-vente{item.productType === 'sealed' ? ' · Scellé' : ''}</span>}
+                        <small>{[item.series, item.identifier].filter(Boolean).join(' · ')}</small>
+                        {item.origin === 'consignment' && <small>{consignmentSplitLabel(item, salePrices[itemId])}</small>}
+                      </span>
+                      Prix (€)
+                      <input
+                        inputMode="decimal"
+                        value={
+                          salePrices[itemId] ??
+                          (item.askingPriceCents === undefined
+                            ? ''
+                            : (item.askingPriceCents / 100).toFixed(2))
+                        }
+                        onChange={(event) =>
+                          setSalePrices((values) => ({ ...values, [itemId]: event.target.value }))
+                        }
+                      />
+                    </label>
+                  );
                 })}
+                <SalePaymentEditor value={salePaymentDraft} onChange={setSalePaymentDraft} totalCents={selectedSaleTotalCents} disabled={loading} />
                 <div className="actions">
-                  <button type="button" className="secondary" disabled={loading} onClick={() => setSaleConfirmOpen(false)}>Retour au panier</button>
-                  <button type="button" disabled={loading || !selectedItemIds.length} onClick={() => void sellSelectedItems()}>{loading ? 'Enregistrement…' : 'Confirmer et enregistrer la vente'}</button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={loading}
+                    onClick={() => setSaleConfirmOpen(false)}
+                  >
+                    Retour au panier
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading || !selectedItemIds.length}
+                    onClick={() => void sellSelectedItems()}
+                  >
+                    {loading ? 'Enregistrement…' : 'Confirmer et enregistrer la vente'}
+                  </button>
                 </div>
               </section>
             </div>
@@ -2470,11 +2945,21 @@ function App() {
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Élément racine de l’application web introuvable.');
-const path = window.location.pathname.replace(/\/$/, '') || '/';
+let path = window.location.pathname.replace(/\/$/, '') || '/';
+if (path === '/') {
+  path = '/convention';
+  window.history.replaceState({}, '', `${path}${window.location.search}${window.location.hash}`);
+}
 const isLegalPage = Object.hasOwn(legalPages, path);
 createRoot(root).render(
   <>
-    {isLegalPage ? <LegalPage path={path as LegalPath} /> : path === '/convention' ? <ConventionCatalog /> : <App />}
+    {isLegalPage ? (
+      <LegalPage path={path as LegalPath} />
+    ) : path === '/convention' ? (
+      <ConventionCatalog />
+    ) : (
+      <App />
+    )}
     <SiteFooter />
   </>,
 );

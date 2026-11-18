@@ -1,0 +1,582 @@
+{
+  "cards": {
+    "019cfc3b-0388-77af-a9fc-549df1d2107d": {
+      "name": "Sett, Brawler"
+    },
+    "019cfc3b-0389-731b-a010-32ff0ff00f10": {
+      "name": "Sett, Kingpin"
+    }
+  },
+  "sets": [
+    {
+      "id": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "name": "Origins"
+    },
+    {
+      "id": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "name": "Spiritforged"
+    },
+    {
+      "id": "019d02cd-ab20-7582-8213-048b8d81d415",
+      "name": "Vendetta"
+    },
+    {
+      "id": "019e8402-76bd-7db2-81db-e1600bba745b",
+      "name": "Radiance"
+    }
+  ],
+  "printings": {
+    "019cfc3b-03d3-7a1a-87d8-e1d70364996a": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "EN",
+      "printedName": "Sett, Brawler",
+      "publicCode": "OGN-164/298",
+      "shortCode": "OGN-164",
+      "images": [
+        {
+          "imageId": "d5c7520d-2a9c-405f-a7ce-f5c7dfb9d647"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019cfc3b-03d3-7a06-ad4f-888ac91bcb0a": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "EN",
+      "printedName": "Sett, Brawler",
+      "publicCode": "OGN-164a/298",
+      "shortCode": "OGN-164a",
+      "images": [
+        {
+          "imageId": "a287a86f-d107-4124-9058-ff9ad0738052"
+        }
+      ],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019cfc3b-03d1-7e36-b4e0-f170adf27031": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "EN",
+      "printedName": "Sett, Kingpin",
+      "publicCode": "OGN-240/298",
+      "shortCode": "OGN-240",
+      "images": [
+        {
+          "imageId": "319639a6-3450-4a3f-83b4-d07b36280a26"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019cfc3b-03d2-768b-b07d-b02e60816a38": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "EN",
+      "printedName": "Sett, Kingpin",
+      "publicCode": "OGN-240a/298",
+      "shortCode": "OGN-240a",
+      "images": [
+        {
+          "imageId": "d178974d-4837-4739-803c-114cb6958842"
+        }
+      ],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019cfc3b-03d6-737f-97aa-d04e8e6df0c1": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "language": "EN",
+      "printedName": "Sett, Brawler",
+      "publicCode": "SFD-232/221",
+      "shortCode": "SFD-232",
+      "images": [
+        {
+          "imageId": "7135a750-84d2-4754-9d65-baebb0ae4b62"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019cfc3b-03d6-736d-9268-47710d4e1df0": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "language": "EN",
+      "printedName": "Sett, Brawler",
+      "publicCode": "SFD-232*/221",
+      "shortCode": "SFD-232*",
+      "images": [
+        {
+          "imageId": "a9759b72-3703-46bf-bf9e-b7ef776921a9"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": true
+    },
+    "019f4113-11d4-7879-9600-bd5d68e035fb": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019d02cd-ab20-7582-8213-048b8d81d415",
+      "language": "EN",
+      "printedName": "Sett, Brawler",
+      "publicCode": "VEN-SP4/006-EN",
+      "shortCode": "VEN-SP4",
+      "images": [
+        {
+          "imageId": "019f4113-1a6e-74ce-bcb2-39148208c2d7"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "01a0f3d0-1319-7b57-980b-d92d38b7fdcf": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019e8402-76bd-7db2-81db-e1600bba745b",
+      "language": "EN",
+      "printedName": "Sett, Kingpin",
+      "publicCode": "RAD-183/167-EN",
+      "shortCode": "RAD-183",
+      "images": [
+        {
+          "imageId": "01a0f3d0-1326-79a9-b4b0-5d9e0d1d1c5b"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "01a13f3d-67aa-7f57-bb4c-201159c92b55": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019e8402-76bd-7db2-81db-e1600bba745b",
+      "language": "EN",
+      "printedName": "Sett, Kingpin",
+      "publicCode": "RAD-183*/167-EN",
+      "shortCode": "RAD-183*",
+      "images": [
+        {
+          "imageId": "01a183cd-eebb-7671-8aaa-ec8151867b8c"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": true
+    },
+    "019d6d04-fbe3-792b-9e4a-31e0f7f92b13": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "SC",
+      "printedName": "瑟提, 铁拳",
+      "publicCode": "OGN-164/298",
+      "shortCode": "OGN-164",
+      "images": [
+        {
+          "imageId": "019d6d04-fbe7-7f81-8226-c5959df89ccc"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019d6d04-fc15-725e-9cde-7f32d0587651": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "SC",
+      "printedName": "瑟提, 铁拳",
+      "publicCode": "OGN-164a/298",
+      "shortCode": "OGN-164a",
+      "images": [
+        {
+          "imageId": "019d6d04-fc22-7bc1-97ac-bf134dce530e"
+        }
+      ],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019d6c22-0393-7c62-b147-1ae10d0297b0": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "SC",
+      "printedName": "瑟提, 魁首",
+      "publicCode": "OGN-240/298",
+      "shortCode": "OGN-240",
+      "images": [
+        {
+          "imageId": "019d6c22-03a1-7967-ba87-d92ab04c8b56"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019d6d05-3427-7f69-acb9-bf573b91487e": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "SC",
+      "printedName": "瑟提, 魁首",
+      "publicCode": "OGN-240a/298",
+      "shortCode": "OGN-240a",
+      "images": [
+        {
+          "imageId": "019d6d05-3435-7026-a619-fbc1f94a2342"
+        }
+      ],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019d6d04-fb9a-71ed-9aa8-1badd63441c1": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "language": "SC",
+      "printedName": "瑟提, 铁拳",
+      "publicCode": "SFD-232/221",
+      "shortCode": "SFD-232",
+      "images": [
+        {
+          "imageId": "019d6d04-fb9e-7c4c-93c5-27d8df84141a"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019d6d04-fbb7-7fc5-8db1-01b29b7b2b5f": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "language": "SC",
+      "printedName": "瑟提, 铁拳",
+      "publicCode": "SFD-232*/221",
+      "shortCode": "SFD-232*",
+      "images": [
+        {
+          "imageId": "019d6d04-fbc7-74be-b420-ff58538156a0"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": true
+    },
+    "019f51f5-3325-736a-8c0f-8ea89bd195df": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019d02cd-ab20-7582-8213-048b8d81d415",
+      "language": "SC",
+      "printedName": "瑟提, 铁拳",
+      "publicCode": "VEN-SP4/166-SC",
+      "shortCode": "VEN-SP4",
+      "images": [
+        {
+          "imageId": "019f51f5-3330-7cb3-86b0-aa4181b2d5e4"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "01a0f3d9-d627-7ddb-b25e-29c698a5e241": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019e8402-76bd-7db2-81db-e1600bba745b",
+      "language": "SC",
+      "printedName": "瑟提, 魁首",
+      "publicCode": "RAD-183/167-SC",
+      "shortCode": "RAD-183",
+      "images": [
+        {
+          "imageId": "01a0f3d9-d62f-76d6-b36e-021483e4d4b8"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "01a13c65-5afa-7ea2-8e3a-fe98c5a0035c": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019e8402-76bd-7db2-81db-e1600bba745b",
+      "language": "SC",
+      "printedName": "瑟提, 魁首",
+      "publicCode": "RAD-183*/167-SC",
+      "shortCode": "RAD-183*",
+      "images": [
+        {
+          "imageId": "01a13c65-5b04-781d-a0af-ac1cf0a48533"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": true
+    },
+    "019fa471-a7e2-7519-bd0c-002cef4b5b84": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "FR",
+      "printedName": "Sett, Bagarreur",
+      "publicCode": "OGN-164/298-FR",
+      "shortCode": "OGN-164",
+      "images": [],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffa9c-b153-7fcd-959b-4bff440454b8": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "FR",
+      "printedName": "Sett, Bagarreur",
+      "publicCode": "OGN-164a/298-FR",
+      "shortCode": "OGN-164a",
+      "images": [],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019fa471-a7cc-7ad6-86af-1ad62ba919c5": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "FR",
+      "printedName": null,
+      "publicCode": "OGN-240/298-FR",
+      "shortCode": "OGN-240",
+      "images": [],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffa9c-b219-7c59-9848-c8135e338282": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "FR",
+      "printedName": null,
+      "publicCode": "OGN-240a/298-FR",
+      "shortCode": "OGN-240a",
+      "images": [],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffa9c-b173-7c3d-a7ec-2d750d3e6e1e": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "language": "FR",
+      "printedName": "Sett, Bagarreur",
+      "publicCode": "SFD-232/221-FR",
+      "shortCode": "SFD-232",
+      "images": [],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffa9c-b19a-78d5-ac37-4a8c72f637f6": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "language": "FR",
+      "printedName": "Sett, Bagarreur",
+      "publicCode": "SFD-232*/221-FR",
+      "shortCode": "SFD-232*",
+      "images": [],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": true
+    },
+    "019ffa98-c332-7584-a728-f71753294706": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019d02cd-ab20-7582-8213-048b8d81d415",
+      "language": "FR",
+      "printedName": "Sett, Bagarreur",
+      "publicCode": "VEN-SP4/006-FR",
+      "shortCode": "VEN-SP4",
+      "images": [],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffab2-29b8-7a2e-949d-bfe3fa4454e9": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "KR",
+      "printedName": "세트, 싸움꾼",
+      "publicCode": "OGN-164/298-KR",
+      "shortCode": "OGN-164",
+      "images": [
+        {
+          "imageId": "01a0ce85-24c0-7818-b052-117c6138ea1a"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffab2-29de-7fad-a398-82ea183902dc": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "KR",
+      "printedName": "세트, 싸움꾼",
+      "publicCode": "OGN-164a/298-KR",
+      "shortCode": "OGN-164a",
+      "images": [
+        {
+          "imageId": "01a0ce85-28a9-7e35-b446-16ee48e81bdd"
+        }
+      ],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffab2-2a5c-72a3-8c4b-261e0b9a5973": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "KR",
+      "printedName": "세트, 두목",
+      "publicCode": "OGN-240/298-KR",
+      "shortCode": "OGN-240",
+      "images": [
+        {
+          "imageId": "01a0ce85-2cf3-7179-b714-01b90a25295a"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffab2-2a81-7629-a7bf-6b1d2e650005": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "KR",
+      "printedName": "세트, 두목",
+      "publicCode": "OGN-240a/298-KR",
+      "shortCode": "OGN-240a",
+      "images": [
+        {
+          "imageId": "01a0ce85-303f-7f9e-8297-ec18ad436869"
+        }
+      ],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffab4-e91c-7560-abf7-184917bb5f61": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "language": "KR",
+      "printedName": null,
+      "publicCode": "SFD-232/221-KR",
+      "shortCode": "SFD-232",
+      "images": [],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "019ffab4-e939-76c4-8360-4d769527277a": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "language": "KR",
+      "printedName": null,
+      "publicCode": "SFD-232*/221-KR",
+      "shortCode": "SFD-232*",
+      "images": [],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": true
+    },
+    "019ffab4-e952-7065-a510-a991278f0f20": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019d02cd-ab20-7582-8213-048b8d81d415",
+      "language": "KR",
+      "printedName": null,
+      "publicCode": "VEN-SP4/006-KR",
+      "shortCode": "VEN-SP4",
+      "images": [],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "01a0ce7d-b282-7a05-b023-1e24d3d3d673": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "TC",
+      "printedName": "賽特, 鬥士",
+      "publicCode": "OGN-164/298-TC",
+      "shortCode": "OGN-164",
+      "images": [
+        {
+          "imageId": "01a0ce7d-b293-7d44-80a8-7dfcf6d85a2f"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "01a0ce7d-b35e-743b-a167-79ea6eb20bd3": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "TC",
+      "printedName": "賽特, 鬥士",
+      "publicCode": "OGN-164a/298-TC",
+      "shortCode": "OGN-164a",
+      "images": [
+        {
+          "imageId": "01a0ce7d-b366-7e48-bd67-fba998ceb5ee"
+        }
+      ],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "01a0ce7d-b44b-7760-9e59-34cc28848f6b": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "TC",
+      "printedName": "賽特, 黑街霸主",
+      "publicCode": "OGN-240/298-TC",
+      "shortCode": "OGN-240",
+      "images": [
+        {
+          "imageId": "01a0ce7d-b457-79d6-a975-d0f6ef755582"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "01a0ce7d-b566-7629-a6b1-ca7fd8307ac6": {
+      "cardId": "019cfc3b-0389-731b-a010-32ff0ff00f10",
+      "setId": "019cfc3b-0369-7890-a450-7859471cc3f6",
+      "language": "TC",
+      "printedName": "賽特, 黑街霸主",
+      "publicCode": "OGN-240a/298-TC",
+      "shortCode": "OGN-240a",
+      "images": [
+        {
+          "imageId": "01a0ce7d-b573-7267-a5e5-986c94d7fad2"
+        }
+      ],
+      "artVariant": "altart",
+      "finish": "foil",
+      "isSigned": false
+    },
+    "01a1cb19-2c6a-7cfb-8843-9ca22bc6faa6": {
+      "cardId": "019cfc3b-0388-77af-a9fc-549df1d2107d",
+      "setId": "019cfc3b-0369-78be-bd85-75cb9e46ad0c",
+      "language": "TC",
+      "printedName": "賽特, 鬥士",
+      "publicCode": "SFD-232/221-TC",
+      "shortCode": "SFD-232",
+      "images": [
+        {
+          "imageId": "01a1cb19-2c7f-7a15-94ff-ffe6433679e1"
+        }
+      ],
+      "artVariant": "normal",
+      "finish": "foil",
+      "isSigned": false
+    }
+  }
+}

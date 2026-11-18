@@ -4,11 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node --env-file=.env --import tsx --watch src/index.ts",
+    "dev": "pnpm receipt:identity && node --env-file=.env --import tsx --watch src/index.ts",
     "seed:demo": "node --env-file=.env --import tsx scripts/seed-demo.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm receipt:identity && tsc -p tsconfig.json",
     "start": "node --env-file-if-exists=.env dist/index.js",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test tests/*.test.ts",
+    "receipt:identity": "node --import tsx scripts/generate-receipt-identity.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

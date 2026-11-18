@@ -19,6 +19,7 @@ export const execute = action({
   args: {
     secret: v.string(),
     operation: v.union(
+      v.literal('cataloguePhotoObject'),
       v.literal('accountByEmail'),
       v.literal('accountById'),
       v.literal('signatoryProfile'),
@@ -38,6 +39,8 @@ export const execute = action({
   handler: async (ctx, args): Promise<unknown> => {
     if (!validServiceSecret(args.secret)) throw new Error('UNAUTHORIZED_SERVICE');
     switch (args.operation) {
+      case 'cataloguePhotoObject':
+        return ctx.runQuery(internal.operations.cataloguePhotoObject, args.payload);
       case 'accountByEmail':
         return ctx.runQuery(internal.auth.accountByEmail, args.payload);
       case 'accountById':

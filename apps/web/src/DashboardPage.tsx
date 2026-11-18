@@ -1,169 +1,139 @@
-import { useMemo, useState } from 'react';
-
-type Purchase = {
-  occurredAt: number;
-  status: string;
-  items: { purchasePriceCents: number }[];
-};
-type Sale = {
-  occurredAt: number;
-  status: string;
-  salePriceCents: number;
-  purchasePriceCents: number;
-};
+import { realtime } from './realtime';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type Period = 'day' | 'month';
-type Metrics = { purchases: number; sales: number; gains: number; losses: number };
-type Props = { purchases: Purchase[]; sales: Sale[] };
-
-const euro = (cents: number) =>
-  new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(cents / 100);
-const dayKey = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-const monthKey = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-
-function buildBuckets(period: Period, length: number) {
-  const today = new Date();
-  if (period === 'day') today.setHours(0, 0, 0, 0);
-  else today.setDate(1);
-  return Array.from({ length }, (_, index) => {
-    const date = new Date(today);
-    if (period === 'day') date.setDate(today.getDate() - length + index + 1);
-    else date.setMonth(today.getMonth() - length + index + 1);
-    return {
-      key: period === 'day' ? dayKey(date) : monthKey(date),
-      label: period === 'day'
-        ? date.toLocaleDateString('fr-BE', { day: 'numeric', month: 'short' })
-        : date.toLocaleDateString('fr-BE', { month: 'short' }),
-    };
-  });
-}
-
-function LineChart({ rows }: { rows: { label: string; purchases: number; sales: number }[] }) {
-  const width = 860;
-  const height = 260;
-  const left = 66;
-  const right = 16;
-  const top = 18;
-  const bottom = 42;
-  const chartWidth = width - left - right;
-  const chartHeight = height - top - bottom;
-  const max = Math.max(1, ...rows.flatMap((row) => [row.purchases, row.sales]));
-  const points = (key: 'purchases' | 'sales') => rows.map((row, index) => {
-    const x = left + (rows.length <= 1 ? chartWidth / 2 : (index / (rows.length - 1)) * chartWidth);
-    const y = top + chartHeight - (row[key] / max) * chartHeight;
-    return `${x},${y}`;
-  }).join(' ');
-  return (
-    <svg className="dashboard-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Achats et ventes sur la période">
-      {[0, 1, 2, 3].map((step) => {
-        const y = top + (chartHeight * step) / 3;
-        const value = max * (1 - step / 3);
-        return <g key={step}><line x1={left} y1={y} x2={width - right} y2={y} className="dashboard-gridline" /><text x={left - 9} y={y + 4} textAnchor="end" className="dashboard-axis-label">{euro(value)}</text></g>;
-      })}
-      <polyline points={points('purchases')} className="dashboard-line dashboard-line-purchases" />
-      <polyline points={points('sales')} className="dashboard-line dashboard-line-sales" />
-      {rows.map((row, index) => {
-        if (rows.length > 12 && index % Math.ceil(rows.length / 8) !== 0 && index !== rows.length - 1) return null;
-        const x = left + (rows.length <= 1 ? chartWidth / 2 : (index / (rows.length - 1)) * chartWidth);
-        return <text key={row.label + index} x={x} y={height - 12} textAnchor="middle" className="dashboard-axis-label">{row.label}</text>;
-      })}
-    </svg>
-  );
-}
-
-function ProfitChart({ rows }: { rows: { label: string; gains: number; losses: number }[] }) {
-  const width = 860;
-  const height = 210;
-  const left = 20;
-  const right = 20;
-  const top = 20;
-  const bottom = 34;
-  const max = Math.max(1, ...rows.flatMap((row) => [row.gains, row.losses]));
-  const chartWidth = width - left - right;
-  const chartHeight = height - top - bottom;
-  const groupWidth = chartWidth / rows.length;
-  const barWidth = Math.max(3, Math.min(12, groupWidth * 0.34));
-  const zeroY = top + chartHeight;
-  return (
-    <svg className="dashboard-chart dashboard-profit-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Gains et pertes sur la période">
-      <line x1={left} y1={zeroY} x2={width - right} y2={zeroY} className="dashboard-gridline" />
-      {rows.map((row, index) => {
-        const center = left + groupWidth * (index + 0.5);
-        const gainHeight = (row.gains / max) * chartHeight;
-        const lossHeight = (row.losses / max) * chartHeight;
-        const showLabel = rows.length <= 12 || index % Math.ceil(rows.length / 8) === 0 || index === rows.length - 1;
-        return <g key={row.label + index}>
-          <rect x={center - barWidth - 1} y={zeroY - gainHeight} width={barWidth} height={gainHeight} rx="2" className="dashboard-bar-gain" />
-          <rect x={center + 1} y={zeroY - lossHeight} width={barWidth} height={lossHeight} rx="2" className="dashboard-bar-loss" />
-          {showLabel && <text x={center} y={height - 9} textAnchor="middle" className="dashboard-axis-label">{row.label}</text>}
-        </g>;
-      })}
-    </svg>
-  );
-}
-
-export default function DashboardPage({ purchases, sales }: Props) {
-  const [period, setPeriod] = useState<Period>('month');
-  const summary = useMemo(() => {
-    const purchaseCents = purchases
-      .filter((purchase) => purchase.status === 'active')
-      .flatMap((purchase) => purchase.items)
-      .reduce((sum, item) => sum + item.purchasePriceCents, 0);
-    const activeSales = sales.filter((sale) => sale.status === 'active');
-    const salesCents = activeSales.reduce((sum, sale) => sum + sale.salePriceCents, 0);
-    const gains = activeSales.reduce((sum, sale) => sum + Math.max(0, sale.salePriceCents - sale.purchasePriceCents), 0);
-    const losses = activeSales.reduce((sum, sale) => sum + Math.max(0, sale.purchasePriceCents - sale.salePriceCents), 0);
-    return { purchaseCents, salesCents, gains, losses, net: gains - losses, purchaseCount: purchases.filter((purchase) => purchase.status === 'active').length, saleCount: activeSales.length };
-  }, [purchases, sales]);
-  const buckets = useMemo(() => buildBuckets(period, period === 'day' ? 30 : 12), [period]);
-  const rows = useMemo(() => {
-    const byKey = new Map<string, Metrics>(buckets.map((bucket) => [bucket.key, { purchases: 0, sales: 0, gains: 0, losses: 0 }]));
-    for (const purchase of purchases) {
-      if (purchase.status !== 'active') continue;
-      const date = new Date(purchase.occurredAt);
-      const key = period === 'day' ? dayKey(date) : monthKey(date);
-      const metric = byKey.get(key);
-      if (metric) metric.purchases += purchase.items.reduce((sum, item) => sum + item.purchasePriceCents, 0);
-    }
-    for (const sale of sales) {
-      if (sale.status !== 'active') continue;
-      const date = new Date(sale.occurredAt);
-      const key = period === 'day' ? dayKey(date) : monthKey(date);
-      const metric = byKey.get(key);
-      if (!metric) continue;
-      metric.sales += sale.salePriceCents;
-      const margin = sale.salePriceCents - sale.purchasePriceCents;
-      if (margin >= 0) metric.gains += margin;
-      else metric.losses += Math.abs(margin);
-    }
-    return buckets.map((bucket) => ({ ...bucket, ...byKey.get(bucket.key)! }));
-  }, [buckets, period, purchases, sales]);
-  return (
-    <div className="dashboard-page">
-      <header className="dashboard-heading">
-        <div><small>VUE D’ENSEMBLE</small><h2>Dashboard</h2><p>Suivez les rachats, les ventes et la marge réalisée au fil du temps.</p></div>
-        <div className="dashboard-period" role="group" aria-label="Période du graphique">
-          <button type="button" className={period === 'day' ? '' : 'secondary'} aria-pressed={period === 'day'} onClick={() => setPeriod('day')}>Par jour</button>
-          <button type="button" className={period === 'month' ? '' : 'secondary'} aria-pressed={period === 'month'} onClick={() => setPeriod('month')}>Par mois</button>
-        </div>
-      </header>
-      <div className="dashboard-summary-grid">
-        <article className="dashboard-summary-card"><span>Total racheté</span><strong>{euro(summary.purchaseCents)}</strong><small>{summary.purchaseCount} rachats actifs</small></article>
-        <article className="dashboard-summary-card"><span>Ventes encaissées</span><strong>{euro(summary.salesCents)}</strong><small>{summary.saleCount} ventes actives</small></article>
-        <article className="dashboard-summary-card dashboard-positive"><span>Gains réalisés</span><strong>{euro(summary.gains)}</strong><small>Ventes au-dessus du prix de rachat</small></article>
-        <article className="dashboard-summary-card dashboard-negative"><span>Pertes réalisées</span><strong>{euro(summary.losses)}</strong><small>Ventes sous le prix de rachat</small></article>
-        <article className="dashboard-summary-card dashboard-net"><span>Résultat net réalisé</span><strong>{euro(summary.net)}</strong><small>Gains moins pertes</small></article>
-      </div>
-      <section className="panel dashboard-panel">
-        <div className="dashboard-panel-heading"><div><h3>Achats et ventes</h3><p>Comparaison des montants enregistrés {period === 'day' ? 'par jour sur 30 jours' : 'par mois sur 12 mois'}.</p></div><div className="dashboard-legend"><span><i className="dashboard-dot dashboard-dot-purchase" />Rachats</span><span><i className="dashboard-dot dashboard-dot-sales" />Ventes</span></div></div>
-        <LineChart rows={rows} />
-      </section>
-      <section className="panel dashboard-panel">
-        <div className="dashboard-panel-heading"><div><h3>Gains et pertes</h3><p>Marge réalisée sur les cartes vendues, {period === 'day' ? 'par jour' : 'par mois'}.</p></div><div className="dashboard-legend"><span><i className="dashboard-dot dashboard-dot-gain" />Gains</span><span><i className="dashboard-dot dashboard-dot-loss" />Pertes</span></div></div>
-        <ProfitChart rows={rows} />
-      </section>
+type Summary = { purchaseCents: number; salesCents: number; pendingCents: number; unknownCents: number; cashCents: number; transferCents: number; gains: number; losses: number; commissions: number; consignmentSales: number; net: number; purchaseCount: number; saleCount: number; dueCents: number; regularizationCents: number };
+type Day = { key: string; purchases: number; sales: number; gains: number; losses: number };
+type Breakdown = { key: string; label: string; stockCount: number; marginCents: number };
+type Data = { summary: Summary; days: Day[]; byTcg?: Breakdown[]; byOrigin?: Breakdown[] };
+type Row = Day & { label: string; margin: number };
+type Props = { request: <T = unknown>(path: string) => Promise<T>; onOpenConsignments: () => void };
+const euro = (cents: number) => new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100);
+const dayKey = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Brussels', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+export default function DashboardPage({ request, onOpenConsignments }: Props) {
+  const [dimension, setDimension] = useState<'tcg' | 'origin'>('tcg');
+  const [metric, setMetric] = useState<'stock' | 'margin'>('stock');
+  const [period, setPeriod] = useState<Period>('month'); const [data, setData] = useState<Data | null>(null); const [busy, setBusy] = useState(true); const [error, setError] = useState(''); const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    setBusy(true); setError('');
+    return realtime.subscribe<Data>('readModels:dashboardSummary', {}, result => {
+      setData(result); setBusy(false); setError('');
+    }, error => { setData(null); setError(error.message); setBusy(false); });
+  }, [retry]);
+  const rows = useMemo<Row[]>(() => {
+    const count = period === 'day' ? 30 : 12; const now = new Date(); const today = dayKey(now);
+    const [year, month, date] = today.split('-').map(Number);
+    const buckets: Row[] = Array.from({ length: count }, (_, i) => {
+      const d = period === 'day' ? new Date(Date.UTC(year, month - 1, date - count + i + 1, 12)) : new Date(Date.UTC(year, month - count + i, 1, 12));
+      const key = period === 'day' ? dayKey(d) : dayKey(d).slice(0, 7);
+      return { key, label: period === 'day' ? d.toLocaleDateString('fr-BE', { timeZone: 'Europe/Brussels', day: 'numeric', month: 'short' }) : d.toLocaleDateString('fr-BE', { timeZone: 'Europe/Brussels', month: 'short', year: '2-digit' }), purchases: 0, sales: 0, gains: 0, losses: 0, margin: 0 };
+    });
+    const map = new Map(buckets.map(row => [row.key, row]));
+    for (const day of data?.days ?? []) { const row = map.get(period === 'day' ? day.key : day.key.slice(0, 7)); if (row) { row.purchases += day.purchases; row.sales += day.sales; row.gains += day.gains; row.losses += day.losses; } }
+    for (const row of buckets) row.margin = row.gains - row.losses;
+    return buckets;
+  }, [data, period]);
+  if (busy && !data) return <section className="panel"><p>Chargement du dashboard…</p></section>;
+  if (error && !data) return <section className="panel"><p className="error">Impossible de charger le dashboard : {error}</p><button type="button" onClick={() => setRetry(v => v + 1)}>Réessayer</button></section>;
+  const s = data!.summary;
+  return <div className="dashboard-page">
+    {error && <p className="error">Actualisation impossible : {error} <button type="button" className="secondary" onClick={() => setRetry(v => v + 1)}>Réessayer</button></p>}
+    <div className="dashboard-summary-grid" aria-label="Synthèse, tout l’historique">
+      <article className="dashboard-summary-card"><span>Ventes encaissées</span><strong>{euro(s.salesCents)}</strong><small>Tout l’historique</small></article>
+      <article className="dashboard-summary-card dashboard-net"><span>Marge et commissions</span><strong>{euro(s.net)}</strong><small>Avant frais · tout l’historique</small></article>
+      <article className="dashboard-summary-card"><span>À encaisser</span><strong>{euro(s.pendingCents)}</strong><small>Paiements en attente</small></article>
+      <article className="dashboard-summary-card"><span>À reverser</span><strong>{euro(s.dueCents)}</strong><small>Tout l’historique</small><button type="button" className="secondary" onClick={onOpenConsignments}>Voir reversements</button></article>
     </div>
-  );
+    <section className="panel dashboard-panel distribution-explorer">
+      <div className="distribution-explorer-heading"><div><h3>Comprendre la répartition</h3><p>Comparez le poids de chaque jeu ou activité.</p></div>
+        <div className="dashboard-period" role="group" aria-label="Répartition par catégorie">
+          <button type="button" className={dimension === 'tcg' ? '' : 'secondary'} aria-pressed={dimension === 'tcg'} onClick={() => setDimension('tcg')}>Par TCG</button>
+          <button type="button" className={dimension === 'origin' ? '' : 'secondary'} aria-pressed={dimension === 'origin'} onClick={() => setDimension('origin')}>Par activité</button>
+        </div>
+      </div>
+      <div className="distribution-metric-tabs" role="group" aria-label="Indicateur de répartition">
+        <button type="button" aria-pressed={metric === 'stock'} onClick={() => setMetric('stock')}>Stock disponible</button>
+        <button type="button" aria-pressed={metric === 'margin'} onClick={() => setMetric('margin')}>Marge et commissions</button>
+      </div>
+      <BreakdownChart title={dimension === 'tcg' ? 'Par TCG' : 'Par activité'} rows={dimension === 'tcg' ? data!.byTcg : data!.byOrigin} metric={metric} />
+    </section>
+    <header className="dashboard-heading"><p>Évolution de l’activité <small> · période des graphiques</small></p><div className="dashboard-period" role="group" aria-label="Période des graphiques"><button type="button" className={period === 'day' ? '' : 'secondary'} aria-pressed={period === 'day'} onClick={() => setPeriod('day')}>30 jours</button><button type="button" className={period === 'month' ? '' : 'secondary'} aria-pressed={period === 'month'} onClick={() => setPeriod('month')}>12 mois</button></div></header>
+    <ActivityChart rows={rows} title="Ventes encaissées et rachats" first="sales" second="purchases" labels={['Ventes encaissées', 'Rachats']} />
+    <ActivityChart rows={rows} title="Marge et commissions" first="margin" labels={['Marge après pertes, avant frais']} />
+  </div>;
+}
+function ActivityChart({ rows, title, first, second, labels }: { rows: Row[]; title: string; first: 'sales' | 'margin'; second?: 'purchases'; labels: string[] }) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(900);
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const observer = new ResizeObserver(entries => setChartWidth(Math.max(240, entries[0].contentRect.width)));
+    observer.observe(chartRef.current);
+    return () => observer.disconnect();
+  }, [rows.some(row => row.sales || row.purchases || row.margin)]);
+  const values = rows.flatMap(row => second ? [row[first], row[second]] : [row[first]]); const low = Math.min(0, ...values); const high = values.some(value => value !== 0) ? Math.max(0, ...values) : 100; const span = high - low || 1;
+  const width = chartWidth; const height = 250; const left = 64; const right = 30; const top = 14; const bottom = 38; const x = (i: number) => left + (rows.length <= 1 ? 0 : i * (width - left - right) / (rows.length - 1)); const y = (v: number) => top + (high - v) / span * (height - top - bottom);
+  const ticks = Array.from({ length: 5 }, (_, i) => low + span * i / 4); const line = (field: 'sales' | 'purchases' | 'margin') => rows.map((row, i) => `${i ? 'L' : 'M'}${x(i)},${y(row[field])}`).join(' ');
+  const labelStep = Math.ceil((rows.length - 1) / (width < 500 ? 3 : 6));
+  return <section className="panel dashboard-panel"><div className="dashboard-panel-heading"><h3>{title}</h3><div className="dashboard-legend">{labels.map((label, i) => <span key={label}><i className={`dashboard-dot dashboard-dot-${i ? 'purchase' : first === 'margin' ? 'gain' : 'sales'}`} />{label}</span>)}</div></div>
+    {!rows.some(row => row.sales || row.purchases || row.margin) ? <p className="dashboard-empty">Aucune activité sur cette période.</p> : <>
+      <p className="dashboard-chart-note">Par date d’opération · montants en euros</p>
+      <div className="dashboard-svg-wrap" ref={chartRef}><svg className="dashboard-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}, montants en euros`}>
+        {ticks.map((tick, i) => <g key={i}><line className={Math.abs(tick) < 0.001 ? 'dashboard-zero' : 'dashboard-gridline'} x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} /><text className="dashboard-axis-label" x={left - 8} y={y(tick) + 4} textAnchor="end">{new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(tick / 100)}</text></g>)}
+        <line className="dashboard-zero" x1={left} x2={width - right} y1={y(0)} y2={y(0)} />
+        {rows.map((row, i) => <g key={row.key}><title>{row.label}: {labels[0]} {euro(row[first])}{second ? `, ${labels[1]} ${euro(row[second])}` : ''}</title><circle className={first === 'margin' ? 'dashboard-point-margin' : 'dashboard-point-sales'} cx={x(i)} cy={y(row[first])} r="3.5" />{second && <circle className="dashboard-point-purchase" cx={x(i)} cy={y(row[second])} r="3.5" />}{((i % labelStep === 0 && i < rows.length - labelStep / 2) || i === rows.length - 1) && <text className="dashboard-axis-label" x={x(i)} y={height - 9} textAnchor="middle">{row.label}</text>}</g>)}
+        <path className={first === 'margin' ? 'dashboard-line dashboard-line-margin' : 'dashboard-line dashboard-line-sales'} d={line(first)} />{second && <path className="dashboard-line dashboard-line-purchases" d={line(second)} />}
+      </svg></div>
+      <details><summary>Voir les montants détaillés</summary><div className="table-scroll"><table><thead><tr><th>Période</th>{labels.map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.key}><td>{row.label}</td><td>{euro(row[first])}</td>{second && <td>{euro(row[second])}</td>}</tr>)}</tbody></table></div></details>
+    </>}</section>;
+}
+
+function BreakdownChart({ title, rows, metric }: { title: string; rows?: Breakdown[]; metric: 'stock' | 'margin' }) {
+  const container = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(900);
+  useEffect(() => {
+    if (!container.current) return;
+    const observer = new ResizeObserver(entries => setWidth(Math.max(240, entries[0].contentRect.width)));
+    observer.observe(container.current);
+    return () => observer.disconnect();
+  }, [!!rows]);
+  if (!rows) return <section className="panel dashboard-panel"><h3>{title}</h3><p>Répartition indisponible. Actualisez après la mise à jour du serveur.</p></section>;
+  const stock = rows.reduce((total, row) => total + row.stockCount, 0);
+  const margin = rows.reduce((total, row) => total + row.marginCents, 0);
+  const percent = (value: number) => new Intl.NumberFormat('fr-BE', { style: 'percent', maximumFractionDigits: 1 }).format(value);
+  const colors = ['var(--primary)', 'var(--brand-accent)', 'var(--muted)'];
+  const low = Math.min(0, ...rows.map(row => row.marginCents));
+  const high = Math.max(0, ...rows.map(row => row.marginCents));
+  const scale = (value: number) => 14 + (value - low) / (high - low || 1) * (width - 28);
+  return <div className="dashboard-breakdown-group" ref={container}>
+    <div hidden={metric !== 'stock'} className="dashboard-breakdown">
+      <div className="distribution-chart">
+        <svg viewBox={`0 0 ${width} ${rows.length * 67 + 28}`} className="stock-distribution" role="img" aria-label={`Répartition de ${stock} articles en stock. ${rows.map(row => `${row.label} : ${row.stockCount}, ${stock ? percent(row.stockCount / stock) : '0 %'}`).join('. ')}`}>
+          {[0, .5, 1].map(tick => <g key={tick}><line x1={14 + tick * (width - 28)} x2={14 + tick * (width - 28)} y1="27" y2={rows.length * 67} stroke="var(--line)" strokeDasharray="3 4" /><text x={14 + tick * (width - 28)} y={rows.length * 67 + 19} textAnchor={tick === 0 ? 'start' : tick === 1 ? 'end' : 'middle'} className="distribution-value">{percent(tick)}</text></g>)}
+          {rows.map((row, index) => <g key={row.key}>
+            <text x="14" y={index * 67 + 19} className="distribution-category">{row.label}</text>
+            <rect x="14" y={index * 67 + 28} width={stock ? row.stockCount / stock * (width - 28) : 0} height="17" rx="3" fill={colors[index % colors.length]}><title>{row.stockCount} articles · {stock ? percent(row.stockCount / stock) : '—'}</title></rect>
+            <text x="14" y={index * 67 + 59} className="distribution-value">{row.stockCount} article(s) · {stock ? percent(row.stockCount / stock) : '—'}</text>
+          </g>)}
+        </svg>
+        <p className="dashboard-chart-note">Stock disponible, articles masqués du catalogue inclus.</p>
+      </div>
+    </div>
+    <div hidden={metric !== 'margin'} className="dashboard-breakdown">
+      <div className="distribution-chart">
+        <svg viewBox={`0 0 ${width} ${rows.length * 67 + 28}`} className="margin-distribution" role="img" aria-label={`Marge et commissions par catégorie : ${rows.map(row => `${row.label}, ${euro(row.marginCents)}, ${margin > 0 ? percent(row.marginCents / margin) : 'part non calculable'}`).join('. ')}`}>
+          <line x1={scale(0)} x2={scale(0)} y1="27" y2={rows.length * 67} stroke="var(--line)" strokeWidth="1" />
+          {rows.map((row, index) => <g key={row.key}>
+            <text x="14" y={index * 67 + 19} className="distribution-category">{row.label}</text>
+            <rect x={Math.min(scale(0), scale(row.marginCents))} y={index * 67 + 28} width={Math.abs(scale(row.marginCents) - scale(0))} height="17" rx="3" fill={row.marginCents < 0 ? 'var(--brand-danger)' : colors[index % colors.length]}><title>{euro(row.marginCents)} · {margin > 0 ? percent(row.marginCents / margin) : '—'}</title></rect>
+            <text x="14" y={index * 67 + 59} className="distribution-value">{euro(row.marginCents)} · {margin > 0 ? percent(row.marginCents / margin) : '—'}</text>
+          </g>)}
+          <text x={scale(0)} y={rows.length * 67 + 19} textAnchor="middle" className="distribution-value">0 €</text>
+        </svg>
+        <p className="dashboard-chart-note">Marge après pertes, commissions incluses, avant frais. Tout l’historique des ventes actives, encaissées ou non.</p>
+        {margin <= 0 && <p className="dashboard-chart-note">Parts non calculables : marge totale nulle ou négative.</p>}
+        {rows.some(row => row.marginCents < 0) && margin > 0 && <p className="dashboard-chart-note">Les pertes ont une part négative ; les autres contributions peuvent dépasser 100 %.</p>}
+      </div>
+    </div>
+  </div>;
 }

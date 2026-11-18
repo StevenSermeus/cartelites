@@ -1,19 +1,70 @@
 services:
-  minio:
-    # Development fallback: the upstream community image is no longer published publicly.
-    # Replace with a maintained, trusted MinIO/AIStor registry for production deployments.
-    image: ${MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5}
-    command: ["server", "/bitnami/minio/data", "--console-address", ":9001"]
+  convex-deploy:
+    build:
+      context: .
+      target: convex-deploy
+    restart: "no"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env.docker}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env.docker}
-      MINIO_DEFAULT_BUCKETS: ${MINIO_BUCKET}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio-data:/bitnami/minio/data
-    restart: unless-stopped
+      CONVEX_DEPLOY_KEY: ${CONVEX_DEPLOY_KEY:?Set the production Convex deploy key}
+      CONVEX_AUTH_SECRET: ${CONVEX_AUTH_SECRET:?Set CONVEX_AUTH_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:?Set the public HTTPS issuer}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-tcg-marge-clients}
+      JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?Set JWT_PUBLIC_KEY_PEM}
 
-volumes:
-  minio-data:
+  api:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    init: true
+    depends_on:
+      convex-deploy:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      CONVEX_URL: ${CONVEX_URL:?Set the production Convex URL}
+      CONVEX_AUTH_SECRET: ${CONVEX_AUTH_SECRET:?Set CONVEX_AUTH_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:?Set the public HTTPS issuer}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-tcg-marge-clients}
+      JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?Set JWT_PUBLIC_KEY_PEM}
+      JWT_PRIVATE_KEY_PEM: ${JWT_PRIVATE_KEY_PEM:?Set JWT_PRIVATE_KEY_PEM}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-900}
+      WEB_ORIGIN: ${WEB_ORIGIN:?Set the public HTTPS website origin}
+      COOKIE_SECURE: "true"
+      R2_ENDPOINT: ${R2_ENDPOINT:?Set R2_ENDPOINT}
+      R2_BUCKET: ${R2_BUCKET:?Set R2_BUCKET}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?Set R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?Set R2_SECRET_ACCESS_KEY}
+      ATTACHMENT_MAX_BYTES: ${ATTACHMENT_MAX_BYTES:-10485760}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      # Omit this variable entirely if email delivery is not configured.
+      RESET_FROM_EMAIL:
+    ports:
+      - "${API_BIND_IP:-127.0.0.1}:${API_PORT:-3001}:3001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 6
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VITE_API_URL: ${JWT_ISSUER:?Set the public HTTPS API origin}
+    restart: unless-stopped
+    depends_on:
+      convex-deploy:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND_IP:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

@@ -5,6 +5,8 @@ import type { Variables } from '../auth/middleware.js';
 import { authMiddleware } from '../auth/middleware.js';
 import type { ConvexAccountRepository } from '../db/accountRepository.js';
 import { env } from '../env.js';
+import { registerConsignmentRoutes } from './consignments.js';
+import { registerPaginatedReads } from './paginatedReads.js';
 
 const seller = z.object({
   operationId: z.string().uuid(),
@@ -23,6 +25,7 @@ const purchase = z.object({
       z.object({
         operationId: z.string().uuid(),
         name: z.string().min(1),
+        tcg: z.enum(['pokemon', 'riftbound']).optional(),
         series: z.string().optional(),
         identifier: z.string().optional(),
         serialNumber: z.string().optional(),
@@ -42,7 +45,15 @@ const purchase = z.object({
     )
     .min(1),
 });
+const salePayment = z.object({
+  cashCents: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  transferCents: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  receivedAt: z.number().int(),
+  reference: z.string().max(300).optional(),
+});
 const sale = z.object({
+  paymentStatus: z.enum(['pending', 'received']).optional(),
+  payment: salePayment.optional(),
   operationId: z.string().uuid(),
   itemId: z.string().min(1),
   occurredAt: z.number().int(),
@@ -50,6 +61,8 @@ const sale = z.object({
   customerName: z.string().optional(),
 });
 const bulkSale = z.object({
+  paymentStatus: z.enum(['pending', 'received']).optional(),
+  payment: salePayment.optional(),
   operationId: z.string().uuid(),
   items: z
     .array(z.object({ itemId: z.string().min(1), salePriceCents: z.number().int().nonnegative() }))
@@ -64,8 +77,12 @@ const createSellerMutation = makeFunctionReference<'mutation'>('operations:creat
 const updateSellerMutation = makeFunctionReference<'mutation'>('operations:updateSeller');
 const createPurchaseMutation = makeFunctionReference<'mutation'>('operations:createPurchase');
 const validatePurchaseMutation = makeFunctionReference<'mutation'>('operations:validatePurchase');
-const cancelPendingPurchaseMutation = makeFunctionReference<'mutation'>('operations:cancelPendingPurchase');
-const updatePurchaseDateMutation = makeFunctionReference<'mutation'>('operations:updatePurchaseDate');
+const cancelPendingPurchaseMutation = makeFunctionReference<'mutation'>(
+  'operations:cancelPendingPurchase',
+);
+const updatePurchaseDateMutation = makeFunctionReference<'mutation'>(
+  'operations:updatePurchaseDate',
+);
 const createSaleMutation = makeFunctionReference<'mutation'>('operations:createSale');
 const updateAskingPriceMutation = makeFunctionReference<'mutation'>('operations:updateAskingPrice');
 const cancelSaleMutation = makeFunctionReference<'mutation'>('operations:cancelSale');
@@ -77,6 +94,118 @@ const resolveSaleConflictMutation = makeFunctionReference<'mutation'>(
 export function operationRoutes(repo: ConvexAccountRepository) {
   const app = new OpenAPIHono<{ Variables: Variables }>();
   app.use('*', authMiddleware(repo));
+  registerPaginatedReads(app);
+  registerConsignmentRoutes(app);
+  app.onError((error, c) => {
+    if (/\b(INVALID_CURSOR|INVALID_PAGINATION|INVALID_FILTER|INVALID_RESOURCE)\b/.test(error.message)) return c.json({ error: 'INVALID_QUERY' }, 400);
+    const codes = [
+      'UNAUTHENTICATED',
+      'SELLER_NOT_FOUND',
+      'ITEM_NOT_FOUND',
+      'CONSIGNMENT_NOT_FOUND',
+      'ITEM_NOT_AVAILABLE',
+      'ITEM_STATE_INVALID',
+      'NOT_CONSIGNMENT_ITEM',
+      'SALE_BEFORE_PURCHASE',
+      'SALE_BEFORE_DEPOSIT',
+      'SALE_BELOW_AGREED_PRICE',
+      'CONSIGNMENT_PRICE_REQUIRES_AUTHORIZATION',
+      'CONSIGNMENT_TERMS_REQUIRED',
+      'PAYMENT_EXCEEDS_BALANCE',
+      'INVALID_PAYMENT',
+      'INVALID_PRICE',
+      'INVALID_COMMISSION_RATE',
+      'INVALID_DATE',
+      'RETURN_BEFORE_DEPOSIT',
+      'INVALID_PAYMENT_DATE',
+      'INVALID_CONSIGNMENT',
+      'INVALID_AUTHORIZATION_NOTE',
+      'IDEMPOTENCY_KEY_REUSED',
+      'DUPLICATE_ITEM',
+      'SALE_CONFLICT',
+      'PRICE_BELOW_AGREEMENT',
+      'INVALID_COMMISSION',
+      'CONSIGNMENT_ITEM_NOT_FOUND',
+      'ITEM_UNAVAILABLE',
+      'INVALID_RETURN_DATE',
+      'AUTHORIZATION_REQUIRED',
+      'INVALID_SALE_BATCH',
+      'INVALID_SALE_DATE',
+      'INVALID_ITEM',
+      'INVALID_SALE_PAYMENT',
+      'INVALID_SALE_PAYMENT_DATE',
+      'SALE_NOT_FOUND',
+      'SALE_CANCELLED',
+      'INVALID_STOCK_SELECTION',
+    ];
+    const code = codes.find((value) => new RegExp(`\\b${value}\\b`).test(error.message));
+    if (code === 'UNAUTHENTICATED') return c.json({ error: code }, 401);
+    if (code?.endsWith('_NOT_FOUND')) return c.json({ error: code }, 404);
+    if (code) return c.json({ error: code }, 409);
+    console.error('Operation failed', error);
+    return c.json({ error: 'OPERATION_FAILED' }, 500);
+  });
+  app.openapi(
+    createRoute({
+      method: 'post',
+      path: '/stock/visibility',
+      request: {
+        body: {
+          content: {
+            'application/json': {
+              schema: z.object({
+                operationId: z.string().uuid(),
+                itemIds: z
+                  .array(z.string().min(1))
+                  .min(1)
+                  .max(500)
+                  .refine((ids) => new Set(ids).size === ids.length, 'Sélection dupliquée'),
+                hidden: z.boolean(),
+              }),
+            },
+          },
+        },
+      },
+      responses: { 200: { description: 'Visibilité du catalogue mise à jour' } },
+    }),
+    async (c) => {
+      const client = new ConvexHttpClient(env.CONVEX_URL);
+      client.setAuth(c.get('accessToken'));
+      const result = await client.mutation(
+        makeFunctionReference<'mutation'>('operations:setStockVisibility'),
+        c.req.valid('json') as never,
+      );
+      return c.json(result as never);
+    },
+  );
+  app.openapi(
+    createRoute({
+      method: 'post',
+      path: '/sales/payment',
+      request: {
+        body: {
+          content: {
+            'application/json': {
+              schema: salePayment.extend({
+                operationId: z.string().uuid(),
+                saleId: z.string().min(1),
+              }),
+            },
+          },
+        },
+      },
+      responses: { 200: { description: 'Encaissement enregistré et historisé' } },
+    }),
+    async (c) => {
+      const client = new ConvexHttpClient(env.CONVEX_URL);
+      client.setAuth(c.get('accessToken'));
+      const id = await client.mutation(
+        makeFunctionReference<'mutation'>('operations:recordSalePayment'),
+        c.req.valid('json') as never,
+      );
+      return c.json({ id });
+    },
+  );
   app.openapi(
     createRoute({
       method: 'post',
@@ -128,6 +257,29 @@ export function operationRoutes(repo: ConvexAccountRepository) {
       return c.json(result as never);
     },
   );
+  app.get('/purchases/page', async (c) => {
+    const parsed = z
+      .object({
+        page: z.coerce.number().int().min(1).default(1),
+        size: z.coerce.number().int().min(1).max(50).default(12),
+        search: z.string().max(200).default(''),
+        status: z.enum(['all', 'pending', 'active', 'cancelled']).default('all'),
+        from: z.coerce.number().finite().optional(),
+        to: z.coerce.number().finite().optional(),
+      })
+      .refine(
+        (value) => value.from === undefined || value.to === undefined || value.from <= value.to,
+      )
+      .safeParse(c.req.query());
+    if (!parsed.success) return c.json({ error: 'Filtres ou pagination invalides' }, 400);
+    const client = new ConvexHttpClient(env.CONVEX_URL);
+    client.setAuth(c.get('accessToken'));
+    const result = await client.query(
+      makeFunctionReference<'query'>('operations:purchaseHistoryPage'),
+      parsed.data,
+    );
+    return c.json(result as never);
+  });
   app.openapi(
     createRoute({
       method: 'get',
@@ -288,42 +440,13 @@ export function operationRoutes(repo: ConvexAccountRepository) {
       responses: { 201: { description: 'Ventes enregistrées' } },
     }),
     async (c) => {
-      const { operationId, items, occurredAt } = c.req.valid('json');
       const client = new ConvexHttpClient(env.CONVEX_URL);
       client.setAuth(c.get('accessToken'));
-      const available = (await client.query(stockQuery, {})) as {
-        _id: string;
-        askingPriceCents?: number;
-        purchaseOccurredAt: number;
-      }[];
-      const availableById = new Map(available.map((item) => [item._id, item]));
-      if (items.some(({ itemId }) => !availableById.has(itemId)))
-        return c.json({ error: 'ITEM_NOT_AVAILABLE' }, 400);
-      const saleDay = new Date(occurredAt).toISOString().slice(0, 10);
-      if (items.some(({ itemId }) => saleDay < new Date(availableById.get(itemId)!.purchaseOccurredAt).toISOString().slice(0, 10)))
-        return c.json({ error: 'SALE_BEFORE_PURCHASE' }, 400);
-      const ids = [];
-      for (const [index, { itemId, salePriceCents }] of items.entries()) {
-        try {
-          const result = await client.mutation(createSaleMutation, {
-            operationId: `${operationId.slice(0, 32)}-${index.toString().padStart(4, '0')}`,
-            itemId,
-            occurredAt,
-            salePriceCents,
-          } as never);
-          if (typeof result !== 'string')
-            return c.json({ error: 'SALE_CONFLICT', conflictId: result.id }, 409);
-          ids.push(result);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : '';
-          if (message.includes('SALE_BEFORE_PURCHASE'))
-            return c.json({ error: 'SALE_BEFORE_PURCHASE' }, 400);
-          if (message.includes('ITEM_NOT_FOUND'))
-            return c.json({ error: 'ITEM_NOT_AVAILABLE' }, 409);
-          throw error;
-        }
-      }
-      return c.json({ ids }, 201);
+      const result = await client.mutation(
+        makeFunctionReference<'mutation'>('operations:createSales'),
+        c.req.valid('json') as never,
+      );
+      return c.json(result as never, 201);
     },
   );
   app.openapi(

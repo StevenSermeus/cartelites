@@ -9,7 +9,15 @@
       "supportsTablet": true
     },
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choisissez une photo pour documenter un article.",
+          "cameraPermission": "Prenez une photo pour documenter un article.",
+          "microphonePermission": false
+        }
+      ]
     ]
   }
 }

@@ -1,4 +1,10 @@
 .git
+.agents
+.codex
+.aws
+.t3
+reports
+**/*.pem
 .expo
 node_modules
 **/node_modules

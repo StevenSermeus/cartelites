@@ -1,13 +1,31 @@
-import { v } from 'convex/values';
 import { paginationOptsValidator } from 'convex/server';
-import type { Id } from './_generated/dataModel';
-import { mutation, query } from './_generated/server';
+import { v } from 'convex/values';
+import type { Doc, Id } from './_generated/dataModel';
+import { type MutationCtx, type QueryCtx, internalQuery, mutation, query } from './_generated/server';
+import { splitConsignmentPrice } from './consignmentOperations';
+import {
+  allocateSalePayments,
+  type SalePayment,
+  salePaymentStatusValidator,
+  salePaymentValidator,
+  validateSalePayment,
+} from './salePayments';
+
+export {
+  consignmentBalances,
+  consignmentHistory,
+  createConsignment,
+  recordConsignmentPayment,
+  returnConsignmentItem,
+  updateConsignmentTerms,
+} from './consignmentOperations';
 
 async function requireOwner(ctx: {
-  auth: { getUserIdentity(): Promise<{ subject: string } | null> };
+  auth: { getUserIdentity(): Promise<{ subject: string; scope?: unknown } | null> };
 }): Promise<string> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new Error('UNAUTHENTICATED');
+  if (identity.scope === 'realtime:read') throw new Error('READ_ONLY_TOKEN');
   // A Convex deployment represents one company. ownerId records who created a row,
   // while authenticated users in this deployment share the company's business data.
   return identity.subject;
@@ -92,6 +110,7 @@ export const createPurchase = mutation({
       v.object({
         operationId: v.string(),
         name: v.string(),
+        tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'))),
         series: v.optional(v.string()),
         identifier: v.optional(v.string()),
         serialNumber: v.optional(v.string()),
@@ -142,8 +161,7 @@ export const createPurchase = mutation({
             .query('items')
             .withIndex('by_purchase', (q) => q.eq('purchaseId', prior._id))
             .collect()
-        )
-          .map((i) => i._id),
+        ).map((i) => i._id),
       };
     const seller = await ctx.db.get(args.sellerId);
     if (!seller) throw new Error('SELLER_NOT_FOUND');
@@ -225,8 +243,7 @@ export const cancelPendingPurchase = mutation({
       .withIndex('by_purchase', (q) => q.eq('purchaseId', purchaseId))
       .collect();
     for (const item of items)
-      if (item.status === 'available')
-        await ctx.db.patch(item._id, { status: 'cancelled' });
+      if (item.status === 'available') await ctx.db.patch(item._id, { status: 'cancelled' });
     return purchaseId;
   },
 });
@@ -246,14 +263,10 @@ export const updatePurchaseDate = mutation({
     for (const item of items) {
       const activeSales = await ctx.db
         .query('sales')
-        .withIndex('by_item_status', (q) =>
-          q.eq('itemId', item._id).eq('status', 'active'),
-        )
+        .withIndex('by_item_status', (q) => q.eq('itemId', item._id).eq('status', 'active'))
         .collect();
       if (
-        activeSales.some(
-          (sale) => new Date(sale.occurredAt).toISOString().slice(0, 10) < nextDay,
-        )
+        activeSales.some((sale) => new Date(sale.occurredAt).toISOString().slice(0, 10) < nextDay)
       )
         throw new Error('PURCHASE_DATE_AFTER_SALE');
     }
@@ -265,67 +278,210 @@ export const updatePurchaseDate = mutation({
   },
 });
 
+type SaleInput = {
+  paymentStatus?: 'pending' | 'received';
+  payment?: SalePayment;
+  operationId: string;
+  itemId: Id<'items'>;
+  occurredAt: number;
+  salePriceCents: number;
+  customerName?: string;
+};
+async function createSaleTransaction(ctx: MutationCtx, args: SaleInput) {
+  const ownerId = await requireOwner(ctx);
+  const operationDigest = digest(args);
+  const prior = replay(
+    await ctx.db
+      .query('sales')
+      .withIndex('by_owner_operation', (q) =>
+        q.eq('ownerId', ownerId).eq('operationId', args.operationId),
+      )
+      .unique(),
+    operationDigest,
+  );
+  if (prior) return prior._id;
+  const previousConflict = replay(
+    await ctx.db
+      .query('saleConflicts')
+      .withIndex('by_owner_operation', (q) =>
+        q.eq('ownerId', ownerId).eq('operationId', args.operationId),
+      )
+      .unique(),
+    operationDigest,
+  );
+  if (previousConflict) return { conflict: true as const, id: previousConflict._id };
+  const item = await ctx.db.get(args.itemId);
+  if (!item) throw new Error('ITEM_NOT_FOUND');
+  if (!Number.isSafeInteger(args.salePriceCents) || args.salePriceCents < 0)
+    throw new Error('INVALID_PRICE');
+  if (
+    !Number.isSafeInteger(args.occurredAt) ||
+    !Number.isFinite(new Date(args.occurredAt).getTime())
+  )
+    throw new Error('INVALID_SALE_DATE');
+  validateSalePayment(args.salePriceCents, args.occurredAt, args.paymentStatus, args.payment);
+  const saleDay = new Date(args.occurredAt).toISOString().slice(0, 10);
+  const purchaseDay = new Date(item.purchaseOccurredAt).toISOString().slice(0, 10);
+  if (
+    !Number.isFinite(args.occurredAt) ||
+    (args.occurredAt < item.purchaseOccurredAt && saleDay < purchaseDay)
+  )
+    throw new Error('SALE_BEFORE_PURCHASE');
+  const consignment = item.consignmentId ? await ctx.db.get(item.consignmentId) : null;
+  const purchase = item.purchaseId ? await ctx.db.get(item.purchaseId) : null;
+  if (item.origin === 'consignment') {
+    if (!consignment || item.commissionRateBps === undefined || item.agreedPriceCents === undefined)
+      throw new Error('CONSIGNMENT_ITEM_NOT_FOUND');
+    if (args.salePriceCents < item.agreedPriceCents) throw new Error('PRICE_BELOW_AGREEMENT');
+  } else if (purchase?.status !== 'active') throw new Error('ITEM_UNAVAILABLE');
+  if (item.status !== 'available') {
+    const conflictId = await ctx.db.insert('saleConflicts', {
+      ownerId,
+      operationId: args.operationId,
+      operationDigest,
+      itemId: args.itemId,
+      occurredAt: args.occurredAt,
+      salePriceCents: args.salePriceCents,
+      customerName: args.customerName,
+      status: 'open',
+      createdAt: Date.now(),
+    });
+    return { conflict: true as const, id: conflictId };
+  }
+  const saleId = await ctx.db.insert('sales', {
+    ...args,
+    operationDigest,
+    ownerId,
+    origin: item.origin ?? 'purchase',
+    ...(consignment && item.commissionRateBps !== undefined
+      ? {
+          consignmentId: consignment._id,
+          sellerId: consignment.sellerId,
+          commissionRateBps: item.commissionRateBps,
+          ...splitConsignmentPrice(args.salePriceCents, item.commissionRateBps),
+        }
+      : {}),
+    status: 'active',
+    createdAt: Date.now(),
+  });
+  await ctx.db.patch(item._id, { status: 'sold' });
+  return saleId;
+}
 export const createSale = mutation({
   args: {
+    paymentStatus: v.optional(salePaymentStatusValidator),
+    payment: v.optional(salePaymentValidator),
     operationId: v.string(),
     itemId: v.id('items'),
     occurredAt: v.number(),
     salePriceCents: v.number(),
     customerName: v.optional(v.string()),
   },
+  handler: createSaleTransaction,
+});
+
+export const createSales = mutation({
+  args: {
+    paymentStatus: v.optional(salePaymentStatusValidator),
+    payment: v.optional(salePaymentValidator),
+    operationId: v.string(),
+    occurredAt: v.number(),
+    items: v.array(v.object({ itemId: v.id('items'), salePriceCents: v.number() })),
+  },
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwner(ctx);
+    const prior = replay(
+      await ctx.db
+        .query('saleBatches')
+        .withIndex('by_owner_operation', (q) =>
+          q.eq('ownerId', ownerId).eq('operationId', args.operationId),
+        )
+        .unique(),
+      digest(args),
+    );
+    if (prior) return { ids: prior.saleIds };
+    if (
+      !args.operationId ||
+      !args.items.length ||
+      new Set(args.items.map((item) => item.itemId)).size !== args.items.length
+    )
+      throw new Error('INVALID_SALE_BATCH');
+    if (
+      args.items.some(
+        (item) => !Number.isSafeInteger(item.salePriceCents) || item.salePriceCents < 0,
+      )
+    )
+      throw new Error('INVALID_PRICE');
+    const totalBig = args.items.reduce((sum, item) => sum + BigInt(item.salePriceCents), 0n);
+    if (totalBig > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('INVALID_PRICE');
+    validateSalePayment(Number(totalBig), args.occurredAt, args.paymentStatus, args.payment);
+    const payments = args.payment
+      ? allocateSalePayments(
+          args.items.map((item) => item.salePriceCents),
+          args.payment,
+        )
+      : undefined;
+    const ids: Id<'sales'>[] = [];
+    for (const [index, item] of args.items.entries()) {
+      const saleId = await createSaleTransaction(ctx, {
+        ...item,
+        operationId: `${args.operationId}:bulk:${index}`,
+        occurredAt: args.occurredAt,
+        ...(args.paymentStatus ? { paymentStatus: args.paymentStatus } : {}),
+        ...(payments ? { payment: payments[index] } : {}),
+      });
+      if (typeof saleId !== 'string') throw new Error('ITEM_UNAVAILABLE');
+      ids.push(saleId);
+    }
+    await ctx.db.insert('saleBatches', {
+      ownerId,
+      operationId: args.operationId,
+      operationDigest: digest(args),
+      saleIds: ids,
+    });
+    return { ids };
+  },
+});
+
+export const recordSalePayment = mutation({
+  args: {
+    operationId: v.string(),
+    saleId: v.id('sales'),
+    cashCents: v.number(),
+    transferCents: v.number(),
+    receivedAt: v.number(),
+    reference: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
     const operationDigest = digest(args);
     const prior = replay(
       await ctx.db
-        .query('sales')
+        .query('salePaymentEvents')
         .withIndex('by_owner_operation', (q) =>
           q.eq('ownerId', ownerId).eq('operationId', args.operationId),
         )
         .unique(),
       operationDigest,
     );
-    if (prior) return prior._id;
-    const previousConflict = replay(
-      await ctx.db
-        .query('saleConflicts')
-        .withIndex('by_owner_operation', (q) =>
-          q.eq('ownerId', ownerId).eq('operationId', args.operationId),
-        )
-        .unique(),
-      operationDigest,
-    );
-    if (previousConflict) return { conflict: true as const, id: previousConflict._id };
-    const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error('ITEM_NOT_FOUND');
-    if (!Number.isSafeInteger(args.salePriceCents) || args.salePriceCents < 0)
-      throw new Error('INVALID_PRICE');
-    const saleDay = new Date(args.occurredAt).toISOString().slice(0, 10);
-    const purchaseDay = new Date(item.purchaseOccurredAt).toISOString().slice(0, 10);
-    if (!Number.isFinite(args.occurredAt) || (args.occurredAt < item.purchaseOccurredAt && saleDay < purchaseDay))
-      throw new Error('SALE_BEFORE_PURCHASE');
-    if (item.status !== 'available') {
-      const conflictId = await ctx.db.insert('saleConflicts', {
-        ownerId,
-        operationId: args.operationId,
-        operationDigest,
-        itemId: args.itemId,
-        occurredAt: args.occurredAt,
-        salePriceCents: args.salePriceCents,
-        customerName: args.customerName,
-        status: 'open',
-        createdAt: Date.now(),
-      });
-      return { conflict: true as const, id: conflictId };
-    }
-    const saleId = await ctx.db.insert('sales', {
-      ...args,
-      operationDigest,
+    if (prior) return prior.saleId;
+    const sale = await ctx.db.get(args.saleId);
+    if (!sale) throw new Error('SALE_NOT_FOUND');
+    if (sale.status !== 'active') throw new Error('SALE_CANCELLED');
+    if (!args.operationId) throw new Error('INVALID_SALE_PAYMENT');
+    const { operationId, saleId, ...payment } = args;
+    validateSalePayment(sale.salePriceCents, sale.occurredAt, 'received', payment);
+    await ctx.db.insert('salePaymentEvents', {
       ownerId,
-      status: 'active',
+      operationId,
+      operationDigest,
+      saleId,
+      previousPaymentStatus: sale.paymentStatus,
+      previousPayment: sale.payment,
+      payment,
       createdAt: Date.now(),
     });
-    await ctx.db.patch(item._id, { status: 'sold' });
+    await ctx.db.patch(saleId, { paymentStatus: 'received', payment });
     return saleId;
   },
 });
@@ -340,8 +496,9 @@ export const updateAskingPrice = mutation({
     if (!Number.isSafeInteger(askingPriceCents) || askingPriceCents < 0)
       throw new Error('INVALID_PRICE');
     const item = await ctx.db.get(itemId);
-    if (!item || item.status !== 'available')
-      throw new Error('ITEM_NOT_FOUND');
+    if (!item || item.status !== 'available') throw new Error('ITEM_NOT_FOUND');
+    if (item.origin === 'consignment' && askingPriceCents < (item.agreedPriceCents ?? 0))
+      throw new Error('PRICE_BELOW_AGREEMENT');
     await ctx.db.patch(itemId, { askingPriceCents });
     return itemId;
   },
@@ -372,8 +529,7 @@ export const cancelSale = mutation({
       return sale._id;
     }
     const item = await ctx.db.get(sale.itemId);
-    if (!item || item.status !== 'sold')
-      throw new Error('ITEM_STATE_INVALID');
+    if (!item || item.status !== 'sold') throw new Error('ITEM_STATE_INVALID');
     await ctx.db.patch(sale._id, {
       status: 'cancelled',
       cancelOperationId: args.operationId,
@@ -381,6 +537,54 @@ export const cancelSale = mutation({
     });
     await ctx.db.patch(item._id, { status: 'available' });
     return sale._id;
+  },
+});
+
+export const setStockVisibility = mutation({
+  args: {
+    operationId: v.string(),
+    itemIds: v.array(v.id('items')),
+    hidden: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwner(ctx);
+    const operationDigest = digest(args);
+    const prior = replay(
+      await ctx.db
+        .query('stockVisibilityOperations')
+        .withIndex('by_owner_operation', (q) =>
+          q.eq('ownerId', ownerId).eq('operationId', args.operationId),
+        )
+        .unique(),
+      operationDigest,
+    );
+    if (prior) return { updatedCount: prior.updatedCount };
+    if (
+      !args.operationId.trim() ||
+      args.itemIds.length < 1 ||
+      args.itemIds.length > 500 ||
+      new Set(args.itemIds).size !== args.itemIds.length
+    )
+      throw new Error('INVALID_STOCK_SELECTION');
+    const items = await Promise.all(args.itemIds.map((id) => ctx.db.get(id)));
+    // A stale selection fails as a whole, so no product is changed silently.
+    if (items.some((item) => item?.status !== 'available'))
+      throw new Error('ITEM_UNAVAILABLE');
+    let updatedCount = 0;
+    for (const item of items) {
+      if (item && (item.hiddenFromCatalogue ?? false) !== args.hidden) {
+        await ctx.db.patch(item._id, { hiddenFromCatalogue: args.hidden });
+        updatedCount++;
+      }
+    }
+    await ctx.db.insert('stockVisibilityOperations', {
+      ...args,
+      ownerId,
+      operationDigest,
+      updatedCount,
+      createdAt: Date.now(),
+    });
+    return { updatedCount };
   },
 });
 
@@ -395,18 +599,24 @@ export const stock = query({
     const rows = await Promise.all(
       items.map(async (item) => {
         const [purchase, photos] = await Promise.all([
-          ctx.db.get(item.purchaseId),
+          item.purchaseId ? ctx.db.get(item.purchaseId) : Promise.resolve(null),
           ctx.db
             .query('attachments')
             .withIndex('by_item', (q) => q.eq('itemId', item._id))
             .collect(),
         ]);
-        const seller = purchase ? await ctx.db.get(purchase.sellerId) : null;
-        if (purchase?.status !== 'active') return null;
+        const consignment = item.consignmentId ? await ctx.db.get(item.consignmentId) : null;
+        const source = consignment ?? purchase;
+        const seller = source ? await ctx.db.get(source.sellerId) : null;
+        if (!consignment && purchase?.status !== 'active') return null;
         return {
           ...item,
           photos,
-          purchaseReference: purchase?.reference ?? '',
+          origin: item.origin ?? 'purchase',
+          productType: item.productType ?? 'card',
+          purchasePriceCents: item.purchasePriceCents ?? 0,
+          sellerId: source?.sellerId,
+          purchaseReference: source?.reference ?? '',
           sellerName: seller?.name ?? '',
         };
       }),
@@ -415,11 +625,40 @@ export const stock = query({
   },
 });
 
+async function catalogueEligible(ctx: QueryCtx, item: Doc<'items'>): Promise<boolean> {
+  if (item.status !== 'available' || item.hiddenFromCatalogue || item.askingPriceCents === undefined) return false;
+  if (item.consignmentId) return Boolean(await ctx.db.get(item.consignmentId));
+  const purchase = item.purchaseId ? await ctx.db.get(item.purchaseId) : null;
+  return purchase?.status === 'active';
+}
+
+async function cataloguePhoto(ctx: QueryCtx, itemId: Id<'items'>) {
+  const photos = await ctx.db.query('attachments').withIndex('by_item', q => q.eq('itemId', itemId)).collect();
+  return photos.find(photo => !photo.purchaseId && ['image/jpeg', 'image/png'].includes(photo.contentType)) ?? null;
+}
+
+// Only the service-authenticated action can resolve private object keys.
+export const cataloguePhotoObject = internalQuery({
+  args: { itemId: v.string() },
+  handler: async (ctx, { itemId }) => {
+    const id = ctx.db.normalizeId('items', itemId);
+    const item = id ? await ctx.db.get(id) : null;
+    if (!item || !await catalogueEligible(ctx, item)) return null;
+    const photo = await cataloguePhoto(ctx, item._id);
+    return photo ? { objectKey: photo.objectKey, contentType: photo.contentType } : null;
+  },
+});
+
 export const publicCatalogue = query({
   args: {
+    tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'), v.literal('all'))),
     paginationOpts: paginationOptsValidator,
-    search: v.string(), minPrice: v.optional(v.number()), maxPrice: v.optional(v.number()),
-    gradingStatus: v.string(), gradingCompany: v.string(), gradingGrade: v.string(),
+    search: v.string(),
+    minPrice: v.optional(v.number()),
+    maxPrice: v.optional(v.number()),
+    gradingStatus: v.string(),
+    gradingCompany: v.string(),
+    gradingGrade: v.string(),
   },
   handler: async (ctx, args) => {
     // Apply every catalogue filter before slicing the result set. Paginating the
@@ -428,32 +667,62 @@ export const publicCatalogue = query({
       .query('items')
       .withIndex('by_status', (q) => q.eq('status', 'available'))
       .collect();
-    const rows = await Promise.all(items.map(async (item) => {
-      const purchase = await ctx.db.get(item.purchaseId);
-      if (purchase?.status !== 'active' || item.askingPriceCents === undefined) return null;
-      const search = args.search.trim().toLocaleLowerCase();
-      const text = [item.name, item.series, item.identifier, item.gradingNotes, item.gradingCompany, item.gradingGrade].join(' ').toLocaleLowerCase();
-      const graded = Boolean(item.gradingCompany);
-      if (search && !text.includes(search)) return null;
-      if (args.minPrice !== undefined && item.askingPriceCents < args.minPrice) return null;
-      if (args.maxPrice !== undefined && item.askingPriceCents > args.maxPrice) return null;
-      if (args.gradingStatus === 'graded' && !graded || args.gradingStatus === 'ungraded' && graded) return null;
-      if (args.gradingCompany && item.gradingCompany !== args.gradingCompany) return null;
-      if (args.gradingGrade && !(item.gradingGrade ?? '').toLocaleLowerCase().includes(args.gradingGrade.toLocaleLowerCase())) return null;
-      return {
-        id: item._id,
-        name: item.name,
-        series: item.series ?? '',
-        identifier: item.identifier ?? '',
-        language: item.language ?? 'fr',
-        condition: item.condition ?? 'NM',
-        gradingCompany: item.gradingCompany,
-        gradingGrade: item.gradingGrade,
-        gradingNotes: item.gradingNotes,
-        catalogueImageUrl: item.catalogueImageUrl,
-        salePriceCents: item.askingPriceCents!,
-      };
-    }));
+    const rows = await Promise.all(
+      items.map(async (item) => {
+        if (!await catalogueEligible(ctx, item) || item.askingPriceCents === undefined) return null;
+        const isCard = !item.productType || item.productType === 'card';
+        const tcg = item.tcg ?? (isCard ? 'pokemon' : undefined);
+        if (args.tcg && args.tcg !== 'all' && tcg !== args.tcg) return null;
+        const search = args.search.trim().toLocaleLowerCase();
+        const text = [
+          item.name,
+          item.series,
+          item.identifier,
+          item.description,
+          item.gradingNotes,
+          item.gradingCompany,
+          item.gradingGrade,
+        ]
+          .join(' ')
+          .toLocaleLowerCase();
+        const graded = Boolean(item.gradingCompany);
+        if (search && !text.includes(search)) return null;
+        if (args.minPrice !== undefined && item.askingPriceCents < args.minPrice) return null;
+        if (args.maxPrice !== undefined && item.askingPriceCents > args.maxPrice) return null;
+        if (
+          (args.gradingStatus === 'graded' && !graded) ||
+          (args.gradingStatus === 'ungraded' && graded)
+        )
+          return null;
+        if (args.gradingCompany && item.gradingCompany !== args.gradingCompany) return null;
+        if (
+          args.gradingGrade &&
+          !(item.gradingGrade ?? '')
+            .toLocaleLowerCase()
+            .includes(args.gradingGrade.toLocaleLowerCase())
+        )
+          return null;
+        return {
+          id: item._id,
+          productType: item.productType ?? 'card',
+          description: item.description,
+          tcg,
+          name: item.name,
+          series: item.series ?? '',
+          identifier: item.identifier ?? '',
+          language:
+            item.language ?? (!item.productType || item.productType === 'card' ? 'fr' : undefined),
+          condition:
+            item.condition ?? (!item.productType || item.productType === 'card' ? 'NM' : undefined),
+          gradingCompany: item.gradingCompany,
+          gradingGrade: item.gradingGrade,
+          gradingNotes: item.gradingNotes,
+          catalogueImageUrl: item.catalogueImageUrl,
+          hasPhoto: Boolean(await cataloguePhoto(ctx, item._id)),
+          salePriceCents: item.askingPriceCents,
+        };
+      }),
+    );
     const filtered = rows.filter((row) => row !== null);
     const offset = args.paginationOpts.cursor ? Number(args.paginationOpts.cursor) : 0;
     const start = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
@@ -472,10 +741,7 @@ export const sellerHistory = query({
   args: {},
   handler: async (ctx) => {
     await requireOwner(ctx);
-    return ctx.db
-      .query('sellers')
-      .order('asc')
-      .collect();
+    return ctx.db.query('sellers').order('asc').collect();
   },
 });
 
@@ -483,9 +749,7 @@ export const purchaseHistory = query({
   args: {},
   handler: async (ctx) => {
     await requireOwner(ctx);
-    const purchases = await ctx.db
-      .query('purchases')
-      .collect();
+    const purchases = await ctx.db.query('purchases').collect();
     purchases.sort((left, right) => right.occurredAt - left.occurredAt);
     return Promise.all(
       purchases.map(async (purchase) => {
@@ -518,23 +782,26 @@ export const salesHistory = query({
   args: {},
   handler: async (ctx) => {
     await requireOwner(ctx);
-    const sales = await ctx.db
-      .query('sales')
-      .order('desc')
-      .collect();
+    const sales = await ctx.db.query('sales').order('desc').collect();
     return Promise.all(
       sales.map(async (sale) => {
         const item = await ctx.db.get(sale.itemId);
         if (!item) return null;
-        const purchase = await ctx.db.get(item.purchaseId);
-        const seller = purchase ? await ctx.db.get(purchase.sellerId) : null;
+        const purchase = item.purchaseId ? await ctx.db.get(item.purchaseId) : null;
+        const consignment = item.consignmentId ? await ctx.db.get(item.consignmentId) : null;
+        const source = consignment ?? purchase;
+        const seller = source ? await ctx.db.get(source.sellerId) : null;
         return {
           ...sale,
+          origin: sale.origin ?? item.origin ?? 'purchase',
+          productType: item.productType ?? 'card',
           itemName: item.name,
           series: item.series ?? '',
           identifier: item.identifier ?? '',
-          language: item.language ?? 'fr',
-          condition: item.condition ?? 'NM',
+          language:
+            item.language ?? (!item.productType || item.productType === 'card' ? 'fr' : undefined),
+          condition:
+            item.condition ?? (!item.productType || item.productType === 'card' ? 'NM' : undefined),
           gradingCompany: item.gradingCompany,
           gradingGrade: item.gradingGrade,
           gradingCertificate: item.gradingCertificate,
@@ -542,8 +809,8 @@ export const salesHistory = query({
           marketValueCents: item.marketValueCents,
           discountPercent: item.discountPercent,
           askingPriceCents: item.askingPriceCents,
-          purchasePriceCents: item.purchasePriceCents,
-          purchaseReference: purchase?.reference ?? '',
+          purchasePriceCents: item.purchasePriceCents ?? 0,
+          purchaseReference: source?.reference ?? '',
           vatRegime: item.vatRegime,
           purchaseOccurredAt: purchase?.occurredAt ?? item.purchaseOccurredAt,
           sellerName: seller?.name ?? '',
@@ -621,7 +888,14 @@ export const createAttachment = mutation({
       if (args.purchaseId && item.purchaseId !== args.purchaseId)
         throw new Error('ATTACHMENT_TARGET_MISMATCH');
     }
-    if (!args.objectKey.startsWith(`${ownerId}/`) || args.size <= 0)
+    const prefix = args.itemId && ['image/jpeg', 'image/png'].includes(args.contentType)
+      ? `cards/${ownerId}/` : `attachments/${ownerId}/`;
+    const validKey = [prefix, `${ownerId}/`].some(base => {
+      if (!args.objectKey.startsWith(base)) return false;
+      const suffix = args.objectKey.slice(base.length);
+      return !!suffix && !suffix.includes('/') && suffix !== '.' && suffix !== '..';
+    });
+    if (!validKey || args.size <= 0)
       throw new Error('INVALID_ATTACHMENT');
     return ctx.db.insert('attachments', { ...args, ownerId, createdAt: Date.now() });
   },
@@ -647,5 +921,88 @@ export const attachmentsForPurchase = query({
       .query('attachments')
       .withIndex('by_purchase', (q) => q.eq('purchaseId', purchaseId))
       .collect();
+  },
+});
+
+/** Filter purchase metadata on the server; hydrate items/photos only for the requested page. */
+export const purchaseHistoryPage = query({
+  args: {
+    page: v.number(),
+    size: v.number(),
+    search: v.string(),
+    status: v.union(
+      v.literal('all'),
+      v.literal('pending'),
+      v.literal('active'),
+      v.literal('cancelled'),
+    ),
+    from: v.optional(v.number()),
+    to: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireOwner(ctx);
+    if (
+      !Number.isSafeInteger(args.page) ||
+      args.page < 1 ||
+      !Number.isSafeInteger(args.size) ||
+      args.size < 1 ||
+      args.size > 50
+    )
+      throw new Error('INVALID_PAGINATION');
+    if (
+      (args.from !== undefined && !Number.isFinite(args.from)) ||
+      (args.to !== undefined && !Number.isFinite(args.to)) ||
+      (args.from !== undefined && args.to !== undefined && args.from > args.to)
+    )
+      throw new Error('INVALID_DATE_RANGE');
+    const [purchases, sellers] = await Promise.all([
+      ctx.db.query('purchases').collect(),
+      ctx.db.query('sellers').collect(),
+    ]);
+    const sellerNames = new Map(sellers.map((s) => [s._id, s.name]));
+    const normalize = (text: string) =>
+      text
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase();
+    const words = normalize(args.search.trim()).split(/\s+/).filter(Boolean);
+    const matches = purchases
+      .filter((p) => {
+        if (args.status !== 'all' && p.status !== args.status) return false;
+        if (args.from !== undefined && p.occurredAt < args.from) return false;
+        if (args.to !== undefined && p.occurredAt > args.to) return false;
+        const text = normalize(`${p.reference} ${sellerNames.get(p.sellerId) ?? ''}`);
+        return words.every((word) => text.includes(word));
+      })
+      .sort(
+        (a, b) =>
+          b.occurredAt - a.occurredAt ||
+          b._creationTime - a._creationTime ||
+          a._id.localeCompare(b._id),
+      );
+    const totalPages = Math.max(1, Math.ceil(matches.length / args.size));
+    const page = Math.min(args.page, totalPages);
+    const rows = await Promise.all(
+      matches.slice((page - 1) * args.size, page * args.size).map(async (purchase) => {
+        const items = await ctx.db
+          .query('items')
+          .withIndex('by_purchase', (q) => q.eq('purchaseId', purchase._id))
+          .collect();
+        return {
+          ...purchase,
+          sellerName: sellerNames.get(purchase.sellerId) ?? '',
+          items: await Promise.all(
+            items.map(async (item) => ({
+              ...item,
+              photos: await ctx.db
+                .query('attachments')
+                .withIndex('by_item', (q) => q.eq('itemId', item._id))
+                .collect(),
+            })),
+          ),
+        };
+      }),
+    );
+    return { rows, page, totalPages, totalCount: matches.length };
   },
 });
