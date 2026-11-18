@@ -1,3 +1,4 @@
+import { FiArchive, FiDownload, FiGrid, FiList, FiPackage, FiSettings, FiShoppingBag, FiShoppingCart, FiUsers, FiExternalLink } from 'react-icons/fi';
 import { ConventionPhoto } from './ConventionPhoto';
 import { API, realtime, publicRealtime } from './realtime';
 import { ItemThumbnail } from './ItemThumbnail';
@@ -625,18 +626,7 @@ function ConventionCatalog() {
                 title="Afficher en grille"
                 onClick={() => setLayout('grid')}
               >
-                <svg
-                  className="public-catalogue-layout-icon"
-                  viewBox="0 0 20 20"
-                  aria-hidden="true"
-                  focusable="false"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <rect x="2" y="2" width="6" height="6" rx="1" />
-                  <rect x="12" y="2" width="6" height="6" rx="1" />
-                  <rect x="2" y="12" width="6" height="6" rx="1" />
-                  <rect x="12" y="12" width="6" height="6" rx="1" />
-                </svg>
+                <FiGrid className="public-catalogue-layout-icon" aria-hidden="true" focusable="false" />
               </button>
               <button
                 type="button"
@@ -650,20 +640,7 @@ function ConventionCatalog() {
                 title="Afficher une carte par ligne"
                 onClick={() => setLayout('list')}
               >
-                <svg
-                  className="public-catalogue-layout-icon"
-                  viewBox="0 0 20 20"
-                  aria-hidden="true"
-                  focusable="false"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <rect x="2" y="3" width="4" height="4" rx="1" />
-                  <rect x="8" y="3" width="10" height="4" rx="1" />
-                  <rect x="2" y="9" width="4" height="4" rx="1" />
-                  <rect x="8" y="9" width="10" height="4" rx="1" />
-                  <rect x="2" y="15" width="4" height="3" rx="1" />
-                  <rect x="8" y="15" width="10" height="3" rx="1" />
-                </svg>
+                <FiList className="public-catalogue-layout-icon" aria-hidden="true" focusable="false" />
               </button>
             </div>
           </div>
@@ -2008,19 +1985,19 @@ function App() {
             <span className="navigation-caption">Espace de gestion</span>
             <nav className="admin-nav" aria-label="Navigation administrateur">
               {([
-                ['dashboard', 'Vue d’ensemble', 'overview'],
-                ['stock', 'Stock', 'stock'],
-                ['sales', 'Ventes', 'sales'],
-                ['purchaseHistory', 'Rachats', 'purchases'],
-                ['consignments', 'Dépôts-ventes', 'deposits'],
-                ['clients', 'Clients', 'clients'],
-                ['exports', 'Exports', 'exports'],
-                ['settings', 'Paramètres', 'settings'],
-              ] as const).map(([page, label, icon]) => {
+                ['dashboard', 'Vue d’ensemble', FiGrid],
+                ['stock', 'Stock', FiPackage],
+                ['sales', 'Ventes', FiShoppingCart],
+                ['purchaseHistory', 'Rachats', FiShoppingBag],
+                ['consignments', 'Dépôts-ventes', FiArchive],
+                ['clients', 'Clients', FiUsers],
+                ['exports', 'Exports', FiDownload],
+                ['settings', 'Paramètres', FiSettings],
+              ] as const).map(([page, label, Icon]) => {
                 const active = adminPage === page || (page === 'sales' && ['saleSummary', 'salesHistory', 'saleConflicts'].includes(adminPage)) || (page === 'purchaseHistory' && adminPage === 'purchases') || (page === 'consignments' && ['consignmentNew', 'consignmentPayouts'].includes(adminPage));
                 const children: [AdminPage, string][] = page === 'sales' ? [['sales', 'Nouvelle vente'], ['salesHistory', 'Historique'], ['saleConflicts', 'Conflits']] : page === 'purchaseHistory' ? [['purchaseHistory', 'Historique'], ['purchases', 'Nouveau rachat']] : page === 'consignments' ? [['consignments', 'Dossiers'], ['consignmentNew', 'Nouveau dépôt'], ['consignmentPayouts', 'Reversements']] : [];
                 return <div key={page} className={`navigation-group ${page === 'exports' ? 'navigation-utilities' : ''}`}><a href={adminPagePaths[page]} aria-current={active ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigateAdminPage(page); }}>
-                  <span className={`navigation-icon navigation-icon-${icon}`} aria-hidden="true" />
+                  <Icon className="navigation-icon" aria-hidden="true" focusable="false" />
                   <span>{label}</span>
                 </a>{active && children.length > 0 && <div className="navigation-submenu">{children.map(([destination, title]) => <a key={destination} href={adminPagePaths[destination]} aria-current={adminPage === destination ? 'page' : undefined} onClick={event => { event.preventDefault(); navigateAdminPage(destination); }}>{title}</a>)}</div>}</div>;
               })}
@@ -2033,7 +2010,7 @@ function App() {
               <p>{{ dashboard: 'Suivez les encaissements et les opérations de votre boutique.', stock: 'Retrouvez vos articles et gérez leur visibilité au catalogue.', sales: 'Recherchez les articles à ajouter au panier.', saleSummary: 'Vérifiez les articles et renseignez le règlement.', salesHistory: 'Consultez les ventes et suivez leurs encaissements.', saleConflicts: 'Examinez les ventes concurrentes et consignez leur résolution.', purchases: 'Sélectionnez un client, puis ajoutez les articles du rachat.', purchaseHistory: 'Consultez les dossiers et poursuivez les opérations en attente.', consignments: 'Retrouvez les dossiers et les articles confiés.', consignmentNew: 'Identifiez le déposant et les articles confiés à la boutique.', consignmentPayouts: 'Consultez les soldes et enregistrez les paiements aux déposants.', clients: 'Retrouvez les coordonnées de vos vendeurs et déposants.', exports: 'Téléchargez vos données de gestion.', settings: 'Gérez votre signataire et les préférences de votre espace.' }[adminPage]}</p>
             </div>
             {adminPage === 'purchaseHistory' && <button onClick={() => navigateAdminPage('purchases')}>+ Nouveau rachat</button>}
-            {adminPage === 'stock' && <div className="actions"><a href="/convention" target="_blank" rel="noreferrer">Catalogue convention ↗</a><button onClick={() => navigateAdminPage('sales')}>+ Nouvelle vente</button></div>}
+            {adminPage === 'stock' && <div className="actions"><a href="/convention" target="_blank" rel="noreferrer">Catalogue convention <FiExternalLink aria-hidden="true" focusable="false" /></a><button onClick={() => navigateAdminPage('sales')}>+ Nouvelle vente</button></div>}
             {adminPage === 'consignments' && <button onClick={() => navigateAdminPage('consignmentNew')}>+ Nouveau dépôt</button>}
             {adminPage === 'dashboard' && <button onClick={() => navigateAdminPage('sales')}>+ Nouvelle vente</button>}
           </div>
@@ -2259,9 +2236,7 @@ function App() {
                   className="cart-summary-link"
                   onClick={() => navigateAdminPage('saleSummary')}
                 >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="M3 3h2l2.2 11.2a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 1.9-1.4L22 8H6M10 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
-                  </svg>
+                  <FiShoppingCart aria-hidden="true" focusable="false" />
                   Voir le résumé du panier
                 </button>
               </div>
@@ -2857,9 +2832,7 @@ function App() {
                 aria-label={`Ouvrir le résumé du panier, ${selectedItemIds.length} carte(s)`}
                 onClick={() => navigateAdminPage('saleSummary')}
               >
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                  <path d="M3 3h2l2.2 11.2a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 1.9-1.4L22 8H6M10 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
-                </svg>
+                <FiShoppingCart aria-hidden="true" focusable="false" />
                 <span className="cart-fab-count">{selectedItemIds.length}</span>
               </button>
             )}

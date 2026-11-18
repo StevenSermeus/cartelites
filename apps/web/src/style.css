@@ -359,7 +359,7 @@ article strong { flex: 0 0 auto; color: var(--primary-hover); font-variant-numer
 }
 .public-catalogue-layout-option:hover:not(:disabled) { border-color: var(--brand-border); background: var(--brand-soft); color: var(--primary-hover); box-shadow: none; }
 .public-catalogue-layout-option.is-active { border-color: var(--primary); background: var(--primary); color: var(--brand-onPrimary); box-shadow: 0 2px 6px color-mix(in srgb, var(--brand-ink) 18%, transparent); }
-.public-catalogue-layout-icon { display: block; width: 20px; height: 20px; fill: currentColor; }
+.public-catalogue-layout-icon { display: block; width: 20px; height: 20px; fill: none; }
 .public-catalogue-page-size-control {
   display: inline-flex;
   align-items: center;
@@ -612,8 +612,8 @@ article strong { flex: 0 0 auto; color: var(--primary-hover); font-variant-numer
 .public-catalogue-result-summary { color: var(--brand-muted); font-size: 13px; font-weight: 700; }
 .public-catalogue-layout-toggle { flex: 0 0 auto; }
 .public-catalogue-layout-option { min-width: 44px; min-height: 44px; }
-.public-catalogue-layout-icon { fill: currentColor; stroke: currentColor; }
-.public-catalogue-layout-option.is-active .public-catalogue-layout-icon { color: var(--brand-onPrimary); fill: var(--brand-surface); stroke: var(--brand-surface); }
+.public-catalogue-layout-icon { fill: none; stroke: currentColor; }
+.public-catalogue-layout-option.is-active .public-catalogue-layout-icon { color: var(--brand-onPrimary); fill: none; stroke: currentColor; }
 .public-catalogue-page-size-control { white-space: nowrap; }
 .public-catalogue-page-size-control select { width: 64px; }
 
@@ -921,14 +921,7 @@ article strong { flex: 0 0 auto; color: var(--primary-hover); font-variant-numer
 .workspace-sidebar .admin-nav a { justify-content: flex-start; gap: 12px; min-height: 46px; padding: 12px 14px; font-size: 14px; border-radius: 9px; }
 .workspace-sidebar .admin-nav a:nth-last-child(2) { margin-top: 28px; border-top: 1px solid var(--line); }
 .workspace-sidebar .admin-nav a[aria-current='page'] { background: var(--primary-soft); color: var(--primary); box-shadow: inset 3px 0 var(--primary); }
-.navigation-icon { display: inline-block; width: 17px; height: 17px; border: 1.6px solid currentColor; border-radius: 4px; flex-shrink: 0; opacity: .8; }
-.navigation-icon-overview { background: linear-gradient(90deg, transparent 44%, currentColor 44%, currentColor 54%, transparent 54%), linear-gradient(0deg, transparent 44%, currentColor 44%, currentColor 54%, transparent 54%); }
-.navigation-icon-sales { border-radius: 0 0 5px 5px; border-top: 3px solid currentColor; transform: skew(-6deg); }
-.navigation-icon-purchases, .navigation-icon-exports { border-top: 0; border-radius: 0 0 3px 3px; position: relative; }
-.navigation-icon-purchases::after, .navigation-icon-exports::after { content: '↓'; position: absolute; top: -9px; left: 2px; font-size: 21px; }
-.navigation-icon-clients { border-radius: 50% 50% 4px 4px; }
-.navigation-icon-settings { border-radius: 50%; border-width: 4px; }
-.navigation-icon-deposits { border-radius: 2px 6px 2px 2px; }
+.navigation-icon { display: inline-block; width: 17px; height: 17px; flex-shrink: 0; opacity: .8; }
 .sidebar-note { margin: auto 14px 0; padding-top: 40px; font-size: 11px; line-height: 1.7; }
 .workspace-page-heading { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 30px; }
 .workspace-page-heading .eyebrow { font-size: 11px; margin: 0 0 14px; text-transform: uppercase; letter-spacing: .09em; }
