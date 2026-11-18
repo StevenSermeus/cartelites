@@ -1,0 +1,19 @@
+{
+  "name": "@tcg-marge/backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "convex dev",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "convex": "^1.17.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "convex-test": "^0.0.71",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

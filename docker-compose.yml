@@ -1,0 +1,19 @@
+services:
+  minio:
+    # Development fallback: the upstream community image is no longer published publicly.
+    # Replace with a maintained, trusted MinIO/AIStor registry for production deployments.
+    image: ${MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5}
+    command: ["server", "/bitnami/minio/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env.docker}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env.docker}
+      MINIO_DEFAULT_BUCKETS: ${MINIO_BUCKET}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/bitnami/minio/data
+    restart: unless-stopped
+
+volumes:
+  minio-data:

@@ -1,0 +1,22 @@
+{
+  "name": "tcg-marge",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "check": "biome check .",
+    "dev": "pnpm dev:minio && concurrently --kill-others-on-fail -n api,web,mobile,convex -c cyan,green,magenta,yellow \"pnpm dev:api\" \"pnpm dev:web\" \"pnpm dev:mobile\" \"pnpm dev:convex\"",
+    "dev:api": "pnpm --filter @tcg-marge/api dev",
+    "dev:web": "pnpm --filter @tcg-marge/web dev",
+    "dev:mobile": "pnpm --filter @tcg-marge/mobile start",
+    "dev:convex": "pnpm --filter @tcg-marge/backend dev",
+    "dev:minio": "docker compose --env-file .env.docker up -d",
+    "stop:minio": "docker compose --env-file .env.docker down"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "concurrently": "^10.0.7"
+  }
+}
