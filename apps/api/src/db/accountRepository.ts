@@ -2,6 +2,8 @@ import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
 import { env } from '../env.js';
 
+export type SignatoryProfile = { firstName: string; lastName: string; capacity: string };
+
 export type Account = {
   id: string;
   email: string;
@@ -12,6 +14,8 @@ export type Account = {
 type AuthOperation =
   | 'accountByEmail'
   | 'accountById'
+  | 'signatoryProfile'
+  | 'setSignatoryProfile'
   | 'signupEnabled'
   | 'setSignupEnabled'
   | 'createAccount'
@@ -62,6 +66,14 @@ export class ConvexAccountRepository {
           createdAt: row.createdAt,
         }
       : null;
+  }
+
+  async signatoryProfile(id: string): Promise<SignatoryProfile> {
+    return this.call('signatoryProfile', { id });
+  }
+
+  async setSignatoryProfile(id: string, profile: SignatoryProfile): Promise<SignatoryProfile> {
+    return this.call('setSignatoryProfile', { id, ...profile });
   }
 
   async isSignupEnabled(): Promise<boolean> {

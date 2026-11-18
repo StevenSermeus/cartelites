@@ -14,10 +14,22 @@ const resetComplete = z.object({
   token: z.string().min(32).max(128),
   password: z.string().min(12).max(256),
 });
+const profileField = z.string().trim().min(1).max(100).regex(/^[^\r\n\x00-\x1f]+$/);
+const signatoryProfileSchema = z.object({ firstName: profileField, lastName: profileField, capacity: profileField }).strict();
 const signupSetting = z.object({ enabled: z.boolean() });
 const dummyPasswordHash = argon2.hash(randomUUID(), { type: argon2.argon2id });
 export function authRoutes(repo: ConvexAccountRepository) {
   const app = new OpenAPIHono<{ Variables: Variables }>();
+  app.openapi(createRoute({
+    method: 'get', path: '/profile', middleware: [authMiddleware(repo)],
+    responses: { 200: { description: 'Signataire du compte connecté' } },
+  }), async (c) => c.json(await repo.signatoryProfile(c.get('ownerId'))));
+  app.openapi(createRoute({
+    method: 'patch', path: '/profile', middleware: [authMiddleware(repo)],
+    request: { body: { content: { 'application/json': { schema: signatoryProfileSchema } } } },
+    responses: { 200: { description: 'Signataire enregistré' } },
+  }), async (c) => c.json(await repo.setSignatoryProfile(c.get('ownerId'), c.req.valid('json'))));
+
   app.openapi(
     createRoute({
       method: 'post',

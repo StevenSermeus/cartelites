@@ -5,6 +5,7 @@ export default defineSchema({
   accounts: defineTable({
     email: v.string(),
     passwordHash: v.string(),
+    signatory: v.optional(v.object({ firstName: v.string(), lastName: v.string(), capacity: v.string() })),
     sessionVersion: v.optional(v.number()),
     createdAt: v.number(),
   }).index('by_email', ['email']),

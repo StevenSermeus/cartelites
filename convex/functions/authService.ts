@@ -21,6 +21,8 @@ export const execute = action({
     operation: v.union(
       v.literal('accountByEmail'),
       v.literal('accountById'),
+      v.literal('signatoryProfile'),
+      v.literal('setSignatoryProfile'),
       v.literal('signupEnabled'),
       v.literal('setSignupEnabled'),
       v.literal('createAccount'),
@@ -40,6 +42,10 @@ export const execute = action({
         return ctx.runQuery(internal.auth.accountByEmail, args.payload);
       case 'accountById':
         return ctx.runQuery(internal.auth.accountById, args.payload);
+      case 'signatoryProfile':
+        return ctx.runQuery(internal.auth.signatoryProfile, args.payload);
+      case 'setSignatoryProfile':
+        return ctx.runMutation(internal.auth.setSignatoryProfile, args.payload);
       case 'signupEnabled':
         return ctx.runQuery(internal.auth.signupEnabled, args.payload);
       case 'setSignupEnabled':

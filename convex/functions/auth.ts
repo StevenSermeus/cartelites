@@ -161,3 +161,24 @@ export const consumePasswordReset = internalMutation({
     return true;
   },
 });
+
+
+export const signatoryProfile = internalQuery({
+  args: { id: v.id('accounts') },
+  handler: async (ctx, { id }) => {
+    const account = await ctx.db.get(id);
+    if (!account) throw new Error('ACCOUNT_NOT_FOUND');
+    return account.signatory ?? { firstName: '', lastName: '', capacity: '' };
+  },
+});
+
+export const setSignatoryProfile = internalMutation({
+  args: { id: v.id('accounts'), firstName: v.string(), lastName: v.string(), capacity: v.string() },
+  handler: async (ctx, { id, ...input }) => {
+    const profile = { firstName: input.firstName.trim(), lastName: input.lastName.trim(), capacity: input.capacity.trim() };
+    if (Object.values(profile).some((value) => !value || value.length > 100 || /[\r\n\x00-\x1f]/.test(value))) throw new Error('INVALID_SIGNATORY');
+    if (!await ctx.db.get(id)) throw new Error('ACCOUNT_NOT_FOUND');
+    await ctx.db.patch(id, { signatory: profile });
+    return profile;
+  },
+});

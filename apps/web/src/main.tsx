@@ -1,6 +1,9 @@
+import { loadReceiptLogo } from './receiptLogo';
+import { LegalPage, legalPages, SiteFooter, type LegalPath } from './LegalPages';
+import { brand, BrandIdentity } from './brand';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createPurchaseReceiptPdf } from './receiptPdf';
+import { createPurchaseReceiptPdf, type SignatoryProfile } from './receiptPdf';
 import './style.css';
 
 const DashboardPage = lazy(() => import('./DashboardPage'));
@@ -316,11 +319,7 @@ function ConventionCatalog() {
   return (
     <main className="public-catalogue-page">
       <header className="public-catalogue-hero">
-        <div>
-          <small className="public-catalogue-eyebrow">LE CLASSEUR</small>
-          <h1>Cartes disponibles</h1>
-          <p>Parcourez le stock, comparez les éditions et retrouvez le prix de chaque carte.</p>
-        </div>
+        <BrandIdentity catalogue />
         <div className="public-catalogue-total" aria-live="polite">
           <strong>{totalCount}</strong>
           <span>cartes en stock</span>
@@ -928,6 +927,7 @@ function App() {
       });
       const reference = purchaseReference.trim() || `R-${Date.now()}`;
       const occurredAt = dateAtCurrentLocalTime(purchaseDate);
+      await loadReceiptLogo();
       const purchase = await request<{ purchaseId: string; itemIds: string[] }>('/purchases', {
         method: 'POST',
         body: JSON.stringify({
@@ -947,7 +947,8 @@ function App() {
           photoFailures.push(item.name);
         }
       }
-      downloadPurchaseReceipt({
+      let receiptFailure = '';
+      await downloadPurchaseReceipt({
         reference,
         occurredAt,
         status: 'pending',
@@ -969,7 +970,7 @@ function App() {
               Number(item.discountPercent.replace(',', '.')),
           ),
         })),
-      });
+      }).catch((error) => { receiptFailure = error instanceof Error ? error.message : 'Génération du PDF impossible.'; });
       setSelectedClient('');
       setPurchaseReference('');
       setPurchaseDate(localDateInputValue());
@@ -987,7 +988,9 @@ function App() {
         },
       ]);
       await load();
-      if (photoFailures.length)
+      if (receiptFailure)
+        setError(`Rachat ${reference} enregistré. Le bordereau n’a pas pu être téléchargé : ${receiptFailure} Réessayez depuis l’historique.${photoFailures.length ? ` Photos non envoyées : ${photoFailures.join(', ')}.` : ''}`);
+      else if (photoFailures.length)
         setError(`Rachat et reçu créés. Photo non envoyée pour : ${photoFailures.join(', ')}.`);
       else setError(`Rachat ${reference} enregistré en attente de validation du client. Le bordereau PDF a été téléchargé.`);
     } catch (e) {
@@ -1003,16 +1006,21 @@ function App() {
     if (!Number.isFinite(occurredAt)) return setError('Saisissez une date de rachat valide.');
     setLoading(true);
     try {
+      await loadReceiptLogo();
       await request(`/purchases/${encodeURIComponent(purchase._id)}`, {
         method: 'PATCH',
         body: JSON.stringify({ occurredAt }),
       });
-      const receiptDownloaded = downloadSavedPurchaseReceipt(purchase, occurredAt);
+      let receiptFailure = '';
+      const receiptDownloaded = await downloadSavedPurchaseReceipt(purchase, occurredAt).catch((error) => {
+        receiptFailure = error instanceof Error ? error.message : 'Génération du PDF impossible.';
+        return false;
+      });
       await load();
       setError(
         receiptDownloaded
           ? 'Date modifiée. Le reçu PDF actualisé a été téléchargé.'
-          : 'Date modifiée, mais la fiche client est introuvable pour générer le justificatif.',
+          : `Date modifiée, mais le justificatif n’a pas pu être téléchargé. ${receiptFailure || 'Fiche client introuvable.'}`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Modification de la date impossible.');
@@ -1060,8 +1068,9 @@ function App() {
     csrfToken = response.headers.get('X-CSRF-Token') ?? csrfToken;
     if (!response.ok) throw new Error(`Erreur serveur (${response.status})`);
   }
-  function downloadPurchaseReceipt(receipt: Parameters<typeof createPurchaseReceiptPdf>[0]) {
-    const url = URL.createObjectURL(createPurchaseReceiptPdf(receipt));
+  async function downloadPurchaseReceipt(receipt: Parameters<typeof createPurchaseReceiptPdf>[0]) {
+    const [logo, signatory] = await Promise.all([loadReceiptLogo(), request<SignatoryProfile>('/auth/profile')]);
+    const url = URL.createObjectURL(createPurchaseReceiptPdf({ ...receipt, signatory }, logo));
     const link = document.createElement('a');
     link.href = url;
     link.download = `rachat-${receipt.reference.replace(/[^a-z0-9-]/gi, '-')}.pdf`;
@@ -1071,13 +1080,13 @@ function App() {
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
   }
-  function downloadSavedPurchaseReceipt(purchase: Purchase, occurredAt = purchase.occurredAt) {
+  async function downloadSavedPurchaseReceipt(purchase: Purchase, occurredAt = purchase.occurredAt) {
     const client = clients.find((entry) => entry._id === purchase.sellerId);
     if (!client) {
       setError('Fiche client introuvable : le justificatif ne peut pas être généré.');
       return false;
     }
-    downloadPurchaseReceipt({
+    await downloadPurchaseReceipt({
       reference: purchase.reference,
       occurredAt,
       status: purchase.status as 'pending' | 'active' | 'cancelled',
@@ -1265,7 +1274,7 @@ function App() {
   async function exportXlsx() {
     const { default: ExcelJS } = await import('exceljs');
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'TVA sur marge';
+    wb.creator = brand.name;
     wb.created = new Date();
     const purchasesSheet = wb.addWorksheet('Achats');
     purchasesSheet.addRow([
@@ -1291,7 +1300,9 @@ function App() {
       'Statut',
     ]);
     for (const purchase of purchases) {
+      if (purchase.status !== 'active') continue;
       for (const item of purchase.items) {
+        if (item.status === 'pending' || item.status === 'cancelled') continue;
         purchasesSheet.addRow([
           purchase.reference,
           item._id,
@@ -1342,6 +1353,7 @@ function App() {
       'Statut',
     ]);
     for (const sale of salesData) {
+      if (sale.status !== 'active') continue;
       salesSheet.addRow([
         sale.itemId,
         sale.itemName,
@@ -1391,6 +1403,7 @@ function App() {
       'Statut',
     ]);
     for (const item of items) {
+      if (item.status === 'pending' || item.status === 'cancelled') continue;
       stock.addRow([
         item._id,
         item.name,
@@ -1524,11 +1537,7 @@ function App() {
   return (
     <main>
       <header>
-        <div>
-          <small>GESTION DE STOCK</small>
-          <h1>TVA sur marge</h1>
-          <p>Provenance et stock, réunis au même endroit.</p>
-        </div>
+        <BrandIdentity />
         {logged && (
           <div className="actions">
             <a href="/convention" target="_blank" rel="noreferrer">
@@ -1634,6 +1643,8 @@ function App() {
           {adminPage === 'settings' && (
             <Suspense fallback={<section className="panel"><p>Chargement des paramètres…</p></section>}>
               <SettingsPage
+                loadProfile={() => request<SignatoryProfile>('/auth/profile')}
+                saveProfile={(profile) => request<SignatoryProfile>('/auth/profile', { method: 'PATCH', body: JSON.stringify(profile) })}
                 signupEnabled={signupEnabled ?? true}
                 loading={loading}
                 onToggle={(enabled) => void updateSignupSetting(enabled)}
@@ -2370,8 +2381,9 @@ function App() {
                   type="button"
                   className="secondary"
                   onClick={() => {
-                    if (downloadSavedPurchaseReceipt(purchase))
-                      setError(`Justificatif PDF téléchargé pour ${purchase.reference}.`);
+                    void downloadSavedPurchaseReceipt(purchase).then((downloaded) => {
+                      if (downloaded) setError(`Justificatif PDF téléchargé pour ${purchase.reference}.`);
+                    }).catch((error) => setError(error instanceof Error ? error.message : 'Génération du PDF impossible.'));
                   }}
                 >
                   Télécharger le justificatif PDF
@@ -2458,6 +2470,11 @@ function App() {
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Élément racine de l’application web introuvable.');
+const path = window.location.pathname.replace(/\/$/, '') || '/';
+const isLegalPage = Object.hasOwn(legalPages, path);
 createRoot(root).render(
-  window.location.pathname === '/convention' ? <ConventionCatalog /> : <App />,
+  <>
+    {isLegalPage ? <LegalPage path={path as LegalPath} /> : path === '/convention' ? <ConventionCatalog /> : <App />}
+    <SiteFooter />
+  </>,
 );
