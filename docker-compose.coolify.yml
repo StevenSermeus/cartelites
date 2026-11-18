@@ -1,0 +1,68 @@
+# Coolify supplies routing and runtime secrets. Build interpolation must not require secrets.
+services:
+  convex-deploy:
+    build:
+      context: .
+      target: convex-deploy
+    restart: "no"
+    environment:
+      CONVEX_DEPLOY_KEY: ${CONVEX_DEPLOY_KEY:-}
+      CONVEX_AUTH_SECRET: ${CONVEX_AUTH_SECRET:-}
+      JWT_ISSUER: ${JWT_ISSUER:-}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-tcg-marge-clients}
+      JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:-}
+
+  api:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    init: true
+    depends_on:
+      convex-deploy:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      CONVEX_URL: ${CONVEX_URL:-}
+      CONVEX_AUTH_SECRET: ${CONVEX_AUTH_SECRET:-}
+      JWT_ISSUER: ${JWT_ISSUER:-}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-tcg-marge-clients}
+      JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:-}
+      JWT_PRIVATE_KEY_PEM: ${JWT_PRIVATE_KEY_PEM:-}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
+      SESSION_REFRESH_INTERVAL_SECONDS: ${SESSION_REFRESH_INTERVAL_SECONDS:-900}
+      WEB_ORIGIN: ${WEB_ORIGIN:-}
+      COOKIE_SECURE: "true"
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      ATTACHMENT_MAX_BYTES: ${ATTACHMENT_MAX_BYTES:-10485760}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      # Omit this variable entirely if email delivery is not configured.
+      RESET_FROM_EMAIL:
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 6
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VITE_API_URL: ${JWT_ISSUER:?Set the public HTTPS API origin}
+    restart: unless-stopped
+    depends_on:
+      convex-deploy:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

@@ -146,3 +146,22 @@ Par défaut, `JWT_TTL_SECONDS=3600` donne une heure de validité et `SESSION_REF
 Le middleware d’authentification renouvelle une session encore valide lors d’une requête réussie portant une activité utilisateur récente. Le web et le mobile signalent les interactions au premier plan via `X-Session-Activity`; les connexions temps réel et les sessions inactives ne sont pas maintenues artificiellement. Il n’existe plus de route `/auth/refresh` ni d’appel dédié au renouvellement. Sans requête vers l’API, la session n’est pas prolongée.
 
 Le web reçoit un cookie `HttpOnly` actualisé, avec le même jeton CSRF pour ne pas perturber les requêtes concurrentes. Le mobile enregistre le JWT de l’en-tête `X-Access-Token` reçu dans la réponse normale. L’identité de session reste stable pendant les renouvellements : les connexions temps réel restent liées à la même session, et une déconnexion révoque également les jetons renouvelés. Les jetons expirés ou révoqués ne sont jamais renouvelés. Les changements de durée s’appliquent à la prochaine connexion ou au prochain renouvellement.
+
+## Déploiement avec Coolify
+
+Créer une application Git avec le build pack **Docker Compose**, branche `main`,
+et le fichier `/docker-compose.coolify.yml`. Configurer les domaines du service
+`web` (`https://cartelites.be`) et du service `api`
+(`https://api.cartelites.be:3001`). Le port 3001 désigne le port interne de l’API.
+Aucun port hôte n’est publié : Coolify assure le routage HTTPS.
+
+Ajouter les variables de production dans Coolify. Activer **Buildtime** et
+**Runtime** pour `JWT_ISSUER` (URL publique utilisée par Vite), et **Runtime**
+uniquement pour les autres variables. Activer **Multiline** pour les deux clés
+PEM. Ne pas passer les secrets comme arguments de construction Docker.
+
+Ce fichier permet à Compose de construire les images sans les secrets runtime ;
+le job Convex et l’API valident les valeurs nécessaires au démarrage. Le job
+Convex doit réussir avant le démarrage de l’API, puis le site attend une API saine.
+Un job Convex en état `Exited (0)` est normal. Activer les déploiements automatiques
+après vérification du premier déploiement.
