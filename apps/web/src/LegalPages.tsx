@@ -19,7 +19,8 @@ export function SiteFooter() {
           {legal.companyName && legal.companyName !== brand.name && <p>Une enseigne de {legal.companyName}</p>}
           <p>© {new Date().getFullYear()} {legal.companyName || brand.name}</p>
         </div>
-        <nav aria-label="Informations légales">
+        <nav aria-label="Informations et contact">
+          <a href="/rachat">Rachat & dépôt-vente</a>
           {Object.entries(legalPages).map(([path, title]) => <a key={path} href={path}>{title}</a>)}
           <a href={legal.email ? `mailto:${legal.email}` : '/mentions-legales#contact'}>Contact</a>
         </nav>

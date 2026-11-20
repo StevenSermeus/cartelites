@@ -14,6 +14,8 @@ import type * as consignmentOperations from "../consignmentOperations.js";
 import type * as operations from "../operations.js";
 import type * as readModels from "../readModels.js";
 import type * as salePayments from "../salePayments.js";
+import type * as signatures from "../signatures.js";
+import type * as signedReceipts from "../signedReceipts.js";
 
 import type {
   ApiFromModules,
@@ -28,6 +30,8 @@ declare const fullApi: ApiFromModules<{
   operations: typeof operations;
   readModels: typeof readModels;
   salePayments: typeof salePayments;
+  signatures: typeof signatures;
+  signedReceipts: typeof signedReceipts;
 }>;
 
 /**

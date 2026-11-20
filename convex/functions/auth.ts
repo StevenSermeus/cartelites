@@ -1,3 +1,4 @@
+import { signatureValidator, validSignature } from './signatures';
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from './_generated/server.js';
 
@@ -173,12 +174,16 @@ export const signatoryProfile = internalQuery({
 });
 
 export const setSignatoryProfile = internalMutation({
-  args: { id: v.id('accounts'), firstName: v.string(), lastName: v.string(), capacity: v.string() },
+  args: { id: v.id('accounts'), firstName: v.string(), lastName: v.string(), capacity: v.string(), signature: v.optional(v.union(signatureValidator, v.null())) },
   handler: async (ctx, { id, ...input }) => {
     const profile = { firstName: input.firstName.trim(), lastName: input.lastName.trim(), capacity: input.capacity.trim() };
     if (Object.values(profile).some((value) => !value || value.length > 100 || /[\r\n\x00-\x1f]/.test(value))) throw new Error('INVALID_SIGNATORY');
-    if (!await ctx.db.get(id)) throw new Error('ACCOUNT_NOT_FOUND');
-    await ctx.db.patch(id, { signatory: profile });
-    return profile;
+    const account = await ctx.db.get(id);
+    if (!account) throw new Error('ACCOUNT_NOT_FOUND');
+    if (input.signature != null && !validSignature(input.signature)) throw new Error('INVALID_SIGNATURE');
+    const signature = input.signature === undefined ? account.signatory?.signature : input.signature;
+    const saved = { ...profile, ...(signature !== undefined ? { signature } : {}) };
+    await ctx.db.patch(id, { signatory: saved });
+    return saved;
   },
 });

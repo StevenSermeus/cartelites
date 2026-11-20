@@ -18,7 +18,7 @@ Le fichier `docker-compose.yml` utilise Convex Cloud et R2 existants. Il ne cré
 
 1. Copier `.env.docker.example` vers `.env.docker` et renseigner les valeurs de production. Utiliser une **clé de déploiement du déploiement Production Convex** dans `CONVEX_DEPLOY_KEY`, avec les droits de déploiement et de modification des variables, et son URL correspondante dans `CONVEX_URL`.
 2. Définir `WEB_ORIGIN=https://domain-name.be` et `JWT_ISSUER=https://api.domain-name.be` (sans slash final). La construction du site utilise `JWT_ISSUER` comme URL publique de l’API. Le navigateur appelle donc directement `https://api.domain-name.be/api/v1/...` ; Nginx sert uniquement le site. Hono autorise cette origine web avec les cookies via CORS.
-3. Renseigner le secret partagé `CONVEX_AUTH_SECRET`, les clés RSA, R2 et éventuellement Resend. Pour les PEM dans `.env.docker`, utiliser une valeur entre apostrophes avec des séparateurs `\n` littéraux. Ne pas partager ce fichier.
+3. Renseigner le secret partagé `CONVEX_AUTH_SECRET`, les clés RSA, R2 et éventuellement Brevo. Pour les PEM dans `.env.docker`, utiliser une valeur entre apostrophes avec des séparateurs `\n` littéraux. Ne pas partager ce fichier.
 4. Configurer le reverse proxy HTTPS externe : `domain-name.be` vers `http://127.0.0.1:8080` et `api.domain-name.be` vers `http://127.0.0.1:3001`. Le proxy de l’API doit transmettre tous les chemins, notamment `/.well-known/jwks.json`, et accepter la taille des pièces jointes. Les ports et adresses d’écoute sont configurables via `WEB_PORT`, `API_PORT`, `WEB_BIND_IP` et `API_BIND_IP`. Si le proxy est un autre conteneur, le connecter au réseau Compose et cibler `web:80` / `api:3001` ; son `localhost` n’est pas celui de l’hôte.
 
 Lancer depuis la racine, après configuration :
@@ -48,7 +48,7 @@ Configurer `apps/api/.env` à partir de `.env.example`. Définir l’URL Convex,
 
 En production, définir explicitement `JWT_ISSUER=https://api.ton-domaine.fr` et `JWT_AUDIENCE=tcg-marge-clients` dans les paramètres du déploiement Production Convex et dans l’environnement Hono. L’URL JWKS est dérivée de l’émetteur (`https://api.ton-domaine.fr/.well-known/jwks.json`) et doit être accessible publiquement. Les variables de `apps/api/.env` ne sont pas automatiquement transmises à Convex. Après configuration, déployer avec `pnpm --filter @tcg-marge/backend exec convex deploy`.
 
-Générer un secret de service avec `openssl rand -base64 32`, le mettre dans `CONVEX_AUTH_SECRET` côté Hono et Convex. Pour les justificatifs, créer un bucket privé Cloudflare R2 et des identifiants S3 limités à ce bucket. Pour le courriel de réinitialisation, configurer `RESEND_API_KEY` et `RESET_FROM_EMAIL` côté Hono.
+Générer un secret de service avec `openssl rand -base64 32`, le mettre dans `CONVEX_AUTH_SECRET` côté Hono et Convex. Pour les justificatifs, créer un bucket privé Cloudflare R2 et des identifiants S3 limités à ce bucket. Pour le courriel de réinitialisation, configurer `BREVO_API_KEY`, `BREVO_FROM_EMAIL` et éventuellement `BREVO_FROM_NAME` côté Hono.
 
 Configurer `R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, `R2_BUCKET`, `R2_ACCESS_KEY_ID` et `R2_SECRET_ACCESS_KEY` dans `apps/api/.env` (voir `apps/api/.env.example`). La signature S3 utilise la région fixe `auto`. Le bucket doit rester privé : les téléchargements passent par l’API authentifiée.
 
@@ -165,3 +165,23 @@ le job Convex et l’API valident les valeurs nécessaires au démarrage. Le job
 Convex doit réussir avant le démarrage de l’API, puis le site attend une API saine.
 Un job Convex en état `Exited (0)` est normal. Activer les déploiements automatiques
 après vérification du premier déploiement.
+
+### Signatures et envoi des exemplaires par Brevo
+
+Dans **Paramètres** sur le web ou **Compte → Mon signataire boutique** sur iOS, renseigner le prénom, le nom et la qualité du représentant. Sa signature peut être enregistrée, remplacée ou effacée ; elle est propre au compte et proposée sur les deux plateformes. Chaque utilisation sur un document demande une confirmation explicite. Le client signe à chaque opération, au doigt sur iOS ou au stylet/souris/tactile sur le web (tablette graphique reconnue comme périphérique de pointage).
+
+Ouvrir un rachat ou un dépôt puis **Signatures et exemplaires signés**. Préparer et lire le PDF complet, vérifier l’adresse du client, recueillir les deux signatures et l’accord du client, puis signer. Le document préparé expire après 30 minutes et les modifications des données ou de l’identité du signataire imposent une nouvelle préparation. La signature ne valide pas automatiquement un rachat en stock. Les boutons historiques de génération produisent des documents **non signés** ; les originaux signés se téléchargent et se partagent depuis la liste des versions signées.
+
+Le serveur conserve le contenu présenté, l’identité de la société et du signataire, les tracés, le consentement et la date de signature, puis archive le PDF dans le bucket R2 privé avec son empreinte SHA-256. Une correction crée une autre version ; elle ne remplace pas l’original signé. La signature dessinée est une signature électronique simple, pas une signature qualifiée eIDAS.
+
+Pour activer Brevo, configurer **uniquement sur l’API** (ou dans l’environnement Docker/Coolify) :
+
+```dotenv
+BREVO_API_KEY=cle-api-brevo
+BREVO_FROM_EMAIL=documents@votre-domaine.be
+BREVO_FROM_NAME=Votre boutique
+```
+
+Authentifier le domaine et vérifier l’expéditeur dans Brevo avant d’envoyer. Ces variables remplacent `RESEND_API_KEY` et `RESET_FROM_EMAIL` ; aucune bascule automatique vers Resend. Les valeurs vides sont acceptées et désactivent l’envoi. Déployer d’abord le schéma et les fonctions Convex, puis reconstruire l’API et les interfaces. `pnpm --filter @tcg-marge/api receipt:identity` synchronise aussi les générateurs PDF partagés avec le build autonome de l’API.
+
+L’envoi utilise l’API Brevo avec le PDF archivé en pièce jointe. **Accepté par Brevo** ne signifie pas **reçu par le client** : consulter les journaux Brevo pour la livraison. Si Brevo n’est pas configuré, si le quota est atteint ou si l’envoi échoue, l’original reste accessible. Le renvoi est manuel, limité à une tentative par minute et par document ; il n’y a pas de tâche automatique différée. Un résultat réseau incertain demande de vérifier Brevo avant de renvoyer pour éviter les doublons. Sans adresse e-mail, remettre le PDF par téléchargement/partage. L’adresse d’envoi est celle figée dans le document : corriger une adresse nécessite une nouvelle version signée.

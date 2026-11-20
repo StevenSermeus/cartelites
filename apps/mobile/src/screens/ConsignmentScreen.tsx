@@ -1,3 +1,4 @@
+import { ReceiptSigning } from '../components/ReceiptSigning';
 import * as Crypto from 'expo-crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -478,9 +479,10 @@ export function ConsignmentScreen({
                   </Text>
                   {d.notes ? <Text style={styles.hint}>{d.notes}</Text> : null}
                   <Button
-                    label="Partager le bon de dépôt"
+                    label="Partager le bon de dépôt non signé"
                     onPress={() => void run(() => shareReceipt(d))}
                   />
+                  <ReceiptSigning kind="consignment" targetId={d._id} />
                   {d.items.map((item) => (
                     <View key={item._id} style={styles.article}>
                       <Text style={styles.title}>{item.name}</Text>

@@ -1,3 +1,4 @@
+import { ReceiptSigning } from './ReceiptSigning';
 import { useEffect, useRef, useState } from 'react';
 import { brand } from '../../../branding/brand';
 import { legal } from '../../../branding/legal';
@@ -796,8 +797,9 @@ export default function ConsignmentsPage({
                 disabled={busy}
                 onClick={() => void downloadReceipt(d)}
               >
-                Télécharger le bon de dépôt PDF
+                Télécharger le bon de dépôt non signé PDF
               </button>
+              <ReceiptSigning kind="consignment" targetId={d._id} request={request} />
               {d.items.map((item) => (
                 <article key={item._id}>
                   <div>

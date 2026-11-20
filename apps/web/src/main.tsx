@@ -1,3 +1,5 @@
+import BuybackPage, { PublicNavigation } from './BuybackPage';
+import { ReceiptSigning, ReceiptSigningPage, parseSignaturePath } from './ReceiptSigning';
 import { FiArchive, FiDownload, FiGrid, FiList, FiPackage, FiSettings, FiShoppingBag, FiShoppingCart, FiUsers, FiExternalLink } from 'react-icons/fi';
 import { ConventionPhoto } from './ConventionPhoto';
 import { API, realtime, publicRealtime } from './realtime';
@@ -460,6 +462,7 @@ function ConventionCatalog() {
   );
   return (
     <main className="public-catalogue-page">
+      <PublicNavigation active="catalogue" />
       <header className="public-catalogue-hero">
         <BrandIdentity catalogue />
         <div className="public-catalogue-total" aria-live="polite">
@@ -1975,6 +1978,8 @@ function App() {
   const filteredClients = clientsRead.items;
   const visibleClients = filteredClients;
   const selectedPurchaseClient = clients.find((client) => client._id === selectedClient);
+  const signingRoute = parseSignaturePath(window.location.pathname);
+  if (logged && signingRoute) return <ReceiptSigningPage {...signingRoute} request={request} />;
   return (
     <main className={logged ? "admin-shell" : "auth-shell"}>
       {!logged && <header className="workspace-header"><BrandIdentity /></header>}
@@ -2749,8 +2754,9 @@ function App() {
                           );
                       }}
                     >
-                      Télécharger le justificatif PDF
+                      Télécharger le justificatif non signé PDF
                     </button>
+                    <ReceiptSigning kind="purchase" targetId={purchase._id} request={request} allowSigning={purchase.status !== 'cancelled'} />
                     {purchase.items.flatMap((item) =>
                       (item.photos ?? []).map((photo) => (
                         <a
@@ -2913,6 +2919,8 @@ createRoot(root).render(
   <>
     {isLegalPage ? (
       <LegalPage path={path as LegalPath} />
+    ) : path === '/rachat' ? (
+      <BuybackPage />
     ) : path === '/convention' ? (
       <ConventionCatalog />
     ) : (

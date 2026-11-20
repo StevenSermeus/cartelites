@@ -1,3 +1,4 @@
+import { validSignature, type Signature } from '../receipts/signature.js';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import argon2 from 'argon2';
@@ -7,6 +8,7 @@ import { authMiddleware, type Variables } from '../auth/middleware.js';
 import { issueToken, issueRealtimeToken, verifyToken } from '../auth/tokens.js';
 import type { ConvexAccountRepository } from '../db/accountRepository.js';
 import { env } from '../env.js';
+import { sendBrevoEmail } from '../email/brevo.js';
 
 const creds = z.object({ email: z.string().email(), password: z.string().min(12).max(256) });
 const resetRequest = z.object({ email: z.string().email() });
@@ -15,7 +17,7 @@ const resetComplete = z.object({
   password: z.string().min(12).max(256),
 });
 const profileField = z.string().trim().min(1).max(100).regex(/^[^\r\n\x00-\x1f]+$/);
-const signatoryProfileSchema = z.object({ firstName: profileField, lastName: profileField, capacity: profileField }).strict();
+const signatoryProfileSchema = z.object({ firstName: profileField, lastName: profileField, capacity: profileField, signature: z.custom<Signature>(validSignature).nullable().optional() }).strict();
 const signupSetting = z.object({ enabled: z.boolean() });
 const dummyPasswordHash = argon2.hash(randomUUID(), { type: argon2.argon2id });
 export function authRoutes(repo: ConvexAccountRepository) {
@@ -45,7 +47,7 @@ export function authRoutes(repo: ConvexAccountRepository) {
       },
     }),
     async (c) => {
-      if (!env.RESEND_API_KEY || !env.RESET_FROM_EMAIL)
+      if (!env.BREVO_API_KEY || !env.BREVO_FROM_EMAIL)
         return c.json({ error: 'EMAIL_DELIVERY_UNAVAILABLE' }, 503);
       const email = c.req.valid('json').email.trim().toLowerCase();
       const emailHash = createHmac('sha256', env.CONVEX_AUTH_SECRET).update(email).digest('hex');
@@ -61,20 +63,16 @@ export function authRoutes(repo: ConvexAccountRepository) {
           if (account) {
             const resetUrl = new URL('/', env.WEB_ORIGIN);
             resetUrl.searchParams.set('reset', rawToken);
-            const sent = await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${env.RESEND_API_KEY}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                from: env.RESET_FROM_EMAIL,
-                to: [account.email],
+            await sendBrevoEmail({
+              apiKey: env.BREVO_API_KEY,
+              fromEmail: env.BREVO_FROM_EMAIL,
+              fromName: env.BREVO_FROM_NAME,
+            }, {
+                to: account.email,
                 subject: 'Réinitialisation de votre mot de passe',
                 html: `<p>Utilisez ce lien dans l’heure pour choisir un nouveau mot de passe :</p><p><a href="${resetUrl.toString()}">Réinitialiser mon mot de passe</a></p><p>Si vous n’avez pas demandé ce changement, ignorez ce message.</p>`,
-              }),
+                text: `Utilisez ce lien dans l’heure pour choisir un nouveau mot de passe : ${resetUrl.toString()}\nSi vous n’avez pas demandé ce changement, ignorez ce message.`,
             });
-            if (!sent.ok) console.error('Password reset email delivery failed:', sent.status);
           }
         } catch (error) {
           console.error(

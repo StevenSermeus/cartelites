@@ -1,3 +1,4 @@
+import { signaturePdf, type Signature, type ReceiptSignatures } from './signature';
 export type ConsignmentReceiptIdentity = {
   brand: {
     name: string;
@@ -25,10 +26,16 @@ export type ConsignmentReceiptIdentity = {
   };
 };
 
-export type SignatoryProfile = { firstName: string; lastName: string; capacity: string };
+export type SignatoryProfile = {
+  firstName: string;
+  lastName: string;
+  capacity: string;
+  signature?: Signature | null;
+};
 
 export type ConsignmentReceiptInput = {
   signatory?: SignatoryProfile;
+  signatures?: ReceiptSignatures;
   reference: string;
   occurredAt: number;
   dueAt?: number;
@@ -202,7 +209,7 @@ export function createConsignmentReceiptPdf(
   ];
   const sellerSignatureLines = wrap(`Nom et prénom : ${receipt.client.name}`, 38);
   const signatureHeight =
-    65 + Math.max(buyerSignatureLines.length, sellerSignatureLines.length) * 12;
+    135 + Math.max(buyerSignatureLines.length, sellerSignatureLines.length) * 12;
   const signatureTop = 50 + signatureHeight;
   const availableHeight = tableTop - signatureTop - 110;
   if (availableHeight < 30)
@@ -290,12 +297,17 @@ export function createConsignmentReceiptPdf(
     referenceLines.forEach((line, index) => {
       draw(48, referenceTop - index * 13, 10, line);
     });
-    draw(48, dateY, 10, `Date : ${new Date(receipt.occurredAt).toLocaleString('fr-BE')}`);
+    draw(
+      48,
+      dateY,
+      10,
+      `Date : ${new Date(receipt.occurredAt).toLocaleString('fr-BE', { timeZone: 'Europe/Brussels' })}`,
+    );
     draw(
       48,
       dateY - 17,
       10,
-      `Échéance : ${receipt.dueAt ? new Date(receipt.dueAt).toLocaleDateString('fr-BE') : 'Non définie'}`,
+      `Échéance : ${receipt.dueAt ? new Date(receipt.dueAt).toLocaleDateString('fr-BE', { timeZone: 'Europe/Brussels' }) : 'Non définie'}`,
       true,
     );
     clientLines.forEach((line, index) => {
@@ -353,7 +365,24 @@ export function createConsignmentReceiptPdf(
         lines.forEach((line, index) => {
           draw(x + 10, signatureTop - 36 - index * 12, 9, line);
         });
-        draw(x + 10, 65, 8, 'Signature :', false, brand.colors.muted);
+        draw(
+          x + 10,
+          65,
+          8,
+          receipt.signatures
+            ? `Signé le ${new Date(receipt.signatures.signedAt).toLocaleString('fr-BE', { timeZone: 'Europe/Brussels' })}`
+            : 'Signature :',
+          false,
+          brand.colors.muted,
+        );
+        if (receipt.signatures)
+          commands.push(
+            signaturePdf(
+              x === 40 ? receipt.signatures.company : receipt.signatures.client,
+              x + 20,
+              82,
+            ),
+          );
       }
     }
     draw(

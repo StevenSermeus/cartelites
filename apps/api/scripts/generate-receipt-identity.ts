@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { brand } from '../../../branding/brand.ts';
 import { legal } from '../../../branding/legal.ts';
 import { receiptLogoData } from '../../../branding/receiptLogoData.ts';
@@ -13,3 +13,16 @@ writeFileSync(
   new URL('../src/receiptIdentity.ts', import.meta.url),
   `// Generated from branding by scripts/generate-receipt-identity.ts.\nexport const receiptIdentity = ${JSON.stringify(identity)};\n`,
 );
+
+// Keep the standalone API build in sync with the shared, platform-neutral PDF renderers.
+mkdirSync(new URL('../src/receipts', import.meta.url), { recursive: true });
+for (const file of ['signature', 'purchaseReceipt', 'consignmentReceipt']) {
+  const source = readFileSync(
+    new URL(`../../../packages/domain/src/${file}.ts`, import.meta.url),
+    'utf8',
+  );
+  writeFileSync(
+    new URL(`../src/receipts/${file}.ts`, import.meta.url),
+    source.replace(/from '\.\/([^']+)'/g, "from './$1.js'"),
+  );
+}

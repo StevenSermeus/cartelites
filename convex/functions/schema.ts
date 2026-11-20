@@ -1,3 +1,4 @@
+import { signatureValidator } from './signatures';
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 import { salePaymentStatusValidator, salePaymentValidator } from './salePayments';
@@ -7,7 +8,7 @@ export default defineSchema({
     email: v.string(),
     passwordHash: v.string(),
     signatory: v.optional(
-      v.object({ firstName: v.string(), lastName: v.string(), capacity: v.string() }),
+      v.object({ firstName: v.string(), lastName: v.string(), capacity: v.string(), signature: v.optional(v.union(signatureValidator, v.null())) }),
     ),
     sessionVersion: v.optional(v.number()),
     createdAt: v.number(),
@@ -227,6 +228,27 @@ export default defineSchema({
   })
     .index('by_owner_operation', ['ownerId', 'operationId'])
     .index('by_item', ['itemId']),
+  signedReceipts: defineTable({
+    ownerId: v.string(),
+    kind: v.union(v.literal('purchase'), v.literal('consignment')),
+    targetId: v.string(),
+    snapshot: v.any(),
+    identity: v.any(),
+    createdAt: v.number(),
+    signedAt: v.optional(v.number()),
+    companySignature: v.optional(signatureValidator),
+    clientSignature: v.optional(signatureValidator),
+    consent: v.optional(v.string()),
+    objectKey: v.optional(v.string()),
+    sha256: v.optional(v.string()),
+    filename: v.optional(v.string()),
+    emailStatus: v.optional(v.string()),
+    emailError: v.optional(v.string()),
+    emailHttpStatus: v.optional(v.number()),
+    emailAttempt: v.optional(v.string()),
+    emailAttemptAt: v.optional(v.number()),
+    messageId: v.optional(v.string()),
+  }).index('by_target', ['kind', 'targetId']),
   attachments: defineTable({
     ownerId: v.string(),
     purchaseId: v.optional(v.id('purchases')),

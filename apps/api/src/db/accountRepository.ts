@@ -1,8 +1,9 @@
+import type { Signature } from '../receipts/signature.js';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
 import { env } from '../env.js';
 
-export type SignatoryProfile = { firstName: string; lastName: string; capacity: string };
+export type SignatoryProfile = { firstName: string; lastName: string; capacity: string; signature?: Signature | null };
 
 export type Account = {
   id: string;

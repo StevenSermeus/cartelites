@@ -1,3 +1,5 @@
+import { ReceiptSigning } from './src/components/ReceiptSigning';
+import { SignatorySettings } from './src/components/SignatorySettings';
 import { markUserActivity, setSessionForeground } from './src/auth/session';
 import * as Crypto from 'expo-crypto';
 import { SalePaymentFields, SalePaymentHistory, emptyPaymentDraft, buildSaleSettlement } from './src/components/SalePaymentFields';
@@ -860,7 +862,8 @@ export default function App() {
             <Text>Référence : {receipt.reference}</Text><Text>Date : {new Date(receipt.occurredAt).toLocaleString('fr-BE')}</Text><Text>Statut : {receipt.status === 'active' ? 'Validé' : receipt.status === 'cancelled' ? 'Annulé' : 'En attente'}</Text><Text>Client : {receipt.client.name}</Text>
             {receipt.client.email ? <Text>{receipt.client.email}</Text> : null}{receipt.client.phone ? <Text>{receipt.client.phone}</Text> : null}
             {receipt.items.map((item,index) => <View key={index} style={styles.historyCard}><Text style={styles.bold}>{index+1}. {item.name}</Text><Text>{item.series || '—'} · {item.identifier || '—'}</Text><Text>{item.language} · {item.condition}</Text>{item.gradingCompany ? <Text>Gradation : {item.gradingCompany} {item.gradingGrade} · Certificat {item.gradingCertificate || '—'}{item.gradingNotes ? ` · ${item.gradingNotes}` : ''}</Text> : null}<Text>Valeur {(item.marketValueCents/100).toFixed(2)} € · Décote {item.discountPercent}% · Rachat {(item.purchasePriceCents/100).toFixed(2)} €</Text></View>)}
-            <Text style={styles.bold}>Total versé : {(receipt.items.reduce((sum,item)=>sum+item.purchasePriceCents,0)/100).toFixed(2)} €</Text>{receiptError ? <Text>{receiptError}</Text> : null}{receiptNotice ? <Text>{receiptNotice}</Text> : null}<ActionButton disabled={receiptSharing} label={receiptSharing ? 'Ouverture du partage…' : 'Partager le PDF'} onPress={() => void shareReceipt()} />
+            <Text style={styles.bold}>Total versé : {(receipt.items.reduce((sum,item)=>sum+item.purchasePriceCents,0)/100).toFixed(2)} €</Text>{receiptError ? <Text>{receiptError}</Text> : null}{receiptNotice ? <Text>{receiptNotice}</Text> : null}<ActionButton disabled={receiptSharing} label={receiptSharing ? 'Ouverture du partage…' : 'Partager le PDF non signé'} onPress={() => void shareReceipt()} />
+            {receiptPurchase && <ReceiptSigning key={receiptPurchase._id} kind="purchase" targetId={receiptPurchase._id} allowSigning={receipt.status !== 'cancelled'} />}
           </ScrollView>}
         </SafeAreaView>
       </Modal>
@@ -1414,6 +1417,7 @@ export default function App() {
           )}
           {page === 'account' && (
             <View>
+            <SignatorySettings />
             <View style={styles.card}>
               
               <ActionButton secondary label="Clients" onPress={() => setPage('clients')} />

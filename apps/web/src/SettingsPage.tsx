@@ -1,3 +1,4 @@
+import { SignaturePad } from './SignaturePad';
 import { useEffect, useState } from 'react';
 import type { SignatoryProfile } from './receiptPdf';
 
@@ -47,6 +48,8 @@ export default function SettingsPage({ signupEnabled, loading, onToggle, loadPro
           <label>Prénom<input autoComplete="given-name" required maxLength={100} value={profile.firstName} onChange={(event) => setProfile({ ...profile, firstName: event.target.value })} /></label>
           <label>Nom<input autoComplete="family-name" required maxLength={100} value={profile.lastName} onChange={(event) => setProfile({ ...profile, lastName: event.target.value })} /></label>
           <label>Qualité<input required maxLength={100} placeholder="Administrateur, représentant mandaté…" value={profile.capacity} onChange={(event) => setProfile({ ...profile, capacity: event.target.value })} /></label>
+          <SignaturePad label="Votre signature réutilisable (facultative)" value={profile.signature ?? []} onChange={signature => setProfile({ ...profile, signature: signature.length ? signature : null })} disabled={profileLoading || saving || Boolean(profileError)} />
+          <p>Elle sera proposée sur iOS et PC. Vous confirmerez son utilisation sur chaque document. Effacez puis enregistrez pour la supprimer.</p>
           <button type="submit">{saving ? 'Enregistrement…' : 'Enregistrer mon signataire'}</button>
         </fieldset>
         {message && <p role="status">{message}</p>}

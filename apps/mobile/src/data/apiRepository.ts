@@ -145,7 +145,7 @@ export function onSessionExpired(handler: () => void) {
   };
 }
 
-async function request<T>(
+export async function request<T = unknown>(
   path: string,
   body?: unknown,
   method: 'POST' | 'PATCH' = 'POST',
