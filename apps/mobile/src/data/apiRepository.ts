@@ -37,7 +37,7 @@ export type Item = {
   }[];
   _id: string;
   name: string;
-  tcg?: 'pokemon' | 'riftbound';
+  tcg?: 'pokemon' | 'riftbound' | 'other';
   series?: string;
   identifier?: string;
   serialNumber?: string;
@@ -51,7 +51,7 @@ export type Item = {
   askingPriceCents?: number;
   vatRegime: 'margin' | 'other';
   status: string;
-  language?: 'fr' | 'en' | 'ja';
+  language?: 'fr' | 'en' | 'ja' | 'zh';
   condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
   gradingCompany?: GradingCompany;
   gradingGrade?: string;
@@ -80,7 +80,7 @@ export type AttachmentFile = { uri: string; name: string; mimeType: string };
 export type PurchaseItem = {
   _id: string;
   name: string;
-  tcg?: 'pokemon' | 'riftbound';
+  tcg?: 'pokemon' | 'riftbound' | 'other';
   series?: string;
   identifier?: string;
   serialNumber?: string;
@@ -88,7 +88,7 @@ export type PurchaseItem = {
   discountPercent?: number;
   purchasePriceCents: number;
   askingPriceCents?: number;
-  language?: 'fr' | 'en' | 'ja';
+  language?: 'fr' | 'en' | 'ja' | 'zh';
   condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
   gradingCompany?: GradingCompany;
   gradingGrade?: string;
@@ -111,7 +111,7 @@ export type PurchaseDraft = {
   included?: boolean;
   key: string;
   name: string;
-  tcg?: 'pokemon' | 'riftbound';
+  tcg?: 'pokemon' | 'riftbound' | 'other';
   series: string;
   identifier: string;
   marketValue: string;
@@ -119,7 +119,7 @@ export type PurchaseDraft = {
   askingPrice: string;
   askingPriceTouched: boolean;
   photo: AttachmentFile | null;
-  language: 'fr' | 'en' | 'ja';
+  language: 'fr' | 'en' | 'ja' | 'zh';
   condition: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
   gradingCompany?: GradingCompany;
   gradingGrade?: string;
@@ -133,11 +133,11 @@ export type PurchaseDraft = {
     name: string;
     image?: string;
     setName?: string;
-    language: 'fr' | 'en' | 'ja';
-    availableLanguages?: ('fr' | 'en' | 'ja')[];
+    language: 'fr' | 'en' | 'ja' | 'zh';
+    availableLanguages?: ('fr' | 'en' | 'ja' | 'zh')[];
   }[];
   catalogueCardId?: string;
-  availableLanguages?: ('fr' | 'en' | 'ja')[];
+  availableLanguages?: ('fr' | 'en' | 'ja' | 'zh')[];
   searching?: boolean;
 };
 
@@ -256,13 +256,13 @@ export function createPurchase(
   sellerId: string,
   entries: {
     name: string;
-    tcg?: 'pokemon' | 'riftbound';
+    tcg?: 'pokemon' | 'riftbound' | 'other';
     series?: string;
     identifier?: string;
     marketValue: number;
     discountPercent: number;
     askingPrice: number;
-    language?: 'fr' | 'en' | 'ja';
+    language?: 'fr' | 'en' | 'ja' | 'zh';
     condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
     gradingCompany?: GradingCompany;
     gradingGrade?: string;
@@ -446,8 +446,8 @@ export type ConsignmentEntry = {
   description?: string;
   series?: string;
   identifier?: string;
-  language?: 'fr' | 'en' | 'ja';
-  tcg?: 'pokemon' | 'riftbound';
+  language?: 'fr' | 'en' | 'ja' | 'zh';
+  tcg?: 'pokemon' | 'riftbound' | 'other';
   condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
   gradingCompany?: GradingCompany;
   gradingGrade?: string;

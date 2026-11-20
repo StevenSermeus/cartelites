@@ -176,3 +176,14 @@ test('product editing validates fields and refuses stock or accounting changes',
   }
   assert.deepEqual(calls, ['inventory:updateProduct']);
 });
+
+test('supplier API preserves other universe and Chinese language', async (t) => {
+  let received: any;
+  t.mock.method(ConvexHttpClient.prototype, 'mutation', async (_ref, args) => { received = args; return { id: 'receipt' }; });
+  const product = { name: 'Autre display chinois', productType: 'sealed', format: 'display', tcg: 'other', language: 'zh', askingPriceCents: 10000, taxRateBps: 2100 };
+  const body = { operationId: randomUUID(), supplier: 'Fournisseur', reference: 'F-CH', occurredAt: 1000, lines: [{ product, quantity: 1, unitCostCents: 5000 }] };
+  assert.equal((await app().request('/supplier-receipts', post(body))).status, 201);
+  assert.equal(received.lines[0].product.tcg, 'other');
+  assert.equal(received.lines[0].product.language, 'zh');
+  assert.equal((await app().request('/supplier-receipts', post({ ...body, lines: [{ ...body.lines[0], product: { ...product, language: 'invalid' } }] }))).status, 400);
+});

@@ -48,8 +48,8 @@ export const createConsignment = mutation({
         description: v.optional(v.string()),
         series: v.optional(v.string()),
         identifier: v.optional(v.string()),
-        tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'))),
-        language: v.optional(v.union(v.literal('fr'), v.literal('en'), v.literal('ja'))),
+        tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'), v.literal('other'))),
+        language: v.optional(v.union(v.literal('fr'), v.literal('en'), v.literal('ja'), v.literal('zh'))),
         condition: v.optional(
           v.union(
             v.literal('M'),

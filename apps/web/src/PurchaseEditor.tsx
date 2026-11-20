@@ -8,6 +8,7 @@ const languages = [
   { id: 'fr', label: 'Français' },
   { id: 'en', label: 'Anglais' },
   { id: 'ja', label: 'Japonais' },
+  { id: 'zh', label: 'Chinois' },
 ] as const;
 const companies = ['PSA', 'CollectAura', 'PCA', 'CCC'] as const;
 const amount = (value: string) => Number(value.replace(',', '.')) || 0;
@@ -35,7 +36,7 @@ type Props = {
   search: (row: PurchaseDraft) => Promise<void>;
   select: (row: PurchaseDraft, card: CatalogCard) => Promise<void>;
   changeTcg: (row: PurchaseDraft, tcg: Tcg, reset?: boolean) => void;
-  changeLanguage: (row: PurchaseDraft, language: 'fr' | 'en' | 'ja') => Promise<void>;
+  changeLanguage: (row: PurchaseDraft, language: 'fr' | 'en' | 'ja' | 'zh') => Promise<void>;
   save: (downloadReceipt: boolean) => Promise<void>;
   busy: boolean;
   hasClient: boolean;
@@ -276,7 +277,7 @@ export function PurchaseEditor({
                 <div>
                   <strong>{item.name}</strong>
                   <small>
-                    {item.tcg === 'riftbound' ? 'Riftbound' : 'Pokémon'} · {item.series} ·{' '}
+                    {item.tcg === 'other' ? 'Autre' : item.tcg === 'riftbound' ? 'Riftbound' : 'Pokémon'} · {item.series} ·{' '}
                     {item.identifier} · {item.language?.toUpperCase() ?? 'FR'}
                   </small>
                 </div>
@@ -374,7 +375,7 @@ export function PurchaseEditor({
                     <select
                       value={item.language ?? 'fr'}
                       onChange={(e) =>
-                        void changeLanguage(item, e.target.value as 'fr' | 'en' | 'ja')
+                        void changeLanguage(item, e.target.value as 'fr' | 'en' | 'ja' | 'zh')
                       }
                     >
                       {languages

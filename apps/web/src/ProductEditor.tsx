@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 type Photo = { _id: string; filename: string; contentType: string };
 type Product = {
-  tcg?: 'pokemon' | 'riftbound';
+  tcg?: 'pokemon' | 'riftbound' | 'other';
   _id: string;
   name: string;
   description?: string;
@@ -182,7 +182,17 @@ export function ProductEditor({
           >
             <fieldset disabled={busy}>
               <div className="form-grid">
-              <label>Jeu de cartes<select value={draft.tcg ?? 'pokemon'} onChange={e => change('tcg', e.target.value)}><option value="pokemon">Pokémon</option><option value="riftbound">Riftbound</option></select></label>
+                <label>
+                  Jeu de cartes
+                  <select
+                    value={draft.tcg ?? 'pokemon'}
+                    onChange={(e) => change('tcg', e.target.value)}
+                  >
+                    <option value="pokemon">Pokémon</option>
+                    <option value="riftbound">Riftbound</option>
+                    <option value="other">Autre</option>
+                  </select>
+                </label>
                 <label>
                   Nom du produit
                   <input
@@ -230,6 +240,7 @@ export function ProductEditor({
                     <option value="fr">Français</option>
                     <option value="en">Anglais</option>
                     <option value="ja">Japonais</option>
+                    <option value="zh">Chinois</option>
                   </select>
                 </label>
                 <label>

@@ -35,12 +35,12 @@ type Item = {
   agreedPriceCents?: number;
   _id: string;
   name: string;
-  tcg?: 'pokemon' | 'riftbound';
+  tcg?: 'pokemon' | 'riftbound' | 'other';
   series?: string;
   identifier?: string;
   serialNumber?: string;
   catalogueImageUrl?: string;
-  language?: 'fr' | 'en' | 'ja';
+  language?: 'fr' | 'en' | 'ja' | 'zh';
   condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
   gradingCompany?: 'PSA' | 'CollectAura' | 'PCA' | 'CCC';
   gradingGrade?: string;
@@ -100,7 +100,7 @@ export type PurchaseDraft = {
   included?: boolean;
   key: string;
   name: string;
-  tcg?: 'pokemon' | 'riftbound';
+  tcg?: 'pokemon' | 'riftbound' | 'other';
   series: string;
   identifier: string;
   marketValue: string;
@@ -108,7 +108,7 @@ export type PurchaseDraft = {
   askingPrice: string;
   askingPriceTouched: boolean;
   photo: File | null;
-  language?: 'fr' | 'en' | 'ja';
+  language?: 'fr' | 'en' | 'ja' | 'zh';
   condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
   gradingCompany?: 'PSA' | 'CollectAura' | 'PCA' | 'CCC';
   gradingGrade?: string;
@@ -121,7 +121,7 @@ export type PurchaseDraft = {
   cardResults?: CatalogCard[];
   searching?: boolean;
 };
-type CatalogLanguage = 'fr' | 'en' | 'ja';
+type CatalogLanguage = 'fr' | 'en' | 'ja' | 'zh';
 export type CatalogCard = {
   id: string;
   localId: string;
@@ -152,7 +152,7 @@ const cardConditions = [
   { id: 'PO', name: 'Poor (PO)' },
 ] as const;
 const languageLabel = (id?: string) =>
-  cardLanguages.find((language) => language.id === id)?.name ?? 'Français';
+  id === 'zh' ? 'Chinois' : cardLanguages.find((language) => language.id === id)?.name ?? 'Français';
 const conditionLabel = (id?: string) =>
   cardConditions.find((condition) => condition.id === id)?.name ?? 'Near Mint (NM)';
 const normalizeCardNumber = (value: string | number) => {
@@ -202,7 +202,7 @@ type Sale = {
   itemName: string;
   series?: string;
   identifier?: string;
-  language?: 'fr' | 'en' | 'ja';
+  language?: 'fr' | 'en' | 'ja' | 'zh';
   condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
   gradingCompany?: GradingCompany;
   gradingGrade?: string;
@@ -1016,6 +1016,7 @@ function App() {
     }
   }
   async function searchPokemonCards(draft: PurchaseDraft) {
+    if (draft.tcg === 'other') return setError('Pour un autre produit, utilisez la saisie manuelle.');
     const term = draft.cardSearch?.trim();
     if (!term) return setError('Saisissez un nom ou un numéro de carte à rechercher.');
     const current = beginCatalog(draft.key);
@@ -1364,7 +1365,7 @@ function App() {
           series: item.series.trim(),
           identifier: item.identifier.trim(),
           language:
-            item.language === 'en' ? 'Anglais' : item.language === 'ja' ? 'Japonais' : 'Français',
+            item.language === 'zh' ? 'Chinois' : item.language === 'en' ? 'Anglais' : item.language === 'ja' ? 'Japonais' : 'Français',
           condition:
             cardConditions.find((condition) => condition.id === item.condition)?.name ??
             'Near Mint (NM)',

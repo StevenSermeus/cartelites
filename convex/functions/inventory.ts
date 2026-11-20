@@ -264,6 +264,7 @@ export const openDisplay = mutation({
       targetId = await ctx.db.insert('items', {
         ...p,
         tcg: source.tcg ?? 'pokemon',
+        language: source.language ?? p.language,
         ownerId,
         operationId: args.operationId,
         origin: 'supplier',

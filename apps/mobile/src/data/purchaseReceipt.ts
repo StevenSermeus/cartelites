@@ -2,9 +2,9 @@ import type { Purchase, PurchaseItem, Seller } from './apiRepository';
 
 export type ReceiptInput = {
   reference: string; occurredAt: number; status: Purchase['status']; client: Seller;
-  items: { name: string; tcg?: 'pokemon' | 'riftbound'; series: string; identifier: string; language: string; condition: string; gradingCompany?: string; gradingGrade?: string; gradingCertificate?: string; gradingNotes?: string; marketValueCents: number; discountPercent: number; purchasePriceCents: number }[];
+  items: { name: string; tcg?: 'pokemon' | 'riftbound' | 'other'; series: string; identifier: string; language: string; condition: string; gradingCompany?: string; gradingGrade?: string; gradingCertificate?: string; gradingNotes?: string; marketValueCents: number; discountPercent: number; purchasePriceCents: number }[];
 };
-const languageName = (id?: string) => id === 'en' ? 'Anglais' : id === 'ja' ? 'Japonais' : 'Français';
+const languageName = (id?: string) => id === 'zh' ? 'Chinois' : id === 'en' ? 'Anglais' : id === 'ja' ? 'Japonais' : 'Français';
 const conditionName = (id?: string) => ({ M:'Mint (M)', NM:'Near Mint (NM)', EX:'Excellent (EX)', GD:'Good (GD)', LP:'Light Played (LP)', PL:'Played (PL)', PO:'Poor (PO)' }[id ?? ''] ?? 'Near Mint (NM)');
 export function mapPurchaseReceipt(purchase: Purchase, client: Seller, items: PurchaseItem[] = purchase.items): ReceiptInput {
   return { reference: purchase.reference, occurredAt: purchase.occurredAt, status: purchase.status, client,

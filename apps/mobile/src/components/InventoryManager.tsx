@@ -402,9 +402,9 @@ export function InventoryManager({
         : {}),
       series,
       identifier,
+      language,
       ...(kind === 'card'
         ? {
-            language,
             condition,
             ...(gradingCompany
               ? { gradingCompany, gradingGrade: grade, gradingCertificate: certificate }
@@ -674,7 +674,16 @@ export function InventoryManager({
       ) : (
         <Panel>
           <InventoryButton label="Modifier la fiche" onPress={() => setEditingProduct(true)} />
-          {editingProduct && <ProductEditor itemId={item._id} onClose={() => setEditingProduct(false)} onChanged={async () => { await loadDetails(); await onChanged(); }} />}
+          {editingProduct && (
+            <ProductEditor
+              itemId={item._id}
+              onClose={() => setEditingProduct(false)}
+              onChanged={async () => {
+                await loadDetails();
+                await onChanged();
+              }}
+            />
+          )}
           <InventoryButton secondary label="Photos du produit" onPress={() => setMode('photos')} />
           {item.origin !== 'consignment' && (
             <InventoryButton
@@ -886,14 +895,38 @@ export function InventoryManager({
                                 />
                               ))}
                             </View>
-                            <Copy>Jeu de cartes</Copy>
-                            <View style={{ flexDirection: 'row', gap: 8 }}>
-                              {(['pokemon', 'riftbound'] as const).map(game => <InventoryButton key={game}
-                                label={game === 'pokemon' ? 'Pokémon' : 'Riftbound'} secondary={tcg !== game}
-                                disabled={busy} onPress={() => setTcg(game)} />)}
+                            <Copy>Univers / jeu</Copy>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                              {(['pokemon', 'riftbound', 'other'] as const).map((game) => (
+                                <InventoryButton
+                                  key={game}
+                                  label={
+                                    game === 'pokemon'
+                                      ? 'Pokémon'
+                                      : game === 'riftbound'
+                                        ? 'Riftbound'
+                                        : 'Autre'
+                                  }
+                                  secondary={tcg !== game}
+                                  disabled={busy}
+                                  onPress={() => setTcg(game)}
+                                />
+                              ))}
                             </View>
                             <Field label="Nom du produit" value={name} onChangeText={setName} />
                             <Field label="Série" value={series} onChangeText={setSeries} />
+                            <Copy>Langue</Copy>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                              {(['fr', 'en', 'ja', 'zh'] as const).map((l) => (
+                                <InventoryButton
+                                  key={l}
+                                  secondary={language !== l}
+                                  label={l === 'zh' ? 'Chinois' : l.toUpperCase()}
+                                  onPress={() => setLanguage(l)}
+                                />
+                              ))}
+                            </View>
+
                             {kind === 'sealed' && (
                               <>
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -930,17 +963,6 @@ export function InventoryManager({
                                   value={identifier}
                                   onChangeText={setIdentifier}
                                 />
-                                <Copy>Langue</Copy>
-                                <View style={{ flexDirection: 'row', gap: 8 }}>
-                                  {(['fr', 'en', 'ja'] as const).map((l) => (
-                                    <InventoryButton
-                                      key={l}
-                                      secondary={language !== l}
-                                      label={l.toUpperCase()}
-                                      onPress={() => setLanguage(l)}
-                                    />
-                                  ))}
-                                </View>
                                 <Copy>État</Copy>
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                                   {(['M', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'] as const).map((c) => (
@@ -1095,7 +1117,12 @@ export function InventoryManager({
                           }}
                         >
                           <Text style={{ color: colors.text, fontWeight: '600', fontSize: 17 }}>
-                            {l.product.name} · {l.product.tcg === 'riftbound' ? 'Riftbound' : 'Pokémon'}
+                            {l.product.name} ·{' '}
+                            {l.product.tcg === 'other'
+                              ? 'Autre'
+                              : l.product.tcg === 'riftbound'
+                                ? 'Riftbound'
+                                : 'Pokémon'}
                           </Text>
                           <Copy>
                             {l.quantity} × {money(l.unitCostCents)} HT ·{' '}

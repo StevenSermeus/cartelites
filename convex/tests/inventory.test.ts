@@ -378,3 +378,18 @@ test('dashboard counts gifts as losses once, keeps purchases and reverses cancel
   assert.equal(restored.summary.giftLossCents, 0);
   assert.equal(restored.summary.purchaseCents, before.summary.purchaseCents);
 });
+
+test('other universe and Chinese products persist and remain filterable in the catalogue', async () => {
+  const { user, args } = await fixture();
+  const received = await user.mutation(api.inventory.receive, { ...args, operationId: 'other-zh', lines: [{ product: { ...product, name: 'Autre jeu chinois', tcg: 'other', language: 'zh' }, quantity: 2, unitCostCents: 5000 }] });
+  const itemId = received.itemIds[0];
+  const { item } = await user.query(api.inventory.detail, { itemId });
+  assert.equal(item.tcg, 'other'); assert.equal(item.language, 'zh');
+  await user.mutation(api.inventory.updateProduct, { itemId, tcg: 'other', name: item.name, description: '', series: '', identifier: '', language: 'zh', askingPriceCents: 10000, hiddenFromCatalogue: false, gradingGrade: '', gradingCertificate: '' });
+  const result = await user.query(api.operations.publicCatalogue, { tcg: 'other', paginationOpts: { numItems: 20, cursor: null }, search: '', gradingStatus: 'all', gradingCompany: '', gradingGrade: '' });
+  assert.equal(result.totalCount, 1);
+  await user.mutation(api.inventory.openDisplay, { operationId: 'other-open', itemId, quantity: 1, packSize: 36, occurredAt: 2000, product: { ...product, tcg: 'other', format: 'booster', name: 'Booster chinois' } });
+  const opened = await user.query(api.inventory.detail, { itemId });
+  const child = await user.query(api.inventory.detail, { itemId: opened.openings[0].targetId });
+  assert.equal(child.item.tcg, 'other'); assert.equal(child.item.language, 'zh');
+});

@@ -77,7 +77,7 @@ type Props = {
   search: (d: PurchaseDraft) => Promise<void>;
   select: (d: PurchaseDraft, c: PurchaseDraft['cardResults'][number]) => Promise<void>;
   changeTcg: (d: PurchaseDraft, t: Tcg, reset?: boolean) => void;
-  changeLanguage: (d: PurchaseDraft, l: 'fr' | 'en' | 'ja') => Promise<void>;
+  changeLanguage: (d: PurchaseDraft, l: 'fr' | 'en' | 'ja' | 'zh') => Promise<void>;
   photo: (key: string, file: import('../data/apiRepository').AttachmentFile | null) => void;
 };
 export function PurchaseEditor({
@@ -117,7 +117,7 @@ export function PurchaseEditor({
       <View style={{ flex: 1 }}>
         <Text style={[{ color: colors.text }, s.name]}>{r.name}</Text>
         <Text style={[{ color: colors.text }, s.muted]}>
-          {r.tcg === 'riftbound' ? 'Riftbound' : 'Pokémon'} · {r.series} · {r.identifier} ·{' '}
+          {r.tcg === 'other' ? 'Autre' : r.tcg === 'riftbound' ? 'Riftbound' : 'Pokémon'} · {r.series} · {r.identifier} ·{' '}
           {r.language.toUpperCase()}
         </Text>
       </View>
@@ -403,18 +403,18 @@ export function PurchaseEditor({
                 <View style={s.formGroup}>
                   {selectRow(
                     'Langue',
-                    { fr: 'Français', en: 'Anglais', ja: 'Japonais' }[item.language],
+                    { fr: 'Français', en: 'Anglais', ja: 'Japonais', zh: 'Chinois' }[item.language],
                     () =>
                       choose(
                         'Langue',
-                        (['fr', 'en', 'ja'] as const)
+                        (['fr', 'en', 'ja', 'zh'] as const)
                           .filter(
                             (l) =>
                               (item.tcg !== 'riftbound' || l !== 'ja') &&
                               (!item.catalogueCardId || item.availableLanguages?.includes(l)),
                           )
                           .map((l) => ({
-                            label: { fr: 'Français', en: 'Anglais', ja: 'Japonais' }[l],
+                            label: { fr: 'Français', en: 'Anglais', ja: 'Japonais', zh: 'Chinois' }[l],
                             apply: () => {
                               void changeLanguage(item, l);
                             },

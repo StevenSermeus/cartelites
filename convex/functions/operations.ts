@@ -111,12 +111,12 @@ export const createPurchase = mutation({
       v.object({
         operationId: v.string(),
         name: v.string(),
-        tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'))),
+        tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'), v.literal('other'))),
         series: v.optional(v.string()),
         identifier: v.optional(v.string()),
         serialNumber: v.optional(v.string()),
         catalogueImageUrl: v.optional(v.string()),
-        language: v.optional(v.union(v.literal('fr'), v.literal('en'), v.literal('ja'))),
+        language: v.optional(v.union(v.literal('fr'), v.literal('en'), v.literal('ja'), v.literal('zh'))),
         condition: v.optional(
           v.union(
             v.literal('M'),
@@ -664,7 +664,7 @@ export const cataloguePhotoObject = internalQuery({
 
 export const publicCatalogue = query({
   args: {
-    tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'), v.literal('all'))),
+    tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'), v.literal('other'), v.literal('all'))),
     paginationOpts: paginationOptsValidator,
     search: v.string(),
     minPrice: v.optional(v.number()),

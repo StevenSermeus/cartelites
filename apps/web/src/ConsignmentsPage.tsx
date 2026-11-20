@@ -507,7 +507,7 @@ export default function ConsignmentsPage({
                         <option value="">Non précisée</option>
                         <option value="fr">Français</option>
                         <option value="en">Anglais</option>
-                        <option value="ja">Japonais</option>
+                        <option value="ja">Japonais</option><option value="zh">Chinois</option>
                       </select>
                     </label>
                     {row.productType === 'card' && (

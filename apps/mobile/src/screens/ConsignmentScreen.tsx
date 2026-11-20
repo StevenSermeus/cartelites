@@ -83,8 +83,8 @@ type Draft = {
   description: string;
   series: string;
   identifier: string;
-  language: "" | "fr" | "en" | "ja";
-  tcg: "" | "pokemon" | "riftbound";
+  language: "" | "fr" | "en" | "ja" | "zh";
+  tcg: "" | "pokemon" | "riftbound" | "other";
   condition: "" | NonNullable<ConsignmentEntry["condition"]>;
   gradingCompany: "" | NonNullable<ConsignmentEntry["gradingCompany"]>;
   gradingGrade: string;
@@ -886,6 +886,7 @@ export function ConsignmentScreen({
                                         ["fr", "FR"],
                                         ["en", "EN"],
                                         ["ja", "JA"],
+                                        ["zh", "Chinois"],
                                       ]}
                                     />
                                     <Choices
@@ -895,6 +896,7 @@ export function ConsignmentScreen({
                                         ["", "Sans jeu"],
                                         ["pokemon", "Pokémon"],
                                         ["riftbound", "Riftbound"],
+                                        ["other", "Autre"],
                                       ]}
                                     />
                                     {r.productType === "card" && (

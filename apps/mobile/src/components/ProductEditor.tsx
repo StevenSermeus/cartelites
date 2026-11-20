@@ -234,6 +234,7 @@ export function ProductEditor({
                   options={[
                     ['pokemon', 'Pokémon'],
                     ['riftbound', 'Riftbound'],
+                    ['other', 'Autre'],
                   ]}
                   onChange={(value) => change('tcg', value)}
                 />
@@ -264,6 +265,7 @@ export function ProductEditor({
                     ['fr', 'Français'],
                     ['en', 'Anglais'],
                     ['ja', 'Japonais'],
+                    ['zh', 'Chinois'],
                   ]}
                   onChange={(value) => change('language', value || undefined)}
                 />

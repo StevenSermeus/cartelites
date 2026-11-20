@@ -1,5 +1,5 @@
 /** Public OpenRift catalog. Keep one response for at least one hour per app session. */
-export type Tcg = 'pokemon' | 'riftbound';
+export type Tcg = 'pokemon' | 'riftbound' | 'other';
 export type RiftCard = {
   id: string; localId: string; name: string; image?: string; setName: string;
   language: 'fr' | 'en'; availableLanguages: ('fr' | 'en')[];
@@ -49,5 +49,5 @@ export async function searchRiftbound(term: string): Promise<RiftCard[]> {
   }
   return searchRiftCatalog(cached!.data, term);
 }
-export const tcgLabel = (tcg?: Tcg) => tcg === 'riftbound' ? 'Riftbound' : 'Pokémon';
+export const tcgLabel = (tcg?: Tcg) => tcg === 'other' ? 'Autre' : tcg === 'riftbound' ? 'Riftbound' : 'Pokémon';
 export const matchesTcg = (tcg: Tcg | undefined, filter: Tcg | 'all') => filter === 'all' || (tcg ?? 'pokemon') === filter;

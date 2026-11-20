@@ -28,7 +28,7 @@ export function catalogueRoutes() {
     const client = new ConvexHttpClient(env.CONVEX_URL);
     const cursor = c.req.query('cursor');
     const tcg = c.req.query('tcg') ?? 'all';
-    if (!['all', 'pokemon', 'riftbound'].includes(tcg)) return c.json({ error: 'TCG invalide' }, 400);
+    if (!['all', 'pokemon', 'riftbound', 'other'].includes(tcg)) return c.json({ error: 'TCG invalide' }, 400);
     const page = await client.query(publicCatalogueQuery, {
       tcg,
       paginationOpts: { numItems: Math.min(48, Math.max(1, Number(c.req.query('size')) || 12)), cursor: cursor || null },

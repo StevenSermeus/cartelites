@@ -79,12 +79,12 @@ export default defineSchema({
     coverPhotoId: v.optional(v.id('attachments')),
     purchaseOccurredAt: v.number(),
     name: v.string(),
-    tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'))),
+    tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'), v.literal('other'))),
     series: v.optional(v.string()),
     identifier: v.optional(v.string()),
     serialNumber: v.optional(v.string()),
     catalogueImageUrl: v.optional(v.string()),
-    language: v.optional(v.union(v.literal('fr'), v.literal('en'), v.literal('ja'))),
+    language: v.optional(v.union(v.literal('fr'), v.literal('en'), v.literal('ja'), v.literal('zh'))),
     condition: v.optional(
       v.union(
         v.literal('M'),

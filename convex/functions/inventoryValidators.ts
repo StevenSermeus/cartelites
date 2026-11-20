@@ -5,7 +5,7 @@ export const allocation = v.object({
   costCents: v.number(),
 });
 export const productFields = {
-  tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'))),
+  tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'), v.literal('other'))),
   name: v.string(),
   productType: v.union(v.literal('card'), v.literal('sealed'), v.literal('other')),
   format: v.optional(
@@ -14,7 +14,7 @@ export const productFields = {
   packSize: v.optional(v.number()),
   series: v.optional(v.string()),
   identifier: v.optional(v.string()),
-  language: v.optional(v.union(v.literal('fr'), v.literal('en'), v.literal('ja'))),
+  language: v.optional(v.union(v.literal('fr'), v.literal('en'), v.literal('ja'), v.literal('zh'))),
   condition: v.optional(
     v.union(
       v.literal('M'),

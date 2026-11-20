@@ -107,7 +107,7 @@ import {
 import { AuthScreen } from "./src/screens/AuthScreen";
 import { StockScreen } from "./src/screens/StockScreen";
 
-type CardLanguage = "fr" | "en" | "ja";
+type CardLanguage = "fr" | "en" | "ja" | "zh";
 type CardCondition = "M" | "NM" | "EX" | "GD" | "LP" | "PL" | "PO";
 const gradingCompanies: { id: GradingCompany; label: string }[] = [
   { id: "PSA", label: "PSA" },
@@ -139,7 +139,7 @@ const conditions: { id: CardCondition; label: string }[] = [
   { id: "PO", label: "Poor (PO)" },
 ];
 const languageName = (id?: string) =>
-  languages.find((row) => row.id === id)?.label ?? "Français";
+  id === "zh" ? "Chinois" : languages.find((row) => row.id === id)?.label ?? "Français";
 const conditionName = (id?: string) =>
   conditions.find((row) => row.id === id)?.label ?? "Near Mint (NM)";
 const emptyDraft = (): PurchaseDraft => ({

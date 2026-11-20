@@ -49,6 +49,7 @@ const languageLabels: Record<string, string> = {
   fr: "Français",
   en: "Anglais",
   ja: "Japonais",
+  zh: "Chinois",
 };
 const companyLabels: Record<GradingCompany, string> = {
   PSA: "PSA",
