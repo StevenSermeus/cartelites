@@ -1,4 +1,10 @@
+import {
+  AppearanceSettings,
+  useTheme,
+  type ThemeColors,
+} from "./src/theme/ThemeProvider";
 import { loadReceiptDocument } from "./src/data/receiptDocument";
+import { dateFilters } from "./src/data/dateFilters";
 import {
   MobileNavigation,
   MobileHeader,
@@ -172,6 +178,9 @@ function freshDraft() {
 }
 
 export default function App() {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
   const catalogRequests = useRef(new Map<string, number>());
   function beginCatalog(key: string) {
     const token = (catalogRequests.current.get(key) ?? 0) + 1;
@@ -224,10 +233,16 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState<Page>("stock");
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false);
+  const [filterControl, setFilterControl] = useState<{
+    open: () => void;
+    count: number;
+  } | null>(null);
   const [purchaseDateEditing, setPurchaseDateEditing] = useState(false);
+  const [purchaseOperationsOpen, setPurchaseOperationsOpen] = useState(false);
   const [saleDateEditing, setSaleDateEditing] = useState(false);
   const [clientEditorOpen, setClientEditorOpen] = useState(false);
   const [accountEditing, setAccountEditing] = useState(false);
+  const [accountDetailsOpen, setAccountDetailsOpen] = useState(false);
   const [focusedSale, setFocusedSale] = useState<string | null>(null);
   const contentScroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
   useEffect(() => {
@@ -326,17 +341,14 @@ export default function App() {
     authenticated && page === "sales",
     historyRevision,
   );
+  const historyDates = dateFilters(historyFrom, historyTo);
   const purchaseHistory = usePagedData<Purchase>(
     "/purchases",
     {
       search: historySearch.trim(),
       status: historyStatus,
-      from: historyFrom
-        ? new Date(`${historyFrom}T00:00:00`).getTime()
-        : undefined,
-      to: historyTo
-        ? new Date(`${historyTo}T23:59:59.999`).getTime()
-        : undefined,
+      from: historyDates.from,
+      to: historyDates.to,
     },
     authenticated && page === "history",
     historyRevision,
@@ -1107,19 +1119,25 @@ export default function App() {
   if (!authenticated)
     return (
       <SafeAreaView style={styles.page} onTouchStart={markUserActivity}>
-        <StatusBar style="dark" />
+        <StatusBar style={dark ? "light" : "dark"} />
         <ScrollView
           contentContainerStyle={styles.loginContent}
           automaticallyAdjustKeyboardInsets
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.header}>
-            <Text style={styles.title}>Espace vendeur</Text>
-            <Text style={styles.subtitle}>Connectez-vous à votre instance</Text>
+            <Text style={[{ color: colors.text }, styles.title]}>
+              Espace vendeur
+            </Text>
+            <Text style={[{ color: colors.text }, styles.subtitle]}>
+              Connectez-vous à votre instance
+            </Text>
           </View>
           {!instanceReady ? (
             <View style={styles.card}>
-              <Text style={styles.heading}>Adresse de l’API</Text>
+              <Text style={[{ color: colors.text }, styles.heading]}>
+                Adresse de l’API
+              </Text>
               <Field
                 label="URL de l’API"
                 value={instanceUrl}
@@ -1127,7 +1145,9 @@ export default function App() {
                 placeholder="https://api.exemple.fr"
               />
               {!!instanceError && (
-                <Text style={styles.error}>{instanceError}</Text>
+                <Text style={[{ color: colors.text }, styles.error]}>
+                  {instanceError}
+                </Text>
               )}
               <ActionButton
                 disabled={instanceBusy}
@@ -1183,39 +1203,44 @@ export default function App() {
     return (
       <SafeAreaView
         onTouchStart={markUserActivity}
-        style={{ flex: 1, backgroundColor: "#f2f2f7" }}
+        style={{ flex: 1, backgroundColor: colors.background }}
       >
-        <View
-          style={{
-            padding: 16,
-            flexDirection: "row",
-            justifyContent: "space-between",
-          }}
-        >
-          <Text
-            accessibilityRole="header"
-            style={[styles.heading, { flex: 1 }]}
-          >
-            Bordereau de rachat
-          </Text>
+        <View style={styles.flowNav}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Fermer le bordereau"
-            style={{
-              minHeight: 44,
-              paddingHorizontal: 12,
-              justifyContent: "center",
-            }}
+            style={styles.navSide}
             onPress={closeReceipt}
           >
-            <Text>Fermer</Text>
+            <Ionicons name="chevron-back" size={20} color={colors.accent} />
+            <Text style={styles.navLink}>Rachats</Text>
+          </Pressable>
+          <Text accessibilityRole="header" style={styles.navTitle}>
+            Document
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Partager le document"
+            disabled={receiptSharing || !receiptPdf}
+            style={[styles.navSide, { justifyContent: "flex-end" }]}
+            onPress={() => void shareReceipt()}
+          >
+            <Ionicons
+              name="share-outline"
+              size={21}
+              color={
+                receiptSharing || !receiptPdf
+                  ? colors.placeholder
+                  : colors.accent
+              }
+            />
           </Pressable>
         </View>
         {receiptLoading ? (
           <ActivityIndicator />
         ) : receiptError && !receipt ? (
           <View style={{ padding: 16 }}>
-            <Text>{receiptError}</Text>
+            <Text style={{ color: colors.text }}>{receiptError}</Text>
             <ActionButton
               secondary
               label="Réessayer"
@@ -1226,59 +1251,34 @@ export default function App() {
           </View>
         ) : (
           receipt && (
-            <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
-              <Text>Référence : {receipt.reference}</Text>
-              <Text>
-                Date : {new Date(receipt.occurredAt).toLocaleString("fr-BE")}
+            <ScrollView contentContainerStyle={{ padding: 20, gap: 12 }}>
+              <Text style={[{ color: colors.text }, styles.rowSubtitle]}>
+                {receipt.reference} · {receipt.client.name}
               </Text>
-              <Text>
-                Statut :{" "}
-                {receipt.status === "active"
-                  ? "Validé"
-                  : receipt.status === "cancelled"
-                    ? "Annulé"
-                    : "En attente"}
+              <Text style={[{ color: colors.text }, styles.smallTag]}>
+                {receiptArchived
+                  ? "Original signé et archivé"
+                  : "Document à signer"}
               </Text>
-              <Text>Client : {receipt.client.name}</Text>
-              {receipt.client.email ? (
-                <Text>{receipt.client.email}</Text>
-              ) : null}
-              {receipt.client.phone ? (
-                <Text>{receipt.client.phone}</Text>
-              ) : null}
-              <View
-                style={{
-                  padding: 20,
-                  backgroundColor: "#f8ecd6",
-                  borderRadius: 12,
-                  gap: 12,
-                }}
-              >
-                <Text style={styles.bold}>
-                  {receipt.items.length} cartes · Total :{" "}
-                  {(
-                    receipt.items.reduce(
-                      (sum, item) => sum + item.purchasePriceCents,
-                      0,
-                    ) / 100
-                  ).toFixed(2)}{" "}
-                  €
-                </Text>
-                <Text>
-                  {receiptArchived
-                    ? "Original signé et archivé. Cette copie est celle conservée lors de la signature."
-                    : "Bordereau à signer : coordonnées, déclaration TVA et signatures."}
-                </Text>
-                <ActionButton
-                  label={
-                    receiptArchived
-                      ? "Lire l’original signé"
-                      : "Lire le bordereau PDF"
-                  }
-                  disabled={!receiptPdf}
-                  onPress={() => setReceiptPreview(true)}
-                />
-              </View>
+              {receiptPdf && (
+                <>
+                  <ReceiptPdfPreview base64={receiptPdf} />
+                  <Pressable
+                    accessibilityRole="button"
+                    style={styles.inlineLink}
+                    onPress={() => setReceiptPreview(true)}
+                  >
+                    <Ionicons
+                      name="expand-outline"
+                      size={17}
+                      color={colors.accent}
+                    />
+                    <Text style={[{ color: colors.text }, styles.link]}>
+                      Agrandir le document
+                    </Text>
+                  </Pressable>
+                </>
+              )}
               {receiptPurchase && (
                 <ReceiptSigning
                   key={receiptPurchase._id}
@@ -1297,7 +1297,7 @@ export default function App() {
               )}
               {receiptArchived && !receiptPdf && (
                 <View style={styles.card}>
-                  <Text>
+                  <Text style={{ color: colors.text }}>
                     Le document est signé. Rechargez l’original archivé pour le
                     lire ou le partager.
                   </Text>
@@ -1310,20 +1310,10 @@ export default function App() {
                   />
                 </View>
               )}
-              {receiptPdf && <ReceiptPdfPreview base64={receiptPdf} />}
-              <ActionButton
-                secondary
-                disabled={receiptSharing || !receiptPdf}
-                label={
-                  receiptSharing
-                    ? "Ouverture du partage…"
-                    : receiptArchived
-                      ? "Partager l’original signé"
-                      : "Partager une copie non signée"
-                }
-                onPress={() => void shareReceipt()}
-              />
-              {receiptError ? <Text>{receiptError}</Text> : null}
+
+              {receiptError ? (
+                <Text style={{ color: colors.text }}>{receiptError}</Text>
+              ) : null}
             </ScrollView>
           )
         )}
@@ -1333,10 +1323,10 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.page} onTouchStart={markUserActivity}>
-      <StatusBar style="dark" />
+      <StatusBar style={dark ? "light" : "dark"} />
       {!!error && (
         <View accessibilityRole="alert" style={styles.errorBox}>
-          <Text style={styles.error}>{error}</Text>
+          <Text style={[{ color: colors.text }, styles.error]}>{error}</Text>
         </View>
       )}
       <KeyboardAvoidingView
@@ -1347,11 +1337,65 @@ export default function App() {
           automaticallyAdjustKeyboardInsets
           keyboardShouldPersistTaps="handled"
           ref={contentScroll}
-          contentContainerStyle={{ paddingTop: 20, paddingBottom: 34 }}
+          contentContainerStyle={{ paddingTop: 0, paddingBottom: 100 }}
         >
-          <MobileHeader page={page} />
+          {page === "purchase" ? (
+            <>
+              <View style={[styles.flowNav, { paddingHorizontal: 0 }]}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Revenir à l’étape précédente"
+                  style={styles.navSide}
+                  onPress={() => {
+                    purchaseStep
+                      ? setPurchaseStep((step) => step - 1)
+                      : setPage("history");
+                    contentScroll.current?.scrollTo({ y: 0, animated: false });
+                  }}
+                >
+                  <Ionicons
+                    name="chevron-back"
+                    size={20}
+                    color={colors.accent}
+                  />
+                  <Text style={styles.navLink}>Retour</Text>
+                </Pressable>
+                <Text style={styles.navTitle}>Nouveau rachat</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  style={[styles.navSide, { justifyContent: "flex-end" }]}
+                  onPress={() => setPage("history")}
+                >
+                  <Text style={styles.navLink}>Fermer</Text>
+                </Pressable>
+              </View>
+              <Text accessibilityRole="header" style={styles.flowTitle}>
+                {
+                  [
+                    "À qui rachetez-vous ?",
+                    "Cartes à reprendre",
+                    "Vérifier le rachat",
+                  ][purchaseStep]
+                }
+              </Text>
+            </>
+          ) : (
+            <MobileHeader
+              page={page}
+              title={
+                page === "history" && expandedPurchase
+                  ? "Dossier de rachat"
+                  : undefined
+              }
+              subtitle={
+                page === "saleSummary"
+                  ? `Panier en cours · ${selectedItems.length} article(s)`
+                  : undefined
+              }
+            />
+          )}
           {page === "clients" && (
-            <View style={styles.card}>
+            <View>
               <ActionButton
                 secondary
                 label={clientEditorOpen ? "‹ Clients" : "‹ Compte"}
@@ -1370,38 +1414,39 @@ export default function App() {
                       setClientEditorOpen(true);
                     }}
                   />
-                  <Field
-                    label="Rechercher un client"
+                  <SearchField
                     value={clientSearch}
-                    onChangeText={setClientSearch}
+                    onChange={setClientSearch}
                     placeholder="Nom, e-mail ou téléphone"
                   />
                   <Pagination data={clientData} />
-                  {filteredClients.map((client) => (
-                    <View key={client._id} style={styles.listRow}>
-                      <View style={styles.flex}>
-                        <Text style={styles.bold}>{client.name}</Text>
-                        <Text style={styles.muted}>
-                          {[client.email, client.phone, client.address]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </Text>
-                      </View>
-                      <Pressable
+                  <View style={styles.group}>
+                    {filteredClients.map((client) => (
+                      <MenuRow
+                        key={client._id}
+                        title={client.name}
+                        subtitle={[client.email, client.phone]
+                          .filter(Boolean)
+                          .join(" · ")}
                         onPress={() => {
                           editClient(client);
                           setClientEditorOpen(true);
                         }}
-                      >
-                        <Text style={styles.link}>Modifier</Text>
-                      </Pressable>
-                    </View>
-                  ))}
+                      />
+                    ))}
+                  </View>
+                  {!clientData.loading &&
+                    !clientData.error &&
+                    !filteredClients.length && (
+                      <Text style={[{ color: colors.text }, styles.muted]}>
+                        Aucun client trouvé.
+                      </Text>
+                    )}
                 </>
               )}
               {clientEditorOpen && (
                 <>
-                  <Text style={styles.subheading}>
+                  <Text style={[{ color: colors.text }, styles.subheading]}>
                     {editingClientId
                       ? "Modifier la fiche"
                       : "Créer une fiche client"}
@@ -1453,50 +1498,15 @@ export default function App() {
           )}
 
           {page === "purchase" && (
-            <View style={styles.card}>
-              <ActionButton
-                secondary
-                label={purchaseStep ? "‹ Étape précédente" : "‹ Rachats"}
-                onPress={() =>
-                  purchaseStep
-                    ? setPurchaseStep((step) => step - 1)
-                    : setPage("history")
+            <View>
+              <Text style={[{ color: colors.text }, styles.stepCaption]}>
+                {purchaseStep + 1} sur 5 ·{" "}
+                {
+                  ["Client", "Cartes et estimation", "Récapitulatif"][
+                    purchaseStep
+                  ]
                 }
-              />
-              <View style={styles.steps}>
-                {["Client", "Articles", "Vérifier"].map((label, i) => (
-                  <Pressable
-                    key={label}
-                    accessibilityRole="button"
-                    accessibilityState={{
-                      selected: purchaseStep === i,
-                      disabled: i > purchaseStep,
-                    }}
-                    disabled={i > purchaseStep}
-                    onPress={() => {
-                      setPurchaseStep(i);
-                      contentScroll.current?.scrollTo({
-                        y: 0,
-                        animated: false,
-                      });
-                    }}
-                    style={[
-                      styles.stepTab,
-                      purchaseStep === i && styles.stepTabActive,
-                      i > purchaseStep && styles.disabled,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.stepTabText,
-                        purchaseStep === i && styles.stepTabTextActive,
-                      ]}
-                    >
-                      {i + 1}. {label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+              </Text>
               <View
                 style={purchaseStep === 0 ? undefined : { display: "none" }}
               >
@@ -1513,12 +1523,22 @@ export default function App() {
                   }
                   onCreate={() => setPage("clients")}
                 />
-                <Field
-                  label="Date du rachat (l’heure actuelle sera utilisée)"
-                  value={purchaseDate}
-                  onChangeText={setPurchaseDate}
-                  placeholder="AAAA-MM-JJ"
-                />
+                <Pressable
+                  style={styles.inlineLink}
+                  onPress={() => setPurchaseDateEditing(!purchaseDateEditing)}
+                >
+                  <Text style={[{ color: colors.text }, styles.rowSubtitle]}>
+                    Date du rachat : {purchaseDate} · Modifier
+                  </Text>
+                </Pressable>
+                {purchaseDateEditing && (
+                  <Field
+                    label="Date du rachat"
+                    value={purchaseDate}
+                    onChangeText={setPurchaseDate}
+                    placeholder="AAAA-MM-JJ"
+                  />
+                )}
               </View>
               <View
                 style={purchaseStep === 1 ? undefined : { display: "none" }}
@@ -1541,62 +1561,73 @@ export default function App() {
                 />
               </View>
               {purchaseStep === 2 && (
-                <View style={{ gap: 16 }}>
-                  <Text style={styles.subheading}>Vérifier le rachat</Text>
-                  <Text style={styles.bold}>
-                    {selectedPurchaseClient?.name}
-                  </Text>
-                  <ActionButton
-                    secondary
-                    label="Modifier le client"
-                    onPress={() => {
-                      setPurchaseStep(0);
-                      contentScroll.current?.scrollTo({
-                        y: 0,
-                        animated: false,
-                      });
-                    }}
-                  />
-                  <Text style={styles.muted}>
-                    {selectedPurchaseClient?.email ||
-                      "Sans e-mail : copie à remettre par partage."}
-                  </Text>
-                  <ActionButton
-                    secondary
-                    label="Modifier les cartes"
-                    onPress={() => {
-                      setPurchaseStep(1);
-                      contentScroll.current?.scrollTo({
-                        y: 0,
-                        animated: false,
-                      });
-                    }}
-                  />
-                  {purchaseDrafts
-                    .filter((row) => row.included)
-                    .map((row) => (
-                      <View key={row.key} style={styles.listRow}>
-                        <View style={styles.flex}>
-                          <Text style={styles.bold}>{row.name}</Text>
-                          <Text style={styles.muted}>
-                            {row.condition} · Cote {row.marketValue} € · Reprise
-                            à {row.discountPercent} %
-                          </Text>
-                        </View>
-                        <Text style={styles.bold}>
-                          {formatEuros(
-                            Math.round(
-                              Number(row.marketValue.replace(",", ".")) *
-                                Number(row.discountPercent.replace(",", ".")),
-                            ) / 100,
-                          )}
+                <View>
+                  <View style={styles.hero}>
+                    <Text style={[{ color: colors.text }, styles.rowSubtitle]}>
+                      Total à payer au vendeur
+                    </Text>
+                    <Text style={[{ color: colors.text }, styles.heroAmount]}>
+                      {formatEuros(
+                        purchaseDrafts
+                          .filter((row) => row.included)
+                          .reduce(
+                            (sum, row) =>
+                              sum +
+                              Math.round(
+                                Number(row.marketValue.replace(",", ".")) *
+                                  Number(row.discountPercent.replace(",", ".")),
+                              ),
+                            0,
+                          ) / 100,
+                      )}
+                    </Text>
+                    <Text style={[{ color: colors.text }, styles.smallTag]}>
+                      {purchaseDrafts.filter((row) => row.included).length}{" "}
+                      cartes · Rachat ferme
+                    </Text>
+                  </View>
+                  <View style={styles.group}>
+                    <MenuRow
+                      title={selectedPurchaseClient?.name || "Client"}
+                      subtitle={
+                        selectedPurchaseClient?.email ||
+                        "Copie à remettre par partage"
+                      }
+                      onPress={() => {
+                        setPurchaseStep(0);
+                        contentScroll.current?.scrollTo({
+                          y: 0,
+                          animated: false,
+                        });
+                      }}
+                    />
+                    <MenuRow
+                      title={`${purchaseDrafts.filter((row) => row.included).length} cartes estimées`}
+                      subtitle="Voir ou modifier les prix"
+                      onPress={() => {
+                        setPurchaseStep(1);
+                        contentScroll.current?.scrollTo({
+                          y: 0,
+                          animated: false,
+                        });
+                      }}
+                    />
+                    <View style={styles.compactRow}>
+                      <View style={styles.flex}>
+                        <Text style={[{ color: colors.text }, styles.rowTitle]}>
+                          Bordereau de rachat
+                        </Text>
+                        <Text
+                          style={[{ color: colors.text }, styles.rowSubtitle]}
+                        >
+                          Le client consulte le document avant de signer.
                         </Text>
                       </View>
-                    ))}
-                  <Text style={styles.muted}>
-                    Le rachat sera enregistré en attente. Consultez le PDF, puis
-                    signez avec le client. L’ajout au stock reste une action
-                    distincte dans le dossier.
+                    </View>
+                  </View>
+                  <Text style={[{ color: colors.text }, styles.muted]}>
+                    Le dossier sera enregistré en attente. La signature et
+                    l’ajout au stock sont deux actions distinctes.
                   </Text>
                 </View>
               )}
@@ -1607,6 +1638,7 @@ export default function App() {
             style={page === "consignments" ? undefined : { display: "none" }}
           >
             <ConsignmentScreen
+              onFilterControlChange={setFilterControl}
               active={page === "consignments"}
               sellers={sellers}
               refreshStock={refresh}
@@ -1619,6 +1651,7 @@ export default function App() {
 
           {page === "stock" && (
             <StockScreen
+              onFilterControlChange={setFilterControl}
               revision={historyRevision}
               items={items}
               sellers={sellers}
@@ -1648,20 +1681,21 @@ export default function App() {
           )}
 
           {page === "sales" && (
-            <View style={styles.card}>
-              <Text style={styles.saleIntro}>
+            <View>
+              <Text style={[{ color: colors.text }, styles.saleIntro]}>
                 Recherchez dans le stock et ajoutez les articles à vendre. Le
                 caddie flottant ouvre le récapitulatif.
               </Text>
-              <Field
-                label="Rechercher un article"
+              <SearchField
                 value={saleSearch}
-                onChangeText={setSaleSearch}
+                onChange={setSaleSearch}
                 placeholder="Nom, série ou numéro"
               />
               <View style={styles.saleResultsHeading}>
-                <Text style={styles.label}>Résultats</Text>
-                <Text style={styles.resultCount}>
+                <Text style={[{ color: colors.text }, styles.label]}>
+                  Résultats
+                </Text>
+                <Text style={[{ color: colors.text }, styles.resultCount]}>
                   {filteredSaleItems.length} article(s)
                 </Text>
               </View>
@@ -1683,19 +1717,21 @@ export default function App() {
                       />
                     ) : null}
                     <View style={styles.flex}>
-                      <Text style={styles.bold}>{item.name}</Text>
-                      <Text style={styles.muted}>
+                      <Text style={[{ color: colors.text }, styles.bold]}>
+                        {item.name}
+                      </Text>
+                      <Text style={[{ color: colors.text }, styles.muted]}>
                         {[item.series, item.identifier]
                           .filter(Boolean)
                           .join(" · ") || "Sans référence"}
                       </Text>
                       {item.origin === "consignment" && (
-                        <Text style={styles.muted}>
+                        <Text style={[{ color: colors.text }, styles.muted]}>
                           Dépôt-vente · {(item.commissionRateBps ?? 3000) / 100}{" "}
                           % de commission
                         </Text>
                       )}
-                      <Text style={styles.salePrice}>
+                      <Text style={[{ color: colors.text }, styles.salePrice]}>
                         {item.askingPriceCents === undefined
                           ? "Prix à définir"
                           : `${(item.askingPriceCents / 100).toFixed(2)} €`}
@@ -1713,12 +1749,15 @@ export default function App() {
                       <Ionicons
                         name={selected ? "checkmark" : "add"}
                         size={20}
-                        color={selected ? "#fff" : "#815216"}
+                        color={selected ? colors.onAccent : colors.accent}
                       />
                       <Text
                         style={[
-                          styles.addSaleText,
-                          selected && styles.removeSaleText,
+                          { color: colors.text },
+                          [
+                            styles.addSaleText,
+                            selected && styles.removeSaleText,
+                          ],
                         ]}
                       >
                         {selected ? "Ajoutée" : "Ajouter"}
@@ -1730,7 +1769,7 @@ export default function App() {
               {!saleStockData.loading &&
               !saleStockData.error &&
               !salePageItems.length ? (
-                <Text style={styles.muted}>
+                <Text style={[{ color: colors.text }, styles.muted]}>
                   Aucun article ne correspond à cette recherche.
                 </Text>
               ) : null}
@@ -1738,32 +1777,32 @@ export default function App() {
           )}
 
           {(page === "saleSummary" || page === "salePayment") && (
-            <View style={styles.card}>
-              <View style={styles.saleHeader}>
-                <View style={styles.flex}>
-                  <Text style={styles.saleIntro}>
-                    {selectedItems.length} article(s) · vérifiez les prix avant
-                    validation.
-                  </Text>
-                </View>
+            <View>
+              {page === "salePayment" && (
                 <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Retour à la recherche d’articles"
-                  onPress={() =>
-                    setPage(page === "salePayment" ? "saleSummary" : "sales")
-                  }
-                  style={styles.cartIconButton}
+                  style={styles.inlineLink}
+                  onPress={() => setPage("saleSummary")}
                 >
-                  <Ionicons
-                    name="arrow-back-outline"
-                    size={23}
-                    color="#815216"
-                  />
+                  <Text style={[{ color: colors.text }, styles.link]}>
+                    ‹ Panier
+                  </Text>
                 </Pressable>
-              </View>
+              )}
               {!selectedItems.length ? (
                 <View>
-                  <Text style={styles.emptyCart}>Votre panier est vide.</Text>
+                  <View style={styles.emptyState}>
+                    <Ionicons
+                      name="cart-outline"
+                      size={42}
+                      color={colors.placeholder}
+                    />
+                    <Text style={[{ color: colors.text }, styles.rowTitle]}>
+                      Votre panier est vide
+                    </Text>
+                    <Text style={[{ color: colors.text }, styles.muted]}>
+                      Ajoutez des articles depuis votre stock.
+                    </Text>
+                  </View>
                   <ActionButton
                     label="Ajouter des articles"
                     onPress={() => setPage("sales")}
@@ -1771,26 +1810,27 @@ export default function App() {
                 </View>
               ) : (
                 <>
-                  <View style={styles.cartSummary}>
-                    <Text style={styles.cartSummaryTitle}>
-                      {selectedItems.length} article(s) à vendre
-                    </Text>
-                    <Text style={styles.cartSummaryTotal}>
-                      {formatEuros(
-                        selectedItems.reduce(
-                          (total, item) =>
-                            total +
-                            (Number(
-                              (salePrices[item._id] ?? "").replace(",", "."),
-                            ) || 0),
-                          0,
-                        ),
-                      )}
-                    </Text>
-                    <Text style={styles.muted}>
-                      Modifiez ou retirez les articles avant de confirmer.
-                    </Text>
-                  </View>
+                  {page === "salePayment" && (
+                    <View style={styles.hero}>
+                      <Text
+                        style={[{ color: colors.text }, styles.rowSubtitle]}
+                      >
+                        Montant de la vente
+                      </Text>
+                      <Text style={[{ color: colors.text }, styles.heroAmount]}>
+                        {formatEuros(
+                          selectedItems.reduce(
+                            (total, item) =>
+                              total +
+                              (Number(
+                                (salePrices[item._id] ?? "").replace(",", "."),
+                              ) || 0),
+                            0,
+                          ),
+                        )}
+                      </Text>
+                    </View>
+                  )}
                   {page === "saleSummary" && (
                     <ActionButton
                       secondary
@@ -1803,8 +1843,12 @@ export default function App() {
                       <View key={item._id} style={styles.saleCartCard}>
                         <View style={styles.saleCartHeader}>
                           <View style={styles.flex}>
-                            <Text style={styles.bold}>{item.name}</Text>
-                            <Text style={styles.muted}>
+                            <Text style={[{ color: colors.text }, styles.bold]}>
+                              {item.name}
+                            </Text>
+                            <Text
+                              style={[{ color: colors.text }, styles.muted]}
+                            >
                               {[item.series, item.identifier]
                                 .filter(Boolean)
                                 .join(" · ")}
@@ -1816,20 +1860,39 @@ export default function App() {
                             onPress={() => toggleSale(item)}
                             style={styles.removeIconButton}
                           >
-                            <Ionicons name="close" size={18} color="#a12e25" />
+                            <Ionicons
+                              name="close"
+                              size={18}
+                              color={colors.danger}
+                            />
                           </Pressable>
                         </View>
-                        <Field
-                          label="Prix vendu (€)"
-                          value={salePrices[item._id] ?? ""}
-                          onChangeText={(value) =>
-                            setSalePrices((prices) => ({
-                              ...prices,
-                              [item._id]: value,
-                            }))
-                          }
-                          keyboardType="decimal-pad"
-                        />
+                        <View style={styles.priceLine}>
+                          <Text
+                            style={[{ color: colors.text }, styles.rowSubtitle]}
+                          >
+                            Prix vendu
+                          </Text>
+                          <TextInput
+                            accessibilityLabel={`Prix vendu de ${item.name}`}
+                            value={salePrices[item._id] ?? ""}
+                            onChangeText={(value) =>
+                              setSalePrices((prices) => ({
+                                ...prices,
+                                [item._id]: value,
+                              }))
+                            }
+                            keyboardType="decimal-pad"
+                            style={[{ color: colors.text }, styles.priceInput]}
+                            keyboardAppearance={dark ? "dark" : "light"}
+                            placeholderTextColor={colors.placeholder}
+                          />
+                          <Text
+                            style={[{ color: colors.text }, styles.rowAmount]}
+                          >
+                            €
+                          </Text>
+                        </View>
                         {item.origin === "consignment" &&
                           (() => {
                             const cents = Math.round(
@@ -1842,7 +1905,9 @@ export default function App() {
                                 10000,
                             );
                             return Number.isFinite(cents) && cents >= 0 ? (
-                              <Text style={styles.muted}>
+                              <Text
+                                style={[{ color: colors.text }, styles.muted]}
+                              >
                                 Dépôt-vente · Commission{" "}
                                 {formatEuros(commission / 100)} · Déposant{" "}
                                 {formatEuros((cents - commission) / 100)}
@@ -1862,7 +1927,7 @@ export default function App() {
                       <Pressable
                         onPress={() => setSaleDateEditing(!saleDateEditing)}
                       >
-                        <Text style={styles.link}>
+                        <Text style={[{ color: colors.text }, styles.link]}>
                           Date de vente : {saleDate} · Modifier
                         </Text>
                       </Pressable>
@@ -1899,11 +1964,15 @@ export default function App() {
 
           {page === "saleComplete" && (
             <View style={styles.card}>
-              <Ionicons name="checkmark-circle" size={52} color="#35745a" />
-              <Text style={styles.cartSummaryTotal}>
+              <Ionicons
+                name="checkmark-circle"
+                size={52}
+                color={colors.success}
+              />
+              <Text style={[{ color: colors.text }, styles.cartSummaryTotal]}>
                 {formatEuros(saleCompleted.cents / 100)}
               </Text>
-              <Text style={styles.muted}>
+              <Text style={[{ color: colors.text }, styles.muted]}>
                 {saleCompleted.count} article(s) ·{" "}
                 {saleCompleted.pending
                   ? "Paiement en attente"
@@ -1922,8 +1991,8 @@ export default function App() {
           )}
 
           {page === "history" && (
-            <View style={styles.card}>
-              {!expandedPurchase && (
+            <View>
+              {!expandedPurchase ? (
                 <>
                   <ActionButton
                     label="Nouveau rachat"
@@ -1953,115 +2022,215 @@ export default function App() {
                       } else begin();
                     }}
                   />
-                  <ActionButton
-                    secondary
-                    label={
-                      historyFiltersOpen
-                        ? "Fermer les filtres"
-                        : "Rechercher et filtrer"
-                    }
-                    onPress={() => setHistoryFiltersOpen(!historyFiltersOpen)}
-                  />
-                  {historyFiltersOpen && (
-                    <View>
-                      <Field
-                        label="Référence ou client"
-                        value={historySearch}
-                        onChangeText={setHistorySearch}
-                      />
-                      <View style={styles.inlineActions}>
-                        {[
-                          { id: "all", label: "Tous" },
-                          { id: "pending", label: "En attente" },
-                          { id: "active", label: "Validés" },
-                          { id: "cancelled", label: "Annulés" },
-                        ].map((v) => (
-                          <Choice
-                            key={v.id}
-                            label={v.label}
-                            selected={historyStatus === v.id}
-                            onPress={() => {
-                              setHistoryStatus(v.id);
-                            }}
-                          />
-                        ))}
-                      </View>
-                      <Field
-                        label="Du (AAAA-MM-JJ)"
-                        value={historyFrom}
-                        onChangeText={(v) => {
-                          setHistoryFrom(v);
-                        }}
-                      />
-                      <Field
-                        label="Au (AAAA-MM-JJ)"
-                        value={historyTo}
-                        onChangeText={(v) => {
-                          setHistoryTo(v);
-                        }}
-                      />
-                      <ActionButton
-                        secondary
-                        label="Effacer les filtres"
-                        onPress={() => {
-                          setHistorySearch("");
-                          setHistoryStatus("all");
-                          setHistoryFrom("");
-                          setHistoryTo("");
-                        }}
-                      />
-                    </View>
-                  )}
+
                   {(clientId ||
-                    purchaseDrafts.some((row) => row.name.trim())) && (
-                    <View style={styles.historyCard}>
-                      <Text style={styles.bold}>À terminer</Text>
-                      <Text style={styles.muted}>
-                        Votre rachat en cours sur cet appareil
-                      </Text>
-                      <ActionButton
-                        secondary
-                        label="Reprendre le brouillon"
-                        onPress={() => setPage("purchase")}
-                      />
-                    </View>
-                  )}
-                  <Text style={styles.subheading}>Vos dossiers</Text>
+                    purchaseDrafts.some((row) => row.name.trim())) &&
+                    !historySearch && (
+                      <>
+                        <Text
+                          style={[{ color: colors.text }, styles.sectionTitle]}
+                        >
+                          À terminer sur cet appareil
+                        </Text>
+                        <View style={styles.group}>
+                          <MenuRow
+                            title={
+                              selectedPurchaseClient?.name || "Nouveau rachat"
+                            }
+                            subtitle="Brouillon non enregistré"
+                            onPress={() => setPage("purchase")}
+                          />
+                        </View>
+                      </>
+                    )}
                   <Pagination data={purchaseHistory} />
-                </>
-              )}
-              {!!expandedPurchase && (
-                <ActionButton
-                  secondary
-                  label="‹ Tous les rachats"
-                  onPress={() => setExpandedPurchase(null)}
-                />
-              )}
-              {!historyBusy &&
-                !historyError &&
-                purchases
-                  .filter(
-                    (purchase) =>
-                      !expandedPurchase || purchase._id === expandedPurchase,
-                  )
-                  .map((purchase) => (
-                    <View key={purchase._id} style={styles.historyCard}>
-                      <View style={styles.receiptRow}>
-                        <View style={styles.flex}>
-                          <Pressable
-                            onPress={() => setExpandedPurchase(purchase._id)}
-                          >
-                            <Text style={styles.bold}>
-                              {purchase.sellerName}
+                  {!historyBusy && !historyError && (
+                    <>
+                      {[
+                        ["pending", "À terminer"],
+                        ["documents", "Derniers documents"],
+                      ].map(([section, title]) => {
+                        const rows = purchases.filter((p) =>
+                          section === "pending"
+                            ? p.status === "pending"
+                            : p.status !== "pending",
+                        );
+                        return rows.length ? (
+                          <View key={section}>
+                            <Text
+                              style={[
+                                { color: colors.text },
+                                styles.sectionTitle,
+                              ]}
+                            >
+                              {title}
                             </Text>
-                          </Pressable>
-                          <Text style={styles.muted}>
+                            <View style={styles.group}>
+                              {rows.map((purchase) => (
+                                <Pressable
+                                  key={purchase._id}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Ouvrir le rachat ${purchase.reference} de ${purchase.sellerName}`}
+                                  onPress={() => {
+                                    setPurchaseDateEditing(false);
+                                    setExpandedPurchase(purchase._id);
+                                  }}
+                                  style={styles.compactRow}
+                                >
+                                  <View style={styles.avatar}>
+                                    <Text
+                                      style={[
+                                        { color: colors.text },
+                                        styles.avatarText,
+                                      ]}
+                                    >
+                                      {purchase.sellerName
+                                        .split(" ")
+                                        .filter(Boolean)
+                                        .slice(0, 2)
+                                        .map((v) => v[0])
+                                        .join("")}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.flex}>
+                                    <Text
+                                      style={[
+                                        { color: colors.text },
+                                        styles.rowTitle,
+                                      ]}
+                                    >
+                                      {purchase.sellerName}
+                                    </Text>
+                                    <Text
+                                      style={[
+                                        { color: colors.text },
+                                        styles.rowSubtitle,
+                                      ]}
+                                    >
+                                      {purchase.reference} ·{" "}
+                                      {new Date(
+                                        purchase.occurredAt,
+                                      ).toLocaleDateString("fr-BE", {
+                                        day: "numeric",
+                                        month: "short",
+                                      })}
+                                    </Text>
+                                  </View>
+                                  <View
+                                    style={{ alignItems: "flex-end", gap: 4 }}
+                                  >
+                                    <Text
+                                      style={[
+                                        { color: colors.text },
+                                        styles.rowAmount,
+                                      ]}
+                                    >
+                                      {formatEuros(
+                                        purchase.items.reduce(
+                                          (sum, item) =>
+                                            sum + item.purchasePriceCents,
+                                          0,
+                                        ) / 100,
+                                      )}
+                                    </Text>
+                                    {purchase.status === "pending" ? (
+                                      <Text
+                                        style={[
+                                          { color: colors.text },
+                                          styles.smallTag,
+                                        ]}
+                                      >
+                                        À finaliser
+                                      </Text>
+                                    ) : purchase.status === "cancelled" ? (
+                                      <Text
+                                        style={[
+                                          { color: colors.text },
+                                          styles.rowSubtitle,
+                                        ]}
+                                      >
+                                        Annulé
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                  <Ionicons
+                                    name="chevron-forward"
+                                    size={16}
+                                    color={colors.placeholder}
+                                  />
+                                </Pressable>
+                              ))}
+                            </View>
+                          </View>
+                        ) : null;
+                      })}
+                      {!purchases.length && (
+                        <View style={styles.emptyState}>
+                          <Ionicons
+                            name="search-outline"
+                            size={30}
+                            color={colors.placeholder}
+                          />
+                          <Text
+                            style={[{ color: colors.text }, styles.rowTitle]}
+                          >
+                            {historySearch
+                              ? "Aucun rachat trouvé"
+                              : "Aucun rachat pour le moment"}
+                          </Text>
+                          <Text style={[{ color: colors.text }, styles.muted]}>
+                            {historySearch
+                              ? "Essayez un autre client ou une autre référence."
+                              : "Créez votre premier dossier avec Nouveau rachat."}
+                          </Text>
+                          {!!historySearch && (
+                            <Pressable
+                              style={styles.inlineLink}
+                              onPress={() => setHistorySearch("")}
+                            >
+                              <Text
+                                style={[{ color: colors.text }, styles.link]}
+                              >
+                                Effacer la recherche
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      )}
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Pressable
+                    style={styles.inlineLink}
+                    onPress={() => setExpandedPurchase(null)}
+                  >
+                    <Text style={[{ color: colors.text }, styles.link]}>
+                      ‹ Tous les rachats
+                    </Text>
+                  </Pressable>
+                  {purchases
+                    .filter((p) => p._id === expandedPurchase)
+                    .map((purchase) => (
+                      <View key={purchase._id}>
+                        <View style={styles.hero}>
+                          <Text
+                            style={[{ color: colors.text }, styles.rowTitle]}
+                          >
+                            {purchase.sellerName}
+                          </Text>
+                          <Text
+                            style={[{ color: colors.text }, styles.rowSubtitle]}
+                          >
+                            {purchase.reference} ·{" "}
                             {new Date(purchase.occurredAt).toLocaleDateString(
                               "fr-BE",
-                            )}{" "}
-                            · {purchase.reference}
+                            )}
                           </Text>
-                          <Text style={styles.bold}>
+                          <Text
+                            style={[{ color: colors.text }, styles.heroAmount]}
+                          >
                             {formatEuros(
                               purchase.items.reduce(
                                 (sum, item) => sum + item.purchasePriceCents,
@@ -2069,169 +2238,334 @@ export default function App() {
                               ) / 100,
                             )}
                           </Text>
+                          <Text
+                            style={[{ color: colors.text }, styles.smallTag]}
+                          >
+                            {purchase.status === "pending"
+                              ? "À finaliser"
+                              : purchase.status === "cancelled"
+                                ? "Annulé"
+                                : "Validé"}
+                          </Text>
                         </View>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={`Voir le bordereau PDF du rachat ${purchase.reference}, ${purchase.sellerName}`}
-                          accessibilityHint="Ouvre le bordereau et son action de partage"
+                        <ActionButton
+                          label="Consulter le document"
                           onPress={() => void openPurchaseReceipt(purchase)}
-                          style={styles.receiptIcon}
-                        >
-                          <Ionicons
-                            name="document-text-outline"
-                            size={22}
-                            color="#815216"
-                          />
-                          <Text style={styles.receiptIconText}>PDF</Text>
-                        </Pressable>
-                      </View>
-                      <Text
-                        style={[
-                          styles.purchaseStatus,
-                          purchase.status === "pending" &&
-                            styles.purchaseStatusPending,
-                        ]}
-                      >
-                        {purchase.status === "pending"
-                          ? "En attente de validation client"
-                          : purchase.status === "cancelled"
-                            ? "Annulé"
-                            : "Validé"}
-                      </Text>
-                      <ActionButton
-                        secondary
-                        label={
-                          expandedPurchase === purchase._id
-                            ? "Fermer les détails"
-                            : `${purchase.items.length} article(s) · Voir les détails`
-                        }
-                        onPress={() =>
-                          setExpandedPurchase(
-                            expandedPurchase === purchase._id
-                              ? null
-                              : purchase._id,
-                          )
-                        }
-                      />
-                      {expandedPurchase === purchase._id && (
-                        <>
-                          {purchase.status === "pending" ? (
-                            <View style={styles.inlineActions}>
-                              <ActionButton
-                                disabled={busy}
-                                label="Valider le rachat et ajouter au stock"
-                                onPress={() =>
-                                  void confirmPendingPurchase(purchase)
-                                }
-                              />
-                              <ActionButton
-                                disabled={busy}
-                                secondary
-                                label="Annuler le rachat"
-                                onPress={() => rejectPendingPurchase(purchase)}
-                              />
-                            </View>
-                          ) : null}
-                          <ActionButton
-                            secondary
-                            label={
-                              purchaseDateEditing
-                                ? "Fermer la modification de date"
-                                : "Modifier la date"
-                            }
+                        />
+                        <View style={styles.group}>
+                          <MenuRow
+                            title={`${purchase.items.length} article(s)`}
+                            subtitle="Détail et opérations du rachat"
                             onPress={() =>
-                              setPurchaseDateEditing(!purchaseDateEditing)
+                              setPurchaseOperationsOpen(!purchaseOperationsOpen)
                             }
                           />
-                          {purchaseDateEditing && (
-                            <>
-                              <Field
-                                label="Date du rachat (heure actuelle conservée)"
-                                value={
-                                  purchaseDateEdits[purchase._id] ??
-                                  localDateValue(new Date(purchase.occurredAt))
-                                }
-                                onChangeText={(value) =>
-                                  setPurchaseDateEdits((dates) => ({
-                                    ...dates,
-                                    [purchase._id]: value,
-                                  }))
-                                }
-                                placeholder="AAAA-MM-JJ"
-                              />
-                              <ActionButton
-                                secondary
-                                disabled={busy}
-                                label="Enregistrer la date"
-                                onPress={() =>
-                                  void updatePurchaseDateAction(purchase)
-                                }
-                              />
-                            </>
-                          )}
-                          {purchase.items.map((item) => (
-                            <View key={item._id} style={styles.historyItem}>
-                              <Text style={styles.muted}>
-                                {item.name} · {languageName(item.language)} ·{" "}
-                                {conditionName(item.condition)} ·{" "}
-                                {(item.purchasePriceCents / 100).toFixed(2)} €
+                        </View>
+                        {purchaseOperationsOpen && (
+                          <View style={styles.card}>
+                            {purchase.status === "pending" ? (
+                              <View style={styles.inlineActions}>
+                                <ActionButton
+                                  disabled={busy}
+                                  label="Valider le rachat et ajouter au stock"
+                                  onPress={() =>
+                                    void confirmPendingPurchase(purchase)
+                                  }
+                                />
+                                <ActionButton
+                                  disabled={busy}
+                                  secondary
+                                  label="Annuler le rachat"
+                                  onPress={() =>
+                                    rejectPendingPurchase(purchase)
+                                  }
+                                />
+                              </View>
+                            ) : null}
+                            <ActionButton
+                              secondary
+                              label={
+                                purchaseDateEditing
+                                  ? "Fermer la modification de date"
+                                  : "Modifier la date"
+                              }
+                              onPress={() =>
+                                setPurchaseDateEditing(!purchaseDateEditing)
+                              }
+                            />
+                            {purchaseDateEditing && (
+                              <>
+                                <Field
+                                  label="Date du rachat (heure actuelle conservée)"
+                                  value={
+                                    purchaseDateEdits[purchase._id] ??
+                                    localDateValue(
+                                      new Date(purchase.occurredAt),
+                                    )
+                                  }
+                                  onChangeText={(value) =>
+                                    setPurchaseDateEdits((dates) => ({
+                                      ...dates,
+                                      [purchase._id]: value,
+                                    }))
+                                  }
+                                  placeholder="AAAA-MM-JJ"
+                                />
+                                <ActionButton
+                                  secondary
+                                  disabled={busy}
+                                  label="Enregistrer la date"
+                                  onPress={() =>
+                                    void updatePurchaseDateAction(purchase)
+                                  }
+                                />
+                              </>
+                            )}
+                            {purchase.items.map((item) => (
+                              <View key={item._id} style={styles.historyItem}>
+                                <Text
+                                  style={[{ color: colors.text }, styles.muted]}
+                                >
+                                  {item.name} · {languageName(item.language)} ·{" "}
+                                  {conditionName(item.condition)} ·{" "}
+                                  {(item.purchasePriceCents / 100).toFixed(2)} €
+                                </Text>
+                                {(item.photos ?? []).map((photo) => (
+                                  <Pressable
+                                    key={photo._id}
+                                    onPress={() =>
+                                      void openAttachment(
+                                        photo._id,
+                                        photo.filename,
+                                        photo.contentType,
+                                      )
+                                    }
+                                  >
+                                    <Text
+                                      style={[
+                                        { color: colors.text },
+                                        styles.attachmentLink,
+                                      ]}
+                                    >
+                                      Photo : {photo.filename}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+                              </View>
+                            ))}
+                            <Pressable
+                              disabled={busy}
+                              onPress={() =>
+                                void loadPurchaseAttachments(purchase._id)
+                              }
+                            >
+                              <Text
+                                style={[{ color: colors.text }, styles.link]}
+                              >
+                                Photos et justificatifs
                               </Text>
-                              {(item.photos ?? []).map((photo) => (
+                            </Pressable>
+                            {(purchaseAttachments[purchase._id] ?? []).map(
+                              (attachment) => (
                                 <Pressable
-                                  key={photo._id}
+                                  key={attachment._id}
+                                  disabled={busy}
                                   onPress={() =>
                                     void openAttachment(
-                                      photo._id,
-                                      photo.filename,
-                                      photo.contentType,
+                                      attachment._id,
+                                      attachment.filename,
+                                      attachment.contentType,
                                     )
                                   }
                                 >
-                                  <Text style={styles.attachmentLink}>
-                                    Photo : {photo.filename}
+                                  <Text
+                                    style={[
+                                      { color: colors.text },
+                                      styles.attachmentLink,
+                                    ]}
+                                  >
+                                    {attachment.filename}
                                   </Text>
                                 </Pressable>
-                              ))}
-                            </View>
-                          ))}
-                          <Pressable
-                            disabled={busy}
-                            onPress={() =>
-                              void loadPurchaseAttachments(purchase._id)
-                            }
-                          >
-                            <Text style={styles.link}>
-                              Photos et justificatifs
-                            </Text>
-                          </Pressable>
-                          {(purchaseAttachments[purchase._id] ?? []).map(
-                            (attachment) => (
+                              ),
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  {!!historyError && (
+                    <Text
+                      accessibilityRole="alert"
+                      style={[{ color: colors.text }, styles.error]}
+                    >
+                      {historyError}
+                    </Text>
+                  )}
+                </>
+              )}
+              <Modal
+                visible={historyFiltersOpen}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setHistoryFiltersOpen(false)}
+              >
+                <KeyboardAvoidingView
+                  behavior={Platform.OS === "ios" ? "padding" : undefined}
+                  style={styles.sheetOverlay}
+                >
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Fermer la recherche"
+                    style={StyleSheet.absoluteFill}
+                    onPress={() => setHistoryFiltersOpen(false)}
+                  />
+                  <SafeAreaView edges={["bottom"]} style={styles.filterSheet}>
+                    <View style={styles.sheetHandle} />
+                    <View style={styles.sheetHeading}>
+                      <Text
+                        accessibilityRole="header"
+                        style={styles.sheetTitle}
+                      >
+                        Recherche et filtres
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Fermer les filtres"
+                        style={styles.sheetClose}
+                        onPress={() => setHistoryFiltersOpen(false)}
+                      >
+                        <Ionicons
+                          name="close"
+                          size={21}
+                          color={colors.secondary}
+                        />
+                      </Pressable>
+                    </View>
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      automaticallyAdjustKeyboardInsets
+                      style={{ flexGrow: 0 }}
+                      contentContainerStyle={{
+                        paddingTop: 12,
+                        paddingBottom: 4,
+                      }}
+                    >
+                      <SearchField
+                        value={historySearch}
+                        onChange={setHistorySearch}
+                        placeholder="Client ou référence"
+                      />
+                      <View style={styles.sheetGroup}>
+                        <View style={styles.sheetStatusRow}>
+                          <Text style={styles.sheetLabel}>Statut</Text>
+                          <View style={styles.sheetSegments}>
+                            {[
+                              { id: "all", label: "Tous" },
+                              { id: "pending", label: "À terminer" },
+                              { id: "active", label: "Validés" },
+                              { id: "cancelled", label: "Annulés" },
+                            ].map((status) => (
                               <Pressable
-                                key={attachment._id}
-                                disabled={busy}
-                                onPress={() =>
-                                  void openAttachment(
-                                    attachment._id,
-                                    attachment.filename,
-                                    attachment.contentType,
-                                  )
-                                }
+                                key={status.id}
+                                accessibilityRole="button"
+                                accessibilityState={{
+                                  selected: historyStatus === status.id,
+                                }}
+                                onPress={() => setHistoryStatus(status.id)}
+                                style={[
+                                  styles.sheetSegment,
+                                  historyStatus === status.id &&
+                                    styles.sheetSegmentActive,
+                                ]}
                               >
-                                <Text style={styles.attachmentLink}>
-                                  {attachment.filename}
+                                <Text
+                                  style={[
+                                    styles.sheetSegmentLabel,
+                                    historyStatus === status.id && {
+                                      color: colors.accent,
+                                    },
+                                  ]}
+                                >
+                                  {status.label}
                                 </Text>
                               </Pressable>
-                            ),
-                          )}
-                        </>
-                      )}
-                    </View>
-                  ))}
-              {!historyBusy && !historyError && !purchases.length ? (
-                <Text style={styles.muted}>
-                  Aucun rachat ne correspond aux filtres.
-                </Text>
-              ) : null}
+                            ))}
+                          </View>
+                        </View>
+                        <View style={styles.sheetFormRow}>
+                          <Text style={styles.sheetLabel}>Du</Text>
+                          <TextInput
+                            accessibilityLabel="Date de début"
+                            placeholder="AAAA-MM-JJ"
+                            placeholderTextColor={colors.placeholder}
+                            value={historyFrom}
+                            onChangeText={setHistoryFrom}
+                            autoCorrect={false}
+                            autoCapitalize="none"
+                            keyboardType="numbers-and-punctuation"
+                            style={styles.sheetDate}
+                          />
+                        </View>
+                        <View
+                          style={[
+                            styles.sheetFormRow,
+                            { borderBottomWidth: 0 },
+                          ]}
+                        >
+                          <Text style={styles.sheetLabel}>Au</Text>
+                          <TextInput
+                            accessibilityLabel="Date de fin"
+                            placeholder="AAAA-MM-JJ"
+                            placeholderTextColor={colors.placeholder}
+                            value={historyTo}
+                            onChangeText={setHistoryTo}
+                            autoCorrect={false}
+                            autoCapitalize="none"
+                            keyboardType="numbers-and-punctuation"
+                            style={styles.sheetDate}
+                          />
+                        </View>
+                      </View>
+                      <Pressable
+                        accessibilityRole="button"
+                        style={styles.inlineLink}
+                        onPress={() => {
+                          setHistoryStatus("all");
+                          setHistoryFrom("");
+                          setHistoryTo("");
+                        }}
+                      >
+                        <Text style={styles.navLink}>
+                          Réinitialiser les filtres
+                        </Text>
+                      </Pressable>
+                    </ScrollView>
+                    {!!historyDates.error && (
+                      <Text
+                        accessibilityRole="alert"
+                        style={{ color: colors.danger, marginBottom: 10 }}
+                      >
+                        {historyDates.error}
+                      </Text>
+                    )}
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={!!historyDates.error}
+                      style={[
+                        styles.sheetApply,
+                        historyDates.error ? { opacity: 0.5 } : null,
+                      ]}
+                      onPress={() => setHistoryFiltersOpen(false)}
+                    >
+                      <Text style={styles.sheetApplyText}>
+                        {historyBusy
+                          ? "Afficher les résultats"
+                          : `Afficher ${purchases.length}${purchaseHistory.nextCursor ? "+" : ""} résultat${purchases.length === 1 && !purchaseHistory.nextCursor ? "" : "s"}`}
+                      </Text>
+                    </Pressable>
+                  </SafeAreaView>
+                </KeyboardAvoidingView>
+              </Modal>
             </View>
           )}
           {page === "salesHistory" && (
@@ -2243,16 +2577,18 @@ export default function App() {
                 onPress={() => setPage("saleSummary")}
               />
               {!saleData.loading && !saleData.error && !sales.length && (
-                <Text style={styles.muted}>Aucune vente enregistrée.</Text>
+                <Text style={[{ color: colors.text }, styles.muted]}>
+                  Aucune vente enregistrée.
+                </Text>
               )}
               {sales.map((sale) => (
                 <View key={sale._id} style={styles.listRow}>
                   <View style={styles.flex}>
-                    <Text style={styles.bold}>
+                    <Text style={[{ color: colors.text }, styles.bold]}>
                       {sale.itemName} · {(sale.salePriceCents / 100).toFixed(2)}{" "}
                       €
                     </Text>
-                    <Text style={styles.muted}>
+                    <Text style={[{ color: colors.text }, styles.muted]}>
                       {new Date(sale.occurredAt).toLocaleDateString("fr-BE")} ·{" "}
                       {sale.status === "active" ? "Vendue" : "Annulée"}
                     </Text>
@@ -2263,7 +2599,7 @@ export default function App() {
                         )
                       }
                     >
-                      <Text style={styles.link}>
+                      <Text style={[{ color: colors.text }, styles.link]}>
                         {focusedSale === sale._id
                           ? "Fermer le détail"
                           : "Voir le règlement et les détails"}
@@ -2273,7 +2609,7 @@ export default function App() {
                       <SalePaymentHistory sale={sale} onChanged={refresh} />
                     )}
                     {sale.origin === "consignment" && (
-                      <Text style={styles.muted}>
+                      <Text style={[{ color: colors.text }, styles.muted]}>
                         Dépôt-vente · Commission{" "}
                         {formatEuros((sale.commissionCents ?? 0) / 100)} ·
                         Déposant{" "}
@@ -2291,7 +2627,9 @@ export default function App() {
                         void undoSale(sale._id, setBusy, setError, refresh)
                       }
                     >
-                      <Text style={styles.link}>Annuler</Text>
+                      <Text style={[{ color: colors.text }, styles.link]}>
+                        Annuler
+                      </Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -2301,80 +2639,96 @@ export default function App() {
           {page === "account" && (
             <View>
               <SignatorySettings onEditingChange={setAccountEditing} />
+              <AppearanceSettings />
               <View
-                style={styles.card}
+                style={styles.group}
                 pointerEvents={accountEditing ? "none" : "auto"}
               >
-                <ActionButton
-                  secondary
-                  label="Clients"
+                <MenuRow
+                  title="Clients"
+                  subtitle="Coordonnées et historique"
                   onPress={() => setPage("clients")}
                 />
-                <ActionButton
-                  secondary
-                  label="Documents de rachat"
+                <MenuRow
+                  title="Documents"
+                  subtitle="Bordereaux de rachat"
                   onPress={() => setPage("history")}
                 />
-                <ActionButton
-                  secondary
-                  label="Historique des ventes"
+                <MenuRow
+                  title="Ventes"
+                  subtitle="Historique et encaissements"
                   onPress={() => setPage("salesHistory")}
                 />
-              </View>
-              <View style={styles.card}>
-                <Text style={styles.subheading}>Instance connectée</Text>
-                <Text style={styles.muted}>{getApiBaseUrl()}</Text>
-                <ActionButton
-                  secondary
-                  disabled={busy || accountEditing}
-                  label="Changer d’instance"
-                  onPress={() =>
-                    Alert.alert(
-                      "Changer d’instance ?",
-                      "Vous serez déconnecté et les saisies non enregistrées seront abandonnées.",
-                      [
-                        { text: "Annuler", style: "cancel" },
-                        {
-                          text: "Changer",
-                          style: "destructive",
-                          onPress: () => {
-                            void logout().then(() => {
-                              setPurchaseDrafts(freshDraft());
-                              setClientId("");
-                              setPurchaseAttachments({});
-                              setSalePrices({});
-                              clearClient();
-                              setPage("stock");
-                              setInstanceReady(false);
-                              setInstanceUrl("");
-                              setInstanceError("");
-                            });
-                          },
-                        },
-                      ],
-                    )
-                  }
+                <MenuRow
+                  title="Environnement"
+                  subtitle={getApiBaseUrl()}
+                  onPress={() => setAccountDetailsOpen(!accountDetailsOpen)}
                 />
               </View>
-              <View style={styles.card}>
-                <Text style={styles.subheading}>Session</Text>
-                <Text style={styles.muted}>
-                  Gérez votre session vendeur sur cet appareil.
-                </Text>
-                <ActionButton
-                  disabled={busy || accountEditing}
-                  secondary
-                  label={busy ? "Déconnexion…" : "Se déconnecter"}
-                  onPress={() => void logout()}
-                />
-              </View>
+              {accountDetailsOpen && (
+                <>
+                  <View style={styles.card}>
+                    <Text style={[{ color: colors.text }, styles.subheading]}>
+                      Instance connectée
+                    </Text>
+                    <Text style={[{ color: colors.text }, styles.muted]}>
+                      {getApiBaseUrl()}
+                    </Text>
+                    <ActionButton
+                      secondary
+                      disabled={busy || accountEditing}
+                      label="Changer d’instance"
+                      onPress={() =>
+                        Alert.alert(
+                          "Changer d’instance ?",
+                          "Vous serez déconnecté et les saisies non enregistrées seront abandonnées.",
+                          [
+                            { text: "Annuler", style: "cancel" },
+                            {
+                              text: "Changer",
+                              style: "destructive",
+                              onPress: () => {
+                                void logout().then(() => {
+                                  setPurchaseDrafts(freshDraft());
+                                  setClientId("");
+                                  setPurchaseAttachments({});
+                                  setSalePrices({});
+                                  clearClient();
+                                  setPage("stock");
+                                  setInstanceReady(false);
+                                  setInstanceUrl("");
+                                  setInstanceError("");
+                                });
+                              },
+                            },
+                          ],
+                        )
+                      }
+                    />
+                  </View>
+                  <View style={styles.card}>
+                    <Text style={[{ color: colors.text }, styles.subheading]}>
+                      Session
+                    </Text>
+                    <Text style={[{ color: colors.text }, styles.muted]}>
+                      Gérez votre session vendeur sur cet appareil.
+                    </Text>
+                    <ActionButton
+                      disabled={busy || accountEditing}
+                      secondary
+                      label={busy ? "Déconnexion…" : "Se déconnecter"}
+                      onPress={() => void logout()}
+                    />
+                  </View>
+                </>
+              )}
             </View>
           )}
         </ScrollView>
         {["saleSummary", "salePayment"].includes(page) &&
           selectedItems.length > 0 && (
             <View style={styles.flowFooter}>
-              <Text style={styles.cartSummaryTotal}>
+              <Text style={[{ color: colors.text }, styles.cartSummaryTotal]}>
                 {formatEuros(
                   selectedItems.reduce(
                     (total, item) =>
@@ -2471,6 +2825,40 @@ export default function App() {
           disabled={busy || accountEditing}
         />
       )}
+      {((page === "history" && !expandedPurchase) ||
+        (["stock", "consignments"].includes(page) && filterControl)) && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Recherche et filtres, ${page === "history" ? Number(historyStatus !== "all") + Number(Boolean(historyFrom)) + Number(Boolean(historyTo)) : (filterControl?.count ?? 0)} filtres actifs`}
+          onPress={() =>
+            page === "history"
+              ? setHistoryFiltersOpen(true)
+              : filterControl?.open()
+          }
+          style={styles.filterDock}
+        >
+          <Ionicons name="search-outline" size={20} color={colors.accent} />
+          <Text style={[{ color: colors.text }, styles.filterDockText]}>
+            Rechercher
+          </Text>
+          <Ionicons name="options-outline" size={18} color={colors.accent} />
+          {(page === "history"
+            ? Number(historyStatus !== "all") +
+              Number(Boolean(historyFrom)) +
+              Number(Boolean(historyTo))
+            : (filterControl?.count ?? 0)) > 0 && (
+            <View style={styles.filterBadge}>
+              <Text style={[{ color: colors.text }, styles.filterBadgeText]}>
+                {page === "history"
+                  ? Number(historyStatus !== "all") +
+                    Number(Boolean(historyFrom)) +
+                    Number(Boolean(historyTo))
+                  : filterControl?.count}
+              </Text>
+            </View>
+          )}
+        </Pressable>
+      )}
       {authenticated &&
       selectedItemIds.length > 0 &&
       !["saleSummary", "salePayment", "saleComplete"].includes(page) &&
@@ -2479,17 +2867,89 @@ export default function App() {
           accessibilityRole="button"
           accessibilityLabel={`Ouvrir le résumé du panier, ${selectedItemIds.length} article(s)`}
           onPress={() => setPage("saleSummary")}
-          style={styles.cartFab}
+          style={[styles.cartFab, { left: 20, right: undefined }]}
         >
-          <Ionicons name="cart-outline" size={25} color="white" />
+          <Ionicons name="cart-outline" size={25} color={colors.onAccent} />
           <View style={styles.cartFabCount}>
-            <Text style={styles.cartFabCountText}>
+            <Text style={[{ color: colors.text }, styles.cartFabCountText]}>
               {selectedItemIds.length}
             </Text>
           </View>
         </Pressable>
       ) : null}
     </SafeAreaView>
+  );
+}
+
+function SearchField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
+  return (
+    <View style={styles.searchBar}>
+      <Ionicons name="search" size={18} color={colors.placeholder} />
+      <TextInput
+        accessibilityLabel={placeholder}
+        placeholder={placeholder}
+        placeholderTextColor={colors.placeholder}
+        value={value}
+        onChangeText={onChange}
+        autoCorrect={false}
+        autoCapitalize="none"
+        clearButtonMode="while-editing"
+        returnKeyType="search"
+        style={[{ color: colors.text }, styles.searchInput]}
+        keyboardAppearance={dark ? "dark" : "light"}
+      />
+      {!!value && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Effacer la recherche"
+          onPress={() => onChange("")}
+          hitSlop={10}
+        >
+          <Ionicons name="close-circle" size={18} color={colors.placeholder} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+function MenuRow({
+  title,
+  subtitle,
+  onPress,
+}: {
+  title: string;
+  subtitle?: string;
+  onPress: () => void;
+}) {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={styles.compactRow}
+    >
+      <View style={styles.flex}>
+        <Text style={[{ color: colors.text }, styles.rowTitle]}>{title}</Text>
+        {!!subtitle && (
+          <Text style={[{ color: colors.text }, styles.rowSubtitle]}>
+            {subtitle}
+          </Text>
+        )}
+      </View>
+      <Ionicons name="chevron-forward" size={17} color={colors.placeholder} />
+    </Pressable>
   );
 }
 
@@ -2504,6 +2964,9 @@ function ActionButton({
   disabled?: boolean;
   secondary?: boolean;
 }) {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -2516,7 +2979,12 @@ function ActionButton({
         disabled && styles.disabled,
       ]}
     >
-      <Text style={[styles.actionText, secondary && styles.secondaryText]}>
+      <Text
+        style={[
+          { color: colors.text },
+          [styles.actionText, secondary && styles.secondaryText],
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -2531,6 +2999,9 @@ function Choice({
   selected: boolean;
   onPress: () => void;
 }) {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
   return (
     <Pressable
       accessibilityRole="radio"
@@ -2538,7 +3009,7 @@ function Choice({
       onPress={onPress}
       style={[styles.choice, selected && styles.choiceSelected]}
     >
-      <Text style={styles.choiceText}>
+      <Text style={[{ color: colors.text }, styles.choiceText]}>
         {selected ? "● " : ""}
         {label}
       </Text>
@@ -2584,423 +3055,736 @@ async function undoSale(
   }
 }
 
-const styles = StyleSheet.create({
-  flowFooter: {
-    paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#e7e7ec",
-    backgroundColor: "#f2f2f7",
-  },
-  receiptRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  receiptIcon: {
-    minWidth: 44,
-    minHeight: 48,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 8,
-  },
-  receiptIconText: { fontSize: 9, fontWeight: "700", color: "#815216" },
-  pageHeader: { marginBottom: 20, gap: 7 },
-  pageTitle: {
-    fontSize: 34,
-    fontWeight: "700",
-    color: "#19191c",
-    letterSpacing: -0.5,
-  },
-  pageDescription: { fontSize: 14, lineHeight: 20, color: "#6b6b73" },
-  page: { flex: 1, backgroundColor: "#f2f2f7", paddingHorizontal: 16 },
-  loginContent: { flexGrow: 1, paddingBottom: 24 },
-  header: { paddingTop: 14, paddingBottom: 12 },
-  title: { fontSize: 27, fontWeight: "700", color: "#19191c" },
-  subtitle: { color: "#5b6d78", marginTop: 4 },
-  bottomNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    gap: 0,
-    marginHorizontal: -4,
-    borderRadius: 26,
-    marginTop: 4,
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 4,
-    borderTopWidth: 1,
-    borderTopColor: "#e7e7ec",
-    backgroundColor: "white",
-    minHeight: 58,
-  },
-  nav: {
-    flex: 1,
-    minWidth: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    paddingVertical: 5,
-    minHeight: 48,
-    borderRadius: 20,
-  },
-  active: { backgroundColor: "#f8ecd6" },
-  navText: {
-    fontSize: 12,
-    color: "#6b6b73",
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  activeText: { color: "#815216", fontWeight: "800" },
-  card: {
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#e7e7ec",
-    marginBottom: 12,
-  },
-  heading: {
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 14,
-    color: "#19191c",
-  },
-  steps: { flexDirection: "row", gap: 6, marginBottom: 16 },
-  stepTab: {
-    flex: 1,
-    minHeight: 44,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 3,
-    borderWidth: 1,
-    borderColor: "#e7e7ec",
-    borderRadius: 10,
-    backgroundColor: "white",
-  },
-  stepTabActive: { backgroundColor: "#815216", borderColor: "#815216" },
-  stepTabText: { color: "#6b6b73", fontSize: 12, fontWeight: "700" },
-  stepTabTextActive: { color: "white" },
-  subheading: {
-    fontSize: 16,
-    fontWeight: "700",
-    marginTop: 12,
-    marginBottom: 9,
-    color: "#19191c",
-  },
-  label: { fontWeight: "600", marginBottom: 8, color: "#19191c" },
-  action: {
-    backgroundColor: "#815216",
-    padding: 15,
-    minHeight: 50,
-    alignItems: "center",
-    borderRadius: 9,
-    marginTop: 8,
-  },
-  actionText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  secondaryAction: { backgroundColor: "#f2f2f7" },
-  secondaryText: { color: "#815216" },
-  disabled: { opacity: 0.55 },
-  choice: {
-    padding: 9,
-    backgroundColor: "#f4f7f9",
-    marginBottom: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#e3e8ec",
-  },
-  choiceSelected: { borderColor: "#815216", backgroundColor: "#e8f1f6" },
-  choiceText: { color: "#19191c", fontSize: 12 },
-  clientSearchField: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    paddingHorizontal: 12,
-    minHeight: 48,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#e7e7ec",
-    borderRadius: 10,
-    backgroundColor: "white",
-  },
-  clientSearchInput: {
-    flex: 1,
-    paddingVertical: 10,
-    color: "#19191c",
-    fontSize: 15,
-  },
-  purchaseClientResult: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 12,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: "#e3e8ec",
-    borderRadius: 9,
-    backgroundColor: "#fbfcfd",
-  },
-  selectedPurchaseClient: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 12,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "#adc6d4",
-    borderRadius: 10,
-    backgroundColor: "#f8ecd6",
-  },
-  selectedClientMark: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 17,
-    backgroundColor: "#f8ecd6",
-  },
-  changeClientButton: {
-    paddingVertical: 7,
-    paddingHorizontal: 9,
-    borderRadius: 8,
-    backgroundColor: "white",
-  },
-  changeClientText: { color: "#815216", fontSize: 12, fontWeight: "700" },
-  clientSearchHint: { color: "#6b6b73", fontSize: 12, marginBottom: 12 },
-  noClientResult: { color: "#6b6b73", paddingVertical: 10 },
-  inlineActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 5,
-    marginBottom: 10,
-  },
-  conditionGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 5,
-    marginBottom: 12,
-  },
-  draft: {
-    borderWidth: 1,
-    borderColor: "#dce5eb",
-    borderRadius: 10,
-    padding: 12,
-    marginVertical: 8,
-    backgroundColor: "#fbfcfd",
-  },
-  cardImage: { width: 150, height: 210, alignSelf: "center", marginBottom: 12 },
-  cardThumb: { width: 42, height: 58, marginRight: 10 },
-  searchResult: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 9,
-    borderBottomWidth: 1,
-    borderColor: "#edf0f2",
-  },
-  saleHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-  },
-  saleIntro: { color: "#6b6b73", lineHeight: 20, marginTop: -7 },
-  cartIconButton: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#e8f1f6",
-    borderRadius: 14,
-  },
-  cartCountBadge: {
-    position: "absolute",
-    right: -3,
-    top: -3,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 9,
-    backgroundColor: "#a12e25",
-  },
-  cartCountText: { color: "white", fontSize: 10, fontWeight: "800" },
-  saleResultsHeading: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 2,
-  },
-  resultCount: { color: "#6b6b73", fontSize: 12, fontWeight: "600" },
-  saleResultCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 10,
-    marginBottom: 8,
-    backgroundColor: "#fbfcfd",
-    borderWidth: 1,
-    borderColor: "#e3e8ec",
-    borderRadius: 10,
-  },
-  saleThumb: {
-    width: 48,
-    height: 64,
-    borderRadius: 4,
-    backgroundColor: "#f3f6f8",
-  },
-  salePrice: { color: "#815216", fontWeight: "800", marginTop: 5 },
-  addSaleButton: {
-    minWidth: 72,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    borderRadius: 9,
-    backgroundColor: "#f8ecd6",
-  },
-  removeSaleButton: { backgroundColor: "#815216" },
-  addSaleText: { color: "#815216", fontSize: 11, fontWeight: "700" },
-  removeSaleText: { color: "white" },
-  salePagination: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 20,
-    paddingVertical: 8,
-  },
-  salePageButton: {
-    width: 40,
-    height: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#e8f1f6",
-    borderRadius: 9,
-  },
-  salePageDisabled: { opacity: 0.4 },
-  salePageText: { color: "#815216", fontSize: 22, fontWeight: "700" },
-  cartFab: {
-    position: "absolute",
-    right: 18,
-    bottom: 88,
-    width: 54,
-    height: 54,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 27,
-    backgroundColor: "#815216",
-    elevation: 7,
-    shadowColor: "#0a2434",
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    zIndex: 10,
-  },
-  cartFabCount: {
-    position: "absolute",
-    top: -2,
-    right: -3,
-    minWidth: 19,
-    height: 19,
-    paddingHorizontal: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-    backgroundColor: "#a12e25",
-  },
-  cartFabCountText: { color: "white", fontSize: 10, fontWeight: "800" },
-  cartSummary: {
-    padding: 14,
-    borderRadius: 10,
-    backgroundColor: "#e8f1f6",
-    marginBottom: 10,
-  },
-  cartSummaryTitle: { color: "#815216", fontWeight: "800", fontSize: 15 },
-  cartSummaryTotal: {
-    color: "#815216",
-    fontWeight: "800",
-    fontSize: 24,
-    marginTop: 4,
-  },
-  saleCartCard: {
-    padding: 12,
-    marginBottom: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#e3e8ec",
-    backgroundColor: "#fbfcfd",
-  },
-  saleCartHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  removeIconButton: {
-    position: "absolute",
-    right: 8,
-    top: 8,
-    zIndex: 1,
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff0ee",
-    borderRadius: 17,
-  },
-  emptyCart: {
-    padding: 18,
-    color: "#6b6b73",
-    textAlign: "center",
-    backgroundColor: "#f3f6f8",
-    borderRadius: 10,
-  },
-  saleHint: { color: "#6b6b73", fontSize: 12, marginTop: -8, marginBottom: 6 },
-  flex: { flex: 1 },
-  bold: { fontWeight: "700", color: "#19191c" },
-  muted: { color: "#6b6b73", marginTop: 3, lineHeight: 19 },
-  listRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 11,
-    borderBottomWidth: 1,
-    borderColor: "#edf0f2",
-  },
-  cartItem: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderColor: "#edf0f2",
-  },
-  historyCard: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderColor: "#edf0f2",
-    gap: 5,
-  },
-  purchaseStatus: {
-    alignSelf: "flex-start",
-    backgroundColor: "#edf4f0",
-    color: "#315c45",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 99,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  purchaseStatusPending: { backgroundColor: "#fff4d8", color: "#805600" },
-  historyItem: { paddingVertical: 5 },
-  link: { color: "#815216", fontWeight: "700", paddingVertical: 4 },
-  attachmentLink: {
-    color: "#815216",
-    textDecorationLine: "underline",
-    paddingVertical: 4,
-  },
-  errorBox: {
-    borderColor: "#e3aaa4",
-    borderWidth: 1,
-    backgroundColor: "#fff4f2",
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  error: { color: "#a12e25", lineHeight: 20 },
-  spinner: { marginVertical: 8 },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    flowNav: {
+      height: 51,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      gap: 6,
+    },
+    navSide: {
+      minWidth: 76,
+      minHeight: 44,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 1,
+    },
+    navTitle: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "center",
+      flex: 1,
+    },
+    navLink: { fontSize: 14, color: colors.accent },
+    flowTitle: {
+      fontSize: 32,
+      fontWeight: "700",
+      letterSpacing: -1,
+      color: colors.text,
+      marginTop: 9,
+      marginBottom: 10,
+    },
+    sheetOverlay: {
+      flex: 1,
+      justifyContent: "flex-end",
+      backgroundColor: colors.overlay,
+    },
+    filterSheet: {
+      maxHeight: "88%",
+      backgroundColor: colors.background,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      paddingTop: 10,
+      paddingHorizontal: 20,
+      paddingBottom: 12,
+    },
+    sheetHandle: {
+      width: 36,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: colors.secondary,
+      opacity: 0.4,
+      alignSelf: "center",
+      marginBottom: 12,
+    },
+    sheetHeading: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    sheetTitle: { fontSize: 19, fontWeight: "700", color: colors.text },
+    sheetClose: {
+      width: 44,
+      height: 44,
+      alignItems: "flex-end",
+      justifyContent: "center",
+    },
+    sheetGroup: {
+      backgroundColor: colors.surface,
+      borderRadius: 15,
+      overflow: "hidden",
+      marginBottom: 4,
+    },
+    sheetFormRow: {
+      minHeight: 49,
+      paddingHorizontal: 15,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    sheetStatusRow: {
+      paddingHorizontal: 15,
+      paddingTop: 12,
+      paddingBottom: 7,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      gap: 6,
+    },
+    sheetLabel: { fontSize: 14, color: colors.text },
+    sheetDate: {
+      minHeight: 49,
+      textAlign: "right",
+      fontSize: 16,
+      color: colors.text,
+      paddingVertical: 10,
+      minWidth: 150,
+    },
+    sheetSegments: { flexDirection: "row", gap: 3 },
+    sheetSegment: {
+      flex: 1,
+      minHeight: 36,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 7,
+      paddingHorizontal: 3,
+    },
+    sheetSegmentActive: { backgroundColor: colors.accentSoft },
+    sheetSegmentLabel: { fontSize: 12, color: colors.secondary },
+    sheetApply: {
+      height: 49,
+      borderRadius: 13,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 8,
+    },
+    sheetApplyText: { fontSize: 16, fontWeight: "600", color: colors.onAccent },
+
+    filterDock: {
+      position: "absolute",
+      bottom: 100,
+      right: 20,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 16,
+      minHeight: 48,
+      borderRadius: 25,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      shadowColor: colors.shadow,
+      shadowOpacity: 0.12,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 5,
+    },
+    filterDockText: { fontSize: 14, fontWeight: "600", color: colors.accent },
+    filterBadge: {
+      minWidth: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    filterBadgeText: {
+      color: colors.onAccent,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    group: {
+      backgroundColor: colors.surface,
+      borderRadius: 15,
+      overflow: "hidden",
+      marginVertical: 12,
+    },
+    compactRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 11,
+      paddingHorizontal: 15,
+      paddingVertical: 14,
+      minHeight: 57,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    rowTitle: { fontSize: 15, fontWeight: "600", color: colors.text },
+    rowSubtitle: {
+      fontSize: 12,
+      color: colors.secondary,
+      marginTop: 4,
+      lineHeight: 17,
+    },
+    rowAmount: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.text,
+      fontVariant: ["tabular-nums"],
+    },
+    sectionHeading: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 12,
+    },
+    sectionTitle: {
+      fontSize: 21,
+      fontWeight: "700",
+      letterSpacing: -0.4,
+      color: colors.text,
+      marginTop: 16,
+      marginBottom: 0,
+    },
+    inlineLink: {
+      minHeight: 44,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+      paddingVertical: 10,
+    },
+    avatar: {
+      width: 41,
+      height: 41,
+      borderRadius: 21,
+      backgroundColor: colors.accentSoft,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    avatarText: { fontSize: 14, fontWeight: "600", color: colors.accent },
+    smallTag: {
+      fontSize: 11,
+      fontWeight: "600",
+      color: colors.accent,
+      backgroundColor: colors.accentSoft,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 7,
+      alignSelf: "flex-start",
+    },
+    searchBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      minHeight: 44,
+      paddingHorizontal: 12,
+      backgroundColor: colors.border,
+      borderRadius: 11,
+      marginTop: 2,
+      marginBottom: 14,
+    },
+    searchInput: {
+      flex: 1,
+      minHeight: 44,
+      fontSize: 15,
+      color: colors.text,
+      paddingVertical: 10,
+    },
+    emptyState: {
+      alignItems: "center",
+      gap: 10,
+      paddingVertical: 32,
+      paddingHorizontal: 16,
+    },
+    hero: {
+      alignItems: "center",
+      padding: 20,
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      marginVertical: 15,
+      gap: 6,
+    },
+    heroAmount: {
+      fontSize: 34,
+      fontWeight: "700",
+      letterSpacing: -1,
+      color: colors.text,
+      marginVertical: 7,
+    },
+    stepCaption: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.accent,
+      marginBottom: 9,
+    },
+    priceLine: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginTop: 8,
+    },
+    priceInput: {
+      marginLeft: "auto",
+      minWidth: 72,
+      textAlign: "right",
+      fontSize: 16,
+      color: colors.text,
+      paddingVertical: 10,
+    },
+
+    flowFooter: {
+      paddingVertical: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      backgroundColor: colors.background,
+    },
+    receiptRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+    receiptIcon: {
+      minWidth: 44,
+      minHeight: 48,
+      justifyContent: "center",
+      alignItems: "center",
+      borderRadius: 8,
+    },
+    receiptIconText: { fontSize: 9, fontWeight: "700", color: colors.accent },
+    pageHeader: { marginBottom: 20, gap: 7 },
+    pageTitle: {
+      fontSize: 34,
+      fontWeight: "700",
+      color: colors.text,
+      letterSpacing: -0.5,
+    },
+    pageDescription: { fontSize: 14, lineHeight: 20, color: colors.secondary },
+    page: {
+      flex: 1,
+      backgroundColor: colors.background,
+      paddingHorizontal: 16,
+    },
+    loginContent: { flexGrow: 1, paddingBottom: 24 },
+    header: { paddingTop: 14, paddingBottom: 12 },
+    title: { fontSize: 27, fontWeight: "700", color: colors.text },
+    subtitle: { color: colors.secondary, marginTop: 4 },
+    bottomNav: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-around",
+      gap: 0,
+      marginHorizontal: -4,
+      borderRadius: 26,
+      marginTop: 4,
+      paddingHorizontal: 16,
+      paddingTop: 4,
+      paddingBottom: 4,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      backgroundColor: colors.surface,
+      minHeight: 58,
+    },
+    nav: {
+      flex: 1,
+      minWidth: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 2,
+      paddingVertical: 5,
+      minHeight: 48,
+      borderRadius: 20,
+    },
+    active: { backgroundColor: colors.accentSoft },
+    navText: {
+      fontSize: 12,
+      color: colors.secondary,
+      fontWeight: "600",
+      textAlign: "center",
+    },
+    activeText: { color: colors.accent, fontWeight: "800" },
+    card: {
+      backgroundColor: colors.surface,
+      padding: 16,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 12,
+    },
+    heading: {
+      fontSize: 20,
+      fontWeight: "700",
+      marginBottom: 14,
+      color: colors.text,
+    },
+    steps: { flexDirection: "row", gap: 6, marginBottom: 16 },
+    stepTab: {
+      flex: 1,
+      minHeight: 44,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: 3,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 10,
+      backgroundColor: colors.surface,
+    },
+    stepTabActive: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    stepTabText: { color: colors.secondary, fontSize: 12, fontWeight: "700" },
+    stepTabTextActive: { color: colors.onAccent },
+    subheading: {
+      fontSize: 16,
+      fontWeight: "700",
+      marginTop: 12,
+      marginBottom: 9,
+      color: colors.text,
+    },
+    label: { fontWeight: "600", marginBottom: 8, color: colors.text },
+    action: {
+      backgroundColor: colors.accent,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      minHeight: 49,
+      alignItems: "center",
+      borderRadius: 13,
+      marginTop: 8,
+    },
+    actionText: {
+      color: colors.onAccent,
+      fontSize: 16,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+    secondaryAction: { backgroundColor: colors.surface },
+    secondaryText: { color: colors.accent },
+    disabled: { opacity: 0.55 },
+    choice: {
+      padding: 9,
+      backgroundColor: colors.raised,
+      marginBottom: 5,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    choiceSelected: {
+      borderColor: colors.accent,
+      backgroundColor: colors.infoSoft,
+    },
+    choiceText: { color: colors.text, fontSize: 12 },
+    clientSearchField: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 9,
+      paddingHorizontal: 12,
+      minHeight: 48,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 10,
+      backgroundColor: colors.surface,
+    },
+    clientSearchInput: {
+      flex: 1,
+      paddingVertical: 10,
+      color: colors.text,
+      fontSize: 15,
+    },
+    purchaseClientResult: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      padding: 12,
+      marginBottom: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 9,
+      backgroundColor: colors.raised,
+    },
+    selectedPurchaseClient: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      padding: 12,
+      marginBottom: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 10,
+      backgroundColor: colors.accentSoft,
+    },
+    selectedClientMark: {
+      width: 34,
+      height: 34,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 17,
+      backgroundColor: colors.accentSoft,
+    },
+    changeClientButton: {
+      paddingVertical: 7,
+      paddingHorizontal: 9,
+      borderRadius: 8,
+      backgroundColor: colors.surface,
+    },
+    changeClientText: { color: colors.accent, fontSize: 12, fontWeight: "700" },
+    clientSearchHint: {
+      color: colors.secondary,
+      fontSize: 12,
+      marginBottom: 12,
+    },
+    noClientResult: { color: colors.secondary, paddingVertical: 10 },
+    inlineActions: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 5,
+      marginBottom: 10,
+    },
+    conditionGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 5,
+      marginBottom: 12,
+    },
+    draft: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 10,
+      padding: 12,
+      marginVertical: 8,
+      backgroundColor: colors.raised,
+    },
+    cardImage: {
+      width: 150,
+      height: 210,
+      alignSelf: "center",
+      marginBottom: 12,
+    },
+    cardThumb: { width: 42, height: 58, marginRight: 10 },
+    searchResult: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 9,
+      borderBottomWidth: 1,
+      borderColor: colors.raised,
+    },
+    saleHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 12,
+    },
+    saleIntro: { color: colors.secondary, lineHeight: 20, marginTop: -7 },
+    cartIconButton: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.infoSoft,
+      borderRadius: 14,
+    },
+    cartCountBadge: {
+      position: "absolute",
+      right: -3,
+      top: -3,
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 4,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 9,
+      backgroundColor: colors.danger,
+    },
+    cartCountText: { color: colors.onAccent, fontSize: 10, fontWeight: "800" },
+    saleResultsHeading: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: 2,
+    },
+    resultCount: { color: colors.secondary, fontSize: 12, fontWeight: "600" },
+    saleResultCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      padding: 10,
+      marginBottom: 8,
+      backgroundColor: colors.raised,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 10,
+    },
+    saleThumb: {
+      width: 48,
+      height: 64,
+      borderRadius: 4,
+      backgroundColor: colors.raised,
+    },
+    salePrice: { color: colors.accent, fontWeight: "800", marginTop: 5 },
+    addSaleButton: {
+      minWidth: 72,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 2,
+      paddingHorizontal: 8,
+      paddingVertical: 8,
+      borderRadius: 9,
+      backgroundColor: colors.accentSoft,
+    },
+    removeSaleButton: { backgroundColor: colors.accent },
+    addSaleText: { color: colors.accent, fontSize: 11, fontWeight: "700" },
+    removeSaleText: { color: colors.onAccent },
+    salePagination: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 20,
+      paddingVertical: 8,
+    },
+    salePageButton: {
+      width: 40,
+      height: 38,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.infoSoft,
+      borderRadius: 9,
+    },
+    salePageDisabled: { opacity: 0.4 },
+    salePageText: { color: colors.accent, fontSize: 22, fontWeight: "700" },
+    cartFab: {
+      position: "absolute",
+      right: 18,
+      bottom: 88,
+      width: 54,
+      height: 54,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 27,
+      backgroundColor: colors.accent,
+      elevation: 7,
+      shadowColor: colors.shadow,
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      zIndex: 10,
+    },
+    cartFabCount: {
+      position: "absolute",
+      top: -2,
+      right: -3,
+      minWidth: 19,
+      height: 19,
+      paddingHorizontal: 4,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 10,
+      backgroundColor: colors.danger,
+    },
+    cartFabCountText: {
+      color: colors.onAccent,
+      fontSize: 10,
+      fontWeight: "800",
+    },
+    cartSummary: {
+      padding: 14,
+      borderRadius: 10,
+      backgroundColor: colors.infoSoft,
+      marginBottom: 10,
+    },
+    cartSummaryTitle: { color: colors.accent, fontWeight: "800", fontSize: 15 },
+    cartSummaryTotal: {
+      color: colors.accent,
+      fontWeight: "800",
+      fontSize: 24,
+      marginTop: 4,
+    },
+    saleCartCard: {
+      padding: 15,
+      backgroundColor: colors.surface,
+      borderRadius: 15,
+      marginTop: 12,
+    },
+
+    saleCartHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+    removeIconButton: {
+      position: "absolute",
+      right: 8,
+      top: 8,
+      zIndex: 1,
+      width: 34,
+      height: 34,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.dangerSoft,
+      borderRadius: 17,
+    },
+    emptyCart: {
+      padding: 18,
+      color: colors.secondary,
+      textAlign: "center",
+      backgroundColor: colors.raised,
+      borderRadius: 10,
+    },
+    saleHint: {
+      color: colors.secondary,
+      fontSize: 12,
+      marginTop: -8,
+      marginBottom: 6,
+    },
+    flex: { flex: 1 },
+    bold: { fontWeight: "700", color: colors.text },
+    muted: { color: colors.secondary, marginTop: 3, lineHeight: 19 },
+    listRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 10,
+      paddingVertical: 11,
+      borderBottomWidth: 1,
+      borderColor: colors.raised,
+    },
+    cartItem: {
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderColor: colors.raised,
+    },
+    historyCard: {
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderColor: colors.raised,
+      gap: 5,
+    },
+    purchaseStatus: {
+      alignSelf: "flex-start",
+      backgroundColor: colors.successSoft,
+      color: colors.success,
+      paddingHorizontal: 9,
+      paddingVertical: 4,
+      borderRadius: 99,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    purchaseStatusPending: {
+      backgroundColor: colors.warningSoft,
+      color: colors.warning,
+    },
+    historyItem: { paddingVertical: 5 },
+    link: { color: colors.accent, fontWeight: "600", fontSize: 14 },
+    attachmentLink: {
+      color: colors.accent,
+      textDecorationLine: "underline",
+      paddingVertical: 4,
+    },
+    errorBox: {
+      borderColor: colors.border,
+      borderWidth: 1,
+      backgroundColor: colors.dangerSoft,
+      padding: 10,
+      borderRadius: 8,
+      marginBottom: 10,
+    },
+    error: { color: colors.danger, lineHeight: 20 },
+    spinner: { marginVertical: 8 },
+  });

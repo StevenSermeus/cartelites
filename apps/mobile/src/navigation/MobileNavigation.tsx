@@ -1,55 +1,45 @@
-import { Ionicons } from "@expo/vector-icons";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
+import { Ionicons } from '@expo/vector-icons';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 export type Page =
-  | "clients"
-  | "consignments"
-  | "purchase"
-  | "stock"
-  | "sales"
-  | "saleSummary"
-  | "salePayment"
-  | "saleComplete"
-  | "history"
-  | "salesHistory"
-  | "account";
+  | 'clients'
+  | 'consignments'
+  | 'purchase'
+  | 'stock'
+  | 'sales'
+  | 'saleSummary'
+  | 'salePayment'
+  | 'saleComplete'
+  | 'history'
+  | 'salesHistory'
+  | 'account';
 export const pageHeaders: Record<Page, [string, string]> = {
-  stock: ["Stock", "Vos cartes, collections et articles disponibles."],
-  sales: ["Vente", "Ajoutez les articles au panier."],
-  saleSummary: ["Panier", "Vérifiez les articles et leurs prix."],
-  salePayment: ["Encaisser", "Enregistrez le règlement de cette vente."],
-  saleComplete: [
-    "Vente enregistrée",
-    "Retrouvez le détail de votre encaissement.",
-  ],
-  history: ["Rachats", "Vos dossiers et bordereaux."],
-  purchase: ["Nouveau rachat", "Client, cartes et document."],
-  consignments: ["Dépôts-vente", "Dossiers, contrats et reversements."],
-  clients: ["Clients", "Coordonnées de vos vendeurs et déposants."],
-  salesHistory: ["Historique des ventes", "Ventes et encaissements."],
-  account: ["Compte", "Votre boutique et votre signature."],
+  stock: ['Stock', 'Vos cartes, collections et articles disponibles.'],
+  sales: ['Vente', 'Ajoutez les articles au panier.'],
+  saleSummary: ['Vente', 'Panier en cours'],
+  salePayment: ['Encaisser', 'Enregistrez le règlement de cette vente.'],
+  saleComplete: ['Vente enregistrée', 'Retrouvez le détail de votre encaissement.'],
+  history: ['Rachats', 'Cartélites · Vos rachats et documents'],
+  purchase: ['Nouveau rachat', 'Client, cartes et document.'],
+  consignments: ['Dépôts-vente', 'Dossiers, contrats et reversements.'],
+  clients: ['Clients', 'Coordonnées de vos vendeurs et déposants.'],
+  salesHistory: ['Historique des ventes', 'Ventes et encaissements.'],
+  account: ['Compte', ''],
 };
 export function activeTab(page: Page): Page {
-  if (
-    [
-      "sales",
-      "saleSummary",
-      "salePayment",
-      "saleComplete",
-      "salesHistory",
-    ].includes(page)
-  )
-    return "sales";
-  if (["history", "purchase"].includes(page)) return "history";
-  if (["account", "clients"].includes(page)) return "account";
+  if (['sales', 'saleSummary', 'salePayment', 'saleComplete', 'salesHistory'].includes(page))
+    return 'sales';
+  if (['history', 'purchase'].includes(page)) return 'history';
+  if (['account', 'clients'].includes(page)) return 'account';
   return page;
 }
 const tabs = [
-  ["stock", "Stock", "albums-outline"],
-  ["history", "Rachat", "add-circle-outline"],
-  ["sales", "Vente", "cart-outline"],
-  ["consignments", "Dépôts", "cube-outline"],
-  ["account", "Compte", "person-circle-outline"],
+  ['stock', 'Stock', 'albums-outline'],
+  ['history', 'Rachat', 'add-circle-outline'],
+  ['sales', 'Vente', 'cart-outline'],
+  ['consignments', 'Dépôts', 'cube-outline'],
+  ['account', 'Compte', 'person-circle-outline'],
 ] as const;
 export function MobileNavigation({
   page,
@@ -60,6 +50,9 @@ export function MobileNavigation({
   onChange: (page: Page) => void;
   disabled?: boolean;
 }) {
+  const { colors } = useTheme();
+  const s = createStyles(colors);
+
   return (
     <View accessibilityRole="tablist" style={s.bar}>
       {tabs.map(([target, title, icon]) => {
@@ -74,58 +67,75 @@ export function MobileNavigation({
             onPress={() => onChange(target)}
             style={[s.tab, selected && s.selected]}
           >
-            <Ionicons
-              name={icon}
-              size={23}
-              color={selected ? "#815216" : "#6b6b73"}
-            />
-            <Text style={[s.label, selected && s.activeLabel]}>{title}</Text>
+            <Ionicons name={icon} size={23} color={selected ? colors.accent : colors.secondary} />
+            <Text style={[{ color: colors.text }, [s.label, selected && s.activeLabel]]}>
+              {title}
+            </Text>
           </Pressable>
         );
       })}
     </View>
   );
 }
-export function MobileHeader({ page }: { page: Page }) {
+export function MobileHeader({
+  page,
+  title,
+  subtitle,
+}: {
+  page: Page;
+  title?: string;
+  subtitle?: string;
+}) {
+  const { colors } = useTheme();
+  const s = createStyles(colors);
+
   return (
     <View style={s.header}>
-      <Text style={s.brand}>cartélites.</Text>
-      <Text accessibilityRole="header" style={s.title}>
-        {pageHeaders[page][0]}
+      <View style={s.nav}>
+        <Text style={[{ color: colors.text }, s.brand]}>cartélites.</Text>
+      </View>
+      <Text accessibilityRole="header" style={[{ color: colors.text }, s.title]}>
+        {title ?? pageHeaders[page][0]}
       </Text>
-      <Text style={s.subtitle}>{pageHeaders[page][1]}</Text>
+      {!!(subtitle ?? pageHeaders[page][1]) && (
+        <Text style={[{ color: colors.text }, s.subtitle]}>{subtitle ?? pageHeaders[page][1]}</Text>
+      )}
     </View>
   );
 }
-const s = StyleSheet.create({
-  bar: {
-    flexDirection: "row",
-    padding: 5,
-    marginTop: 4,
-    marginHorizontal: -4,
-    borderRadius: 26,
-    backgroundColor: "#fff",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#e7e7ec",
-  },
-  tab: {
-    flex: 1,
-    minHeight: 52,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 3,
-    borderRadius: 21,
-  },
-  selected: { backgroundColor: "#f8ecd6" },
-  label: { fontSize: 10, color: "#6b6b73", fontWeight: "500" },
-  activeLabel: { color: "#815216", fontWeight: "600" },
-  header: { gap: 7, marginBottom: 20 },
-  brand: { color: "#815216", fontSize: 15, fontWeight: "700", marginBottom: 9 },
-  title: {
-    color: "#19191c",
-    fontSize: 34,
-    fontWeight: "700",
-    letterSpacing: -0.8,
-  },
-  subtitle: { color: "#6b6b73", fontSize: 14, lineHeight: 20 },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    bar: {
+      flexDirection: 'row',
+      padding: 5,
+      marginTop: 4,
+      marginHorizontal: -4,
+      borderRadius: 26,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    tab: {
+      flex: 1,
+      minHeight: 52,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 3,
+      borderRadius: 21,
+    },
+    selected: { backgroundColor: colors.accentSoft },
+    label: { fontSize: 10, color: colors.secondary, fontWeight: '500' },
+    activeLabel: { color: colors.accent, fontWeight: '600' },
+    header: { marginBottom: 16 },
+    nav: { height: 51, justifyContent: 'center' },
+    brand: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+    title: {
+      color: colors.text,
+      fontSize: 32,
+      fontWeight: '700',
+      letterSpacing: -1,
+      marginTop: 9,
+      marginBottom: 10,
+    },
+    subtitle: { color: colors.secondary, fontSize: 13, lineHeight: 18 },
+  });

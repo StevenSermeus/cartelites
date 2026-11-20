@@ -1,10 +1,10 @@
+import { useTheme } from "../theme/ThemeProvider";
 import { useRef, useState, type ComponentRef } from "react";
 import {
   Alert,
   Modal,
   Pressable,
   ScrollView,
-  Switch,
   Text,
   View,
   useWindowDimensions,
@@ -100,12 +100,19 @@ export function ReceiptSigning({
   onSigned?: (pdf: string) => void;
   onSignedPending?: () => void;
 }) {
+  const { colors } = useTheme();
+
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
   const content = useRef<ComponentRef<typeof ScrollView>>(null);
   const [editingCompany, setEditingCompany] = useState(false);
   const [archivesOpen, setArchivesOpen] = useState(false);
   const [reference, setReference] = useState("");
+  const [summary, setSummary] = useState<{
+    name: string;
+    amount: number;
+  } | null>(null);
+  const [documentAvailable, setDocumentAvailable] = useState(false);
   const [signedPdf, setSignedPdf] = useState<string | null>(null);
   const [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false),
@@ -167,6 +174,15 @@ export function ReceiptSigning({
     const d = await request<Draft>("/receipts/prepare", { kind, targetId });
     setDraft(d);
     setReference(d.snapshot.reference);
+    setSummary({
+      name: d.snapshot.client.name,
+      amount: d.snapshot.items.reduce(
+        (total, item) =>
+          total + (item.purchasePriceCents ?? item.askingPriceCents ?? 0),
+        0,
+      ),
+    });
+    setDocumentAvailable(false);
     setSignedPdf(null);
     setEditingCompany(!p.signature || !validSignature(p.signature));
     setCompany(p.signature ?? []);
@@ -223,20 +239,37 @@ export function ReceiptSigning({
       ),
     );
   }
-  const button = (label: string, onPress: () => void, disabled = false) => (
+  const button = (
+    label: string,
+    onPress: () => void,
+    disabled = false,
+    primary = false,
+  ) => (
     <Pressable
       accessibilityRole="button"
       disabled={busy || disabled}
       onPress={onPress}
       style={{
-        padding: 16,
-        minHeight: 50,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        minHeight: 49,
+        alignItems: "center",
+        justifyContent: "center",
         borderRadius: 13,
-        backgroundColor: "#f8ecd6",
+        backgroundColor: primary ? colors.accent : colors.surface,
         opacity: busy || disabled ? 0.5 : 1,
       }}
     >
-      <Text style={{ color: "#815216", fontSize: 16, fontWeight: "600" }}>
+      <Text
+        style={[
+          { color: colors.text },
+          {
+            color: primary ? colors.onAccent : colors.accent,
+            fontSize: 16,
+            fontWeight: "600",
+          },
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -246,17 +279,52 @@ export function ReceiptSigning({
     value: boolean,
     set: (value: boolean) => void,
   ) => (
-    <View style={{ gap: 6 }}>
-      <Text style={{ color: "#815216", fontSize: 16, fontWeight: "600" }}>
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value, disabled: busy }}
+      disabled={busy}
+      onPress={() => set(!value)}
+      style={{
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 10,
+        paddingVertical: 13,
+        minHeight: 44,
+      }}
+    >
+      <View
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 5,
+          borderWidth: 1,
+          borderColor: value ? colors.accent : colors.border,
+          backgroundColor: value ? colors.accent : colors.surface,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {value && (
+          <Text
+            style={[
+              { color: colors.text },
+              { color: colors.onAccent, fontSize: 16, fontWeight: "700" },
+            ]}
+          >
+            ✓
+          </Text>
+        )}
+      </View>
+      <Text
+        style={[
+          { color: colors.text },
+          { color: colors.text, fontSize: 14, lineHeight: 20, flex: 1 },
+        ]}
+      >
         {label}
       </Text>
-      <Switch
-        accessibilityLabel={label}
-        value={value}
-        onValueChange={set}
-        disabled={busy}
-      />
-    </View>
+    </Pressable>
   );
   function close() {
     if (busy) return;
@@ -294,6 +362,8 @@ export function ReceiptSigning({
           setSigned(originals);
           if (originals.length) {
             setCompleted(originals[0]);
+            setSummary(null);
+            setReference("");
             goStep(3);
             await loadOriginal(originals[0].id);
           } else if (allowSigning) await prepare();
@@ -317,60 +387,85 @@ export function ReceiptSigning({
             onClose={() => setPreview(null)}
           />
         ) : (
-          <SafeAreaView style={{ flex: 1, backgroundColor: "#f2f2f7" }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
             <View
               style={{
-                paddingHorizontal: 16,
-                paddingVertical: landscape ? 4 : 12,
-                borderBottomWidth: 1,
-                borderColor: "#e7e7ec",
-                gap: 4,
+                minHeight: landscape ? 44 : 51,
+                paddingHorizontal: 18,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
               }}
             >
               <Pressable
                 disabled={busy}
                 accessibilityRole="button"
-                onPress={close}
+                onPress={() => (draft && step > 0 ? goStep(step - 1) : close())}
+                style={{ minHeight: 44, justifyContent: "center" }}
               >
-                <Text style={{ color: "#795018", paddingVertical: 8 }}>
-                  ← Retour au dossier
+                <Text
+                  style={[
+                    { color: colors.text },
+                    { color: colors.accent, fontSize: 14 },
+                  ]}
+                >
+                  ‹ Retour
                 </Text>
               </Pressable>
-              {!landscape && (
-                <Text style={{ fontSize: 26, fontWeight: "700" }}>
-                  Signature du document
-                </Text>
-              )}
-              <Text>
-                {step + 1} / 4 ·{" "}
-                {
-                  [
-                    "Lire le document",
-                    "Signature boutique",
-                    "Signature client",
-                    "Exemplaire signé",
-                  ][step]
-                }
+              <Text
+                style={[
+                  { color: colors.text },
+                  { fontSize: 15, fontWeight: "600", color: colors.text },
+                ]}
+              >
+                {completed
+                  ? "Document signé"
+                  : step === 0
+                    ? "Bordereau à signer"
+                    : "Signatures"}
               </Text>
+              <Pressable
+                disabled={busy}
+                accessibilityRole="button"
+                onPress={close}
+                style={{ minHeight: 44, justifyContent: "center" }}
+              >
+                <Text
+                  style={[
+                    { color: colors.text },
+                    { color: colors.accent, fontSize: 14 },
+                  ]}
+                >
+                  Fermer
+                </Text>
+              </Pressable>
             </View>
             <ScrollView
               ref={content}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={{
-                padding: landscape ? 12 : 20,
-                gap: landscape ? 10 : 20,
+                paddingHorizontal: landscape ? 28 : 20,
+                paddingTop: 9,
+                paddingBottom: 18,
+                gap: 12,
               }}
             >
               {!!error && (
                 <Text
                   accessibilityRole="alert"
-                  style={{ padding: 16, backgroundColor: "#fff3db" }}
+                  style={[
+                    { color: colors.text },
+                    { padding: 16, backgroundColor: colors.warningSoft },
+                  ]}
                 >
                   {error}
                 </Text>
               )}
               {!busy && !draft && !completed && !allowSigning && (
-                <Text>Aucun document signé pour ce dossier.</Text>
+                <Text style={{ color: colors.text }}>
+                  Aucun document signé pour ce dossier.
+                </Text>
               )}
               {busy && (
                 <ActivityIndicator accessibilityLabel="Chargement du document" />
@@ -381,71 +476,142 @@ export function ReceiptSigning({
                 allowSigning &&
                 button("Réessayer", () => void run(prepare))}
               {draft && (
-                <View style={{ gap: 18 }}>
+                <View style={{ gap: 12 }}>
                   {!(landscape && step === 2) && (
                     <>
-                      <Text style={{ fontSize: 18, fontWeight: "600" }}>
-                        {draft.snapshot.reference} ·{" "}
-                        {draft.snapshot.client.name}
+                      {step > 0 && (
+                        <Text
+                          style={[
+                            { color: colors.text },
+                            {
+                              fontSize: 32,
+                              lineHeight: 36,
+                              letterSpacing: -1,
+                              fontWeight: "700",
+                              color: colors.text,
+                            },
+                          ]}
+                        >
+                          {step === 1
+                            ? "Signature boutique"
+                            : "Votre signature"}
+                        </Text>
+                      )}
+                      <Text
+                        style={[
+                          { color: colors.text },
+                          {
+                            color: colors.accent,
+                            fontSize: 12,
+                            fontWeight: "600",
+                          },
+                        ]}
+                      >
+                        {step === 0
+                          ? "Lire le document"
+                          : step === 1
+                            ? "Votre confirmation"
+                            : draft.snapshot.client.name}
                       </Text>
-                      <Text>
-                        Copie à :{" "}
-                        {draft.snapshot.client.email ||
-                          "aucune adresse renseignée"}
+                      <Text
+                        style={[
+                          { color: colors.text },
+                          { color: colors.secondary, fontSize: 13 },
+                        ]}
+                      >
+                        {draft.snapshot.reference}
+                        {step < 2 ? ` · ${draft.snapshot.client.name}` : ""}
                       </Text>
                     </>
                   )}
                   {step === 0 && (
                     <>
-                      <Text>
-                        Vérifiez le document complet, ses conditions et
-                        l’adresse du destinataire.
-                      </Text>
-                      <ReceiptPdfPreview base64={draft.pdfBase64} />
+                      <ReceiptPdfPreview
+                        base64={draft.pdfBase64}
+                        onReady={() => setDocumentAvailable(true)}
+                        onError={() => {
+                          setDocumentAvailable(false);
+                          setRead(false);
+                        }}
+                      />
                       {button("Agrandir le document", () =>
                         setPreview(draft.pdfBase64),
                       )}
                       {button(
                         "Partager le PDF",
                         () =>
-                          void run(() =>
-                            share(
+                          void run(async () => {
+                            await share(
                               draft.pdfBase64,
-                              `document-a-lire-${draft.id}.pdf`,
-                            ),
-                          ),
+                              `${draft.snapshot.reference}.pdf`,
+                            );
+                            setDocumentAvailable(true);
+                          }),
                       )}
-                      {check(
-                        "Nous avons lu le PDF complet et vérifié les informations.",
-                        read,
-                        setRead,
-                      )}
+                      {documentAvailable &&
+                        check(
+                          "Nous avons lu le PDF complet et vérifié les informations.",
+                          read,
+                          setRead,
+                        )}
                     </>
                   )}
                   {step === 1 && (
                     <>
-                      <Text style={{ fontSize: 22, fontWeight: "600" }}>
-                        La signature de la boutique
-                      </Text>
-                      <Text>
-                        {profile?.firstName} {profile?.lastName} ·{" "}
-                        {profile?.capacity}
-                      </Text>
-                      <SignaturePad
-                        inline={editingCompany}
-                        readOnly={!editingCompany}
-                        label={
-                          editingCompany
-                            ? "Dessinez votre signature"
-                            : "Signature enregistrée"
-                        }
-                        value={company}
-                        onChange={(value) => {
-                          setCompany(value);
-                          setCompanyAccepted(false);
+                      <View
+                        style={{
+                          backgroundColor: colors.surface,
+                          padding: 20,
+                          borderRadius: 16,
+                          gap: 10,
                         }}
-                        disabled={busy}
-                      />
+                      >
+                        <Text
+                          style={[
+                            { color: colors.text },
+                            {
+                              alignSelf: "center",
+                              paddingVertical: 4,
+                              paddingHorizontal: 8,
+                              backgroundColor: colors.accentSoft,
+                              borderRadius: 7,
+                              color: colors.accent,
+                              fontSize: 11,
+                              fontWeight: "600",
+                            },
+                          ]}
+                        >
+                          {editingCompany
+                            ? "Nouvelle signature"
+                            : "Signature enregistrée"}
+                        </Text>
+                        <SignaturePad
+                          inline={editingCompany}
+                          readOnly={!editingCompany}
+                          label={
+                            editingCompany ? "Dessinez votre signature" : ""
+                          }
+                          value={company}
+                          onChange={(value) => {
+                            setCompany(value);
+                            setCompanyAccepted(false);
+                          }}
+                          disabled={busy}
+                        />
+                        <Text
+                          style={[
+                            { color: colors.text },
+                            {
+                              textAlign: "center",
+                              fontSize: 14,
+                              fontWeight: "600",
+                            },
+                          ]}
+                        >
+                          {profile?.firstName} {profile?.lastName} ·{" "}
+                          {profile?.capacity}
+                        </Text>
+                      </View>
                       {button(
                         editingCompany
                           ? "Terminer la modification"
@@ -465,25 +631,41 @@ export function ReceiptSigning({
                         setCompanyAccepted,
                       )}
 
-                      {button("Retour au document", () => goStep(0))}
+                      <Text
+                        style={[
+                          { color: colors.text },
+                          {
+                            color: colors.secondary,
+                            fontSize: 12,
+                            lineHeight: 18,
+                          },
+                        ]}
+                      >
+                        Votre signature enregistrée n’est jamais appliquée sans
+                        votre confirmation.
+                      </Text>
                     </>
                   )}
                   {step === 2 && (
                     <>
-                      {!landscape && (
-                        <>
-                          <Text style={{ fontSize: 22, fontWeight: "600" }}>
-                            Au client de signer
-                          </Text>
-                          <Text>
-                            {draft.snapshot.client.name}, signez dans le cadre
-                            ci-dessous.
-                          </Text>
-                        </>
-                      )}
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={busy}
+                        onPress={() => setPreview(draft.pdfBase64)}
+                        style={{ minHeight: 44, justifyContent: "center" }}
+                      >
+                        <Text
+                          style={[
+                            { color: colors.text },
+                            { color: colors.accent, fontSize: 14 },
+                          ]}
+                        >
+                          Relire le document
+                        </Text>
+                      </Pressable>
                       <SignaturePad
                         inline
-                        label="Signature du client"
+                        label=""
                         value={client}
                         onChange={(value) => {
                           setClient(value);
@@ -492,77 +674,271 @@ export function ReceiptSigning({
                         disabled={busy}
                       />
                       {check(draft.consent, accepted, setAccepted)}
-                      <Text>
-                        Un original sera conservé puis son envoi par e-mail sera
-                        tenté. La validation du stock reste distincte.
+                      <Text
+                        style={[
+                          { color: colors.text },
+                          {
+                            color: colors.secondary,
+                            fontSize: 12,
+                            lineHeight: 18,
+                          },
+                        ]}
+                      >
+                        L’original signé sera conservé et une copie sera envoyée
+                        au client. La validation du stock reste distincte.
                       </Text>
-
-                      {button("Relire le document", () =>
-                        setPreview(draft.pdfBase64),
-                      )}
-                      {button("Retour à ma signature", () => goStep(1))}
                     </>
                   )}
                 </View>
               )}
               {completed && (
-                <View
-                  style={{
-                    gap: 12,
-                    padding: 18,
-                    backgroundColor: "white",
-                    borderRadius: 12,
-                  }}
-                >
-                  <Text style={{ fontSize: 22, fontWeight: "700" }}>
-                    Le PDF signé est conservé.
+                <>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 32,
+                      fontWeight: "700",
+                      letterSpacing: -0.7,
+                    }}
+                  >
+                    Document signé
                   </Text>
-                  {!!reference && <Text>{reference}</Text>}
-                  <Text>
-                    Les deux signatures sont enregistrées dans l’original.
-                  </Text>
-                  {signedPdf ? (
-                    <ReceiptPdfPreview base64={signedPdf} />
-                  ) : (
-                    <Text>
-                      L’original signé doit être rechargé pour être consulté ou
-                      partagé.
+                  <View
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderRadius: 16,
+                      padding: 20,
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 53,
+                        height: 53,
+                        borderRadius: 27,
+                        backgroundColor: colors.accentSoft,
+                        justifyContent: "center",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text
+                        style={[
+                          { color: colors.text },
+                          { color: colors.success, fontSize: 29 },
+                        ]}
+                      >
+                        ✓
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        { color: colors.text },
+                        {
+                          fontSize: 34,
+                          fontWeight: "700",
+                          letterSpacing: -0.5,
+                        },
+                      ]}
+                    >
+                      {summary
+                        ? new Intl.NumberFormat("fr-BE", {
+                            style: "currency",
+                            currency: "EUR",
+                          }).format(summary.amount / 100)
+                        : "Signé"}
                     </Text>
-                  )}
-                  {button(
-                    signedPdf
-                      ? "Lire l’original signé"
-                      : "Recharger l’original signé",
-                    () =>
-                      void run(async () =>
-                        setPreview(
-                          signedPdf ?? (await loadOriginal(completed.id)),
-                        ),
-                      ),
-                  )}
-                  {button(
-                    "Partager l’original signé",
-                    () =>
-                      void run(async () =>
-                        share(
-                          signedPdf ?? (await loadOriginal(completed.id)),
-                          `document-signe-${completed.id}.pdf`,
-                        ),
-                      ),
-                  )}
-                  <Text style={{ fontWeight: "600", marginTop: 8 }}>
-                    Copie au client
-                  </Text>
-                  <Text>{emailLabel(completed.emailStatus)}</Text>
-                  {!!completed.emailError && (
-                    <Text accessibilityRole="alert">
-                      {errorLabel(completed.emailError)}
+                    {!!reference && (
+                      <Text
+                        style={[
+                          { color: colors.text },
+                          { fontSize: 13, color: colors.secondary },
+                        ]}
+                      >
+                        {reference}
+                      </Text>
+                    )}
+                    <Text
+                      style={[
+                        { color: colors.text },
+                        {
+                          fontSize: 13,
+                          color: colors.secondary,
+                          textAlign: "center",
+                        },
+                      ]}
+                    >
+                      {summary
+                        ? summary.name
+                        : "Les signatures de la boutique et du client sont enregistrées."}
                     </Text>
-                  )}
-                  <Text>
-                    Destinataire : {completed.recipient || "non renseigné"}
+                  </View>
+                  <View
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderRadius: 15,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy}
+                      onPress={() =>
+                        void run(async () =>
+                          setPreview(
+                            signedPdf ?? (await loadOriginal(completed.id)),
+                          ),
+                        )
+                      }
+                      style={{
+                        padding: 15,
+                        minHeight: 57,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 12,
+                      }}
+                    >
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <Text
+                          style={[
+                            { color: colors.text },
+                            { fontSize: 15, fontWeight: "600" },
+                          ]}
+                        >
+                          PDF signé
+                        </Text>
+                        <Text
+                          style={[
+                            { color: colors.text },
+                            { color: colors.secondary, fontSize: 12 },
+                          ]}
+                        >
+                          {signedPdf
+                            ? "Original archivé"
+                            : "Recharger l’original archivé"}
+                        </Text>
+                      </View>
+                      <Text
+                        style={[
+                          { color: colors.text },
+                          {
+                            color: colors.accent,
+                            fontSize: 12,
+                            backgroundColor: colors.accentSoft,
+                            padding: 5,
+                            borderRadius: 7,
+                          },
+                        ]}
+                      >
+                        Archivé
+                      </Text>
+                      <Text
+                        style={[
+                          { color: colors.text },
+                          { color: colors.secondary, fontSize: 21 },
+                        ]}
+                      >
+                        ›
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy}
+                      onPress={() =>
+                        void run(async () =>
+                          share(
+                            signedPdf ?? (await loadOriginal(completed.id)),
+                            `document-signe-${completed.id}.pdf`,
+                          ),
+                        )
+                      }
+                      style={{
+                        padding: 15,
+                        minHeight: 49,
+                        borderTopWidth: 0.5,
+                        borderColor: colors.border,
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text
+                        style={[
+                          { color: colors.text },
+                          { fontSize: 15, color: colors.accent },
+                        ]}
+                      >
+                        Partager l’original signé
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <Text
+                    style={[
+                      { color: colors.text },
+                      {
+                        color: colors.secondary,
+                        fontSize: 12,
+                        textTransform: "uppercase",
+                        letterSpacing: 0.6,
+                        marginHorizontal: 14,
+                        marginTop: 8,
+                      },
+                    ]}
+                  >
+                    Exemplaire client
                   </Text>
-                </View>
+                  <View
+                    style={{
+                      backgroundColor: colors.surface,
+                      borderRadius: 15,
+                      padding: 15,
+                      gap: 5,
+                    }}
+                  >
+                    <Text
+                      style={[
+                        { color: colors.text },
+                        { fontSize: 15, fontWeight: "600" },
+                      ]}
+                    >
+                      Envoi par e-mail
+                    </Text>
+                    <Text
+                      style={[
+                        { color: colors.text },
+                        { color: colors.secondary, fontSize: 12 },
+                      ]}
+                    >
+                      {completed.recipient || "Adresse non renseignée"}
+                    </Text>
+                    <Text
+                      style={[
+                        { color: colors.text },
+                        { color: colors.accent, fontSize: 13 },
+                      ]}
+                    >
+                      {emailLabel(completed.emailStatus)}
+                    </Text>
+                    {!!completed.emailError && (
+                      <Text
+                        accessibilityRole="alert"
+                        style={[
+                          { color: colors.text },
+                          { color: colors.danger, fontSize: 13 },
+                        ]}
+                      >
+                        {errorLabel(completed.emailError)}
+                      </Text>
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      { color: colors.text },
+                      { color: colors.secondary, fontSize: 12, lineHeight: 18 },
+                    ]}
+                  >
+                    Le statut de l’e-mail est suivi séparément de la signature.
+                    Le PDF reste archivé même si l’envoi échoue.
+                  </Text>
+                </>
               )}
               {!draft &&
                 button(
@@ -573,27 +949,43 @@ export function ReceiptSigning({
                 )}
               {!draft && archivesOpen && (
                 <View style={{ gap: 18 }}>
-                  <Text style={{ fontSize: 20, fontWeight: "600" }}>
+                  <Text
+                    style={[
+                      { color: colors.text },
+                      { fontSize: 20, fontWeight: "600" },
+                    ]}
+                  >
                     Exemplaires signés
                   </Text>
-                  {!signed.length && <Text>Aucun exemplaire signé.</Text>}
+                  {!signed.length && (
+                    <Text style={{ color: colors.text }}>
+                      Aucun exemplaire signé.
+                    </Text>
+                  )}
                   {signed.map((row) => (
                     <View
                       key={row.id}
                       style={{
                         padding: 18,
-                        backgroundColor: "white",
+                        backgroundColor: colors.surface,
                         borderRadius: 12,
                         gap: 12,
                       }}
                     >
-                      <Text>
+                      <Text style={{ color: colors.text }}>
                         {new Date(row.signedAt!).toLocaleString("fr-BE")}
                       </Text>
-                      <Text>{row.recipient || "Adresse e-mail manquante"}</Text>
-                      <Text>{emailLabel(row.emailStatus)}</Text>
+                      <Text style={{ color: colors.text }}>
+                        {row.recipient || "Adresse e-mail manquante"}
+                      </Text>
+                      <Text style={{ color: colors.text }}>
+                        {emailLabel(row.emailStatus)}
+                      </Text>
                       {!!row.emailError && (
-                        <Text accessibilityRole="alert">
+                        <Text
+                          accessibilityRole="alert"
+                          style={{ color: colors.text }}
+                        >
                           {errorLabel(row.emailError)}
                         </Text>
                       )}
@@ -657,14 +1049,16 @@ export function ReceiptSigning({
             {draft && (
               <View
                 style={{
-                  padding: landscape ? 8 : 16,
+                  paddingHorizontal: landscape ? 28 : 20,
+                  paddingTop: 12,
+                  paddingBottom: 18,
                   borderTopWidth: 1,
-                  borderColor: "#e7e7ec",
-                  backgroundColor: "#f2f2f7",
+                  borderColor: colors.border,
+                  backgroundColor: colors.background,
                 }}
               >
                 {step === 0 &&
-                  button("Continuer vers ma signature", () => goStep(1), !read)}
+                  button("Passer aux signatures", () => goStep(1), !read, true)}
                 {step === 1 &&
                   button(
                     "Faire signer le client",
@@ -672,21 +1066,31 @@ export function ReceiptSigning({
                     !companyAccepted ||
                       !validSignature(company) ||
                       editingCompany,
+                    true,
                   )}
                 {step === 2 &&
                   button(
-                    busy
-                      ? "Archivage et envoi…"
-                      : "Signer et envoyer l’exemplaire",
+                    busy ? "Archivage et envoi…" : "Valider ma signature",
                     () => void run(sign),
                     !accepted ||
                       !validSignature(client) ||
                       !validSignature(company),
+                    true,
                   )}
               </View>
             )}
             {completed && (
-              <View style={{ padding: 16 }}>{button("Terminer", close)}</View>
+              <View
+                style={{
+                  paddingHorizontal: 20,
+                  paddingTop: 12,
+                  paddingBottom: 18,
+                  borderTopWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                {button("Terminer", close, false, true)}
+              </View>
             )}
           </SafeAreaView>
         )}

@@ -1,3 +1,4 @@
+import { useTheme } from "../theme/ThemeProvider";
 import { useMemo, useRef, useState } from "react";
 import {
   Modal,
@@ -23,6 +24,8 @@ function SignatureCanvas({
   disabled?: boolean;
   height?: number;
 }) {
+  const { colors } = useTheme();
+
   const [width, setWidth] = useState(300);
   const drawing = useRef<Signature | null>(null);
   const canvasHeight = height ?? width / 3;
@@ -46,7 +49,7 @@ function SignatureCanvas({
       offsetX: (w * (minX + maxX)) / 2 - width / 2,
       offsetY: (h * (minY + maxY)) / 2 - canvasHeight / 2,
     };
-  }, [width, canvasHeight]);
+  }, [width, canvasHeight, disabled ? value : null]);
   const point = (e: GestureResponderEvent) => [
     Math.max(
       0,
@@ -59,17 +62,26 @@ function SignatureCanvas({
   ];
   return (
     <View style={{ gap: 8 }}>
-      <Text>{label}</Text>
+      {!!label && (
+        <Text
+          style={[
+            { color: colors.text },
+            { color: colors.secondary, fontSize: 13 },
+          ]}
+        >
+          {label}
+        </Text>
+      )}
       <View
         accessibilityLabel={label}
         onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
         style={{
           width: "100%",
           height: canvasHeight,
-          backgroundColor: "white",
-          borderWidth: 1,
-          borderColor: "#75695c",
-          borderRadius: 8,
+          backgroundColor: colors.surface,
+          borderWidth: disabled ? 0 : 1,
+          borderColor: colors.border,
+          borderRadius: 15,
           overflow: "hidden",
         }}
         onStartShouldSetResponder={() => !disabled && value.length < 80}
@@ -101,6 +113,25 @@ function SignatureCanvas({
         }}
       >
         <View pointerEvents="none" style={{ position: "absolute", inset: 0 }}>
+          {!disabled && (
+            <View
+              style={{
+                position: "absolute",
+                left: 24,
+                right: 24,
+                bottom: 40,
+                borderBottomWidth: 1,
+                borderColor: colors.border,
+                paddingBottom: 8,
+              }}
+            >
+              {!value.length && (
+                <Text style={{ color: colors.placeholder, fontSize: 14 }}>
+                  Signez ici
+                </Text>
+              )}
+            </View>
+          )}
           {value.flatMap((stroke, s) =>
             stroke.slice(1).map((p, i) => {
               const a = stroke[i],
@@ -117,7 +148,7 @@ function SignatureCanvas({
                     top: ((a[1] + p[1]) * virtualHeight) / 2 - offsetY - 1,
                     width: length,
                     height: 2,
-                    backgroundColor: "#14213d",
+                    backgroundColor: colors.signature,
                     borderRadius: 1,
                     transform: [{ rotate: `${Math.atan2(dy, dx)}rad` }],
                   }}
@@ -135,9 +166,21 @@ function SignatureCanvas({
             drawing.current = null;
             onChange([]);
           }}
-          style={{ padding: 12 }}
+          style={{
+            minHeight: 44,
+            justifyContent: "center",
+            alignSelf: "flex-end",
+            paddingHorizontal: 12,
+          }}
         >
-          <Text>Effacer la signature</Text>
+          <Text
+            style={[
+              { color: colors.text },
+              { color: colors.accent, fontSize: 14 },
+            ]}
+          >
+            Effacer
+          </Text>
         </Pressable>
       )}
     </View>
@@ -160,6 +203,8 @@ export function SignaturePad({
   inline?: boolean;
   readOnly?: boolean;
 }) {
+  const { colors } = useTheme();
+
   const window = useWindowDimensions();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Signature>([]);
@@ -172,12 +217,15 @@ export function SignaturePad({
       onPress={onPress}
       style={{
         padding: 14,
-        borderRadius: 8,
-        backgroundColor: "#f8ecd6",
+        minHeight: 49,
+        justifyContent: "center",
+        alignItems: "center",
+        borderRadius: 13,
+        backgroundColor: colors.accentSoft,
         opacity: inactive ? 0.5 : 1,
       }}
     >
-      <Text>{title}</Text>
+      <Text style={{ color: colors.text }}>{title}</Text>
     </Pressable>
   );
   if (readOnly)
@@ -187,6 +235,7 @@ export function SignaturePad({
         value={value}
         onChange={() => {}}
         disabled
+        height={110}
       />
     );
   if (inline)
@@ -197,9 +246,14 @@ export function SignaturePad({
           value={value}
           onChange={onChange}
           disabled={disabled}
-          height={window.width > window.height ? 180 : 220}
+          height={window.width > window.height ? 200 : 265}
         />
-        <Text style={{ color: "#6b6b73", fontSize: 13 }}>
+        <Text
+          style={[
+            { color: colors.text },
+            { color: colors.secondary, fontSize: 13 },
+          ]}
+        >
           Signez au doigt ou au stylet. Tournez le téléphone pour agrandir le
           cadre.
         </Text>
@@ -237,26 +291,33 @@ export function SignaturePad({
         onRequestClose={() => setOpen(false)}
       >
         <SafeAreaView
-          style={{ flex: 1, backgroundColor: "#f2f2f7" }}
+          style={{ flex: 1, backgroundColor: colors.background }}
           onLayout={(event) => setSize(event.nativeEvent.layout)}
         >
           <View
             style={{
+              minHeight: 51,
               flexDirection: "row",
+              alignItems: "center",
               justifyContent: "space-between",
-              paddingHorizontal: 12,
-              gap: 8,
+              paddingHorizontal: 18,
             }}
           >
-            {action("Annuler", () => setOpen(false))}
-            {action(
-              "Valider la signature",
-              () => {
-                onChange(draft);
-                setOpen(false);
-              },
-              disabled || !validSignature(draft),
-            )}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setOpen(false)}
+              style={{ minHeight: 44, justifyContent: "center" }}
+            >
+              <Text style={{ color: colors.accent, fontSize: 14 }}>
+                Annuler
+              </Text>
+            </Pressable>
+            <Text
+              style={{ color: colors.text, fontSize: 15, fontWeight: "600" }}
+            >
+              Ma signature
+            </Text>
+            <View style={{ width: 48 }} />
           </View>
           {landscape ? (
             <View
@@ -287,12 +348,17 @@ export function SignaturePad({
             <View
               style={{
                 flex: 1,
-                justifyContent: "center",
+                justifyContent: "flex-start",
                 padding: 20,
                 gap: 20,
               }}
             >
-              <Text style={{ fontSize: 24, fontWeight: "600" }}>
+              <Text
+                style={[
+                  { color: colors.text },
+                  { fontSize: 32, fontWeight: "700", letterSpacing: -0.7 },
+                ]}
+              >
                 Votre signature
               </Text>
               <SignatureCanvas
@@ -300,12 +366,50 @@ export function SignaturePad({
                 value={draft}
                 onChange={setDraft}
                 disabled={disabled}
+                height={265}
               />
-              <Text style={{ color: "#6b6b73" }}>
+              <Text
+                style={[{ color: colors.text }, { color: colors.secondary }]}
+              >
                 Tournez le téléphone à l’horizontale pour agrandir le cadre.
               </Text>
             </View>
           )}
+          <View
+            style={{
+              padding: 20,
+              paddingTop: 12,
+              borderTopWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Pressable
+              accessibilityRole="button"
+              disabled={disabled || !validSignature(draft)}
+              onPress={() => {
+                onChange(draft);
+                setOpen(false);
+              }}
+              style={{
+                height: 49,
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 13,
+                backgroundColor: colors.accent,
+                opacity: disabled || !validSignature(draft) ? 0.5 : 1,
+              }}
+            >
+              <Text
+                style={{
+                  color: colors.onAccent,
+                  fontSize: 16,
+                  fontWeight: "600",
+                }}
+              >
+                Valider la signature
+              </Text>
+            </Pressable>
+          </View>
         </SafeAreaView>
       </Modal>
     </View>

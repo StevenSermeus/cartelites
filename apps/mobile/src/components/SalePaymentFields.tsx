@@ -1,17 +1,50 @@
+import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
 import {
   buildSaleSettlement,
   emptyPaymentDraft,
   type PaymentDraft,
   paymentDay,
-} from "../data/salePayment";
+} from '../data/salePayment';
 
-export { buildSaleSettlement, emptyPaymentDraft } from "../data/salePayment";
+export { buildSaleSettlement, emptyPaymentDraft } from '../data/salePayment';
 
-import * as Crypto from "expo-crypto";
-import { useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { recordSalePayment, type Sale } from "../data/apiRepository";
-import { Field } from "./Field";
+import * as Crypto from 'expo-crypto';
+import { useRef, useState, type ComponentProps } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { recordSalePayment, type Sale } from '../data/apiRepository';
+import type { Field as StandardField } from './Field';
+import { markUserActivity } from '../auth/session';
+function Field({
+  label,
+  value,
+  onChangeText,
+  keyboardType,
+  editable = true,
+  placeholder,
+}: ComponentProps<typeof StandardField>) {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
+  return (
+    <View style={styles.formRow}>
+      <Text style={[{ color: colors.text }, styles.fieldLabel]}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        value={value}
+        onChangeText={(text) => {
+          markUserActivity();
+          onChangeText(text);
+        }}
+        keyboardType={keyboardType}
+        editable={editable}
+        placeholder={placeholder}
+        placeholderTextColor={colors.placeholder}
+        style={[{ color: colors.text }, styles.fieldInput]}
+        keyboardAppearance={dark ? 'dark' : 'light'}
+      />
+    </View>
+  );
+}
 
 const money = (value: number) => `${(value / 100).toFixed(2)} €`;
 export function SalePaymentFields({
@@ -27,17 +60,20 @@ export function SalePaymentFields({
   allowPending?: boolean;
   disabled?: boolean;
 }) {
-  const [tendered, setTendered] = useState("");
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
+  const [tendered, setTendered] = useState('');
   const [details, setDetails] = useState(false);
   const modes = [
-    ["cash", "Espèces"],
-    ["transfer", "Virement"],
-    ["mixed", "Les deux"],
-    ...(allowPending ? [["pending", "À encaisser"]] : []),
-  ] as [PaymentDraft["mode"], string][];
+    ['cash', 'Espèces'],
+    ['transfer', 'Virement'],
+    ['mixed', 'Les deux'],
+    ...(allowPending ? [['pending', 'À encaisser']] : []),
+  ] as [PaymentDraft['mode'], string][];
   return (
     <View style={styles.form}>
-      <Text style={styles.title}>Encaissement · {money(totalCents)}</Text>
+      <Text style={[{ color: colors.text }, styles.title]}>Encaissement · {money(totalCents)}</Text>
       <View style={styles.choices}>
         {modes.map(([mode, label]) => (
           <Pressable
@@ -48,20 +84,19 @@ export function SalePaymentFields({
             style={[styles.choice, value.mode === mode && styles.selected]}
             onPress={() => onChange({ ...value, mode })}
           >
-            <Text style={styles.label}>{label}</Text>
+            <Text style={[{ color: colors.text }, styles.label]}>{label}</Text>
           </Pressable>
         ))}
       </View>
-      {value.mode === "pending" ? (
-        <Text style={styles.hint}>
-          Vente enregistrée sans encaissement. Vous pourrez marquer l’argent
-          reçu depuis l’historique. Les dépôts concernés ne sont pas encore à
-          reverser.
+      {value.mode === 'pending' ? (
+        <Text style={[{ color: colors.text }, styles.hint]}>
+          Vente enregistrée sans encaissement. Vous pourrez marquer l’argent reçu depuis
+          l’historique. Les dépôts concernés ne sont pas encore à reverser.
         </Text>
       ) : (
         !!value.mode && (
           <>
-            {value.mode === "mixed" ? (
+            {value.mode === 'mixed' ? (
               <>
                 <Field
                   label="Reçu en espèces (€)"
@@ -69,7 +104,7 @@ export function SalePaymentFields({
                   editable={!disabled}
                   keyboardType="decimal-pad"
                   onChangeText={(cash) => {
-                    const amount = Number(cash.replace(",", "."));
+                    const amount = Number(cash.replace(',', '.'));
                     onChange({
                       ...value,
                       cash,
@@ -78,10 +113,7 @@ export function SalePaymentFields({
                         Number.isFinite(amount) &&
                         amount >= 0 &&
                         Math.round(amount * 100) <= totalCents
-                          ? (
-                              (totalCents - Math.round(amount * 100)) /
-                              100
-                            ).toFixed(2)
+                          ? ((totalCents - Math.round(amount * 100)) / 100).toFixed(2)
                           : value.transfer,
                     });
                   }}
@@ -95,12 +127,11 @@ export function SalePaymentFields({
                 />
               </>
             ) : (
-              <Text style={styles.hint}>
-                {money(totalCents)} reçus{" "}
-                {value.mode === "cash" ? "en espèces" : "par virement"}.
+              <Text style={[{ color: colors.text }, styles.hint]}>
+                {money(totalCents)} reçus {value.mode === 'cash' ? 'en espèces' : 'par virement'}.
               </Text>
             )}
-            {value.mode === "cash" && (
+            {value.mode === 'cash' && (
               <>
                 <Field
                   label="Montant tendu (€), facultatif"
@@ -110,19 +141,17 @@ export function SalePaymentFields({
                   editable={!disabled}
                 />
                 {!!tendered && (
-                  <Text style={styles.hint}>
-                    {Number(tendered.replace(",", ".")) * 100 < totalCents
-                      ? "Le montant tendu est inférieur au total."
-                      : `Monnaie à rendre : ${money(Math.round(Number(tendered.replace(",", ".")) * 100) - totalCents)}`}
+                  <Text style={[{ color: colors.text }, styles.hint]}>
+                    {Number(tendered.replace(',', '.')) * 100 < totalCents
+                      ? 'Le montant tendu est inférieur au total.'
+                      : `Monnaie à rendre : ${money(Math.round(Number(tendered.replace(',', '.')) * 100) - totalCents)}`}
                   </Text>
                 )}
               </>
             )}
             <Pressable onPress={() => setDetails(!details)}>
-              <Text style={styles.hint}>
-                {details
-                  ? "Masquer les détails"
-                  : "Date et référence du règlement"}
+              <Text style={[{ color: colors.text }, styles.hint]}>
+                {details ? 'Masquer les détails' : 'Date et référence du règlement'}
               </Text>
             </Pressable>
             {details && (
@@ -137,9 +166,7 @@ export function SalePaymentFields({
                   label="Référence ou note facultative"
                   value={value.reference}
                   editable={!disabled}
-                  onChangeText={(reference) =>
-                    onChange({ ...value, reference })
-                  }
+                  onChangeText={(reference) => onChange({ ...value, reference })}
                 />
               </>
             )}
@@ -156,21 +183,21 @@ export function SalePaymentHistory({
   sale: Sale;
   onChanged: () => Promise<void>;
 }) {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
   const [editing, setEditing] = useState(false),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState('');
   const [draft, setDraft] = useState<PaymentDraft>(emptyPaymentDraft);
-  const attempt = useRef<{ signature: string; operationId: string } | null>(
-    null,
-  );
+  const attempt = useRef<{ signature: string; operationId: string } | null>(null);
   const payment = sale.payment;
   async function save() {
     setBusy(true);
-    setError("");
+    setError('');
     try {
       const settlement = buildSaleSettlement(draft, sale.salePriceCents);
-      if (!settlement.payment)
-        throw new Error("Choisissez un encaissement reçu.");
+      if (!settlement.payment) throw new Error('Choisissez un encaissement reçu.');
       const input = { saleId: sale._id, ...settlement.payment };
       const signature = JSON.stringify(input);
       if (attempt.current?.signature !== signature)
@@ -190,24 +217,24 @@ export function SalePaymentHistory({
   }
   return (
     <View>
-      <Text style={styles.hint}>
+      <Text style={[{ color: colors.text }, styles.hint]}>
         {payment
-          ? `Reçu : espèces ${money(payment.cashCents)} · virement ${money(payment.transferCents)} · ${new Date(payment.receivedAt).toLocaleDateString("fr-BE")}${payment.reference ? ` · ${payment.reference}` : ""}`
-          : sale.paymentStatus === "pending"
-            ? "À encaisser"
-            : "Encaissement non renseigné"}
+          ? `Reçu : espèces ${money(payment.cashCents)} · virement ${money(payment.transferCents)} · ${new Date(payment.receivedAt).toLocaleDateString('fr-BE')}${payment.reference ? ` · ${payment.reference}` : ''}`
+          : sale.paymentStatus === 'pending'
+            ? 'À encaisser'
+            : 'Encaissement non renseigné'}
       </Text>
-      {sale.status === "cancelled" && payment && (
-        <Text style={styles.hint}>
+      {sale.status === 'cancelled' && payment && (
+        <Text style={[{ color: colors.text }, styles.hint]}>
           Vente annulée : encaissement conservé dans l’historique.
         </Text>
       )}
       {!!error && (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <Text accessibilityRole="alert" style={[{ color: colors.text }, styles.error]}>
           {error}
         </Text>
       )}
-      {sale.status === "active" && !editing && (
+      {sale.status === 'active' && !editing && (
         <Pressable
           accessibilityRole="button"
           style={styles.choice}
@@ -217,22 +244,22 @@ export function SalePaymentHistory({
                 ? {
                     mode:
                       payment.cashCents && payment.transferCents
-                        ? "mixed"
+                        ? 'mixed'
                         : payment.cashCents
-                          ? "cash"
-                          : "transfer",
+                          ? 'cash'
+                          : 'transfer',
                     cash: (payment.cashCents / 100).toFixed(2),
                     transfer: (payment.transferCents / 100).toFixed(2),
                     date: paymentDay(payment.receivedAt),
-                    reference: payment.reference ?? "",
+                    reference: payment.reference ?? '',
                   }
                 : emptyPaymentDraft(),
             );
             setEditing(true);
           }}
         >
-          <Text style={styles.label}>
-            {payment ? "Corriger l’encaissement" : "Marquer l’argent reçu"}
+          <Text style={[{ color: colors.text }, styles.label]}>
+            {payment ? 'Corriger l’encaissement' : 'Marquer l’argent reçu'}
           </Text>
         </Pressable>
       )}
@@ -245,9 +272,8 @@ export function SalePaymentHistory({
             allowPending={false}
             disabled={busy}
           />
-          <Text style={styles.hint}>
-            Confirmez uniquement l’argent déjà reçu. Aucun virement n’est
-            déclenché.
+          <Text style={[{ color: colors.text }, styles.hint]}>
+            Confirmez uniquement l’argent déjà reçu. Aucun virement n’est déclenché.
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -255,47 +281,66 @@ export function SalePaymentHistory({
             style={styles.choice}
             onPress={() => void save()}
           >
-            <Text style={styles.label}>
-              {busy ? "Enregistrement…" : "Confirmer l’encaissement reçu"}
+            <Text style={[{ color: colors.text }, styles.label]}>
+              {busy ? 'Enregistrement…' : 'Confirmer l’encaissement reçu'}
             </Text>
           </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={busy}
-            onPress={() => setEditing(false)}
-          >
-            <Text style={styles.hint}>Annuler</Text>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => setEditing(false)}>
+            <Text style={[{ color: colors.text }, styles.hint]}>Annuler</Text>
           </Pressable>
         </>
       )}
     </View>
   );
 }
-const styles = StyleSheet.create({
-  form: {
-    marginVertical: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#dbe4ea",
-    borderRadius: 10,
-  },
-  title: {
-    color: "#815216",
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 10,
-  },
-  choices: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
-  choice: {
-    padding: 10,
-    marginVertical: 4,
-    borderWidth: 1,
-    borderColor: "#e7e7ec",
-    borderRadius: 8,
-    backgroundColor: "#f4f7f9",
-  },
-  selected: { backgroundColor: "#dcebf4", borderColor: "#815216" },
-  label: { color: "#815216", fontWeight: "600" },
-  hint: { color: "#6b6b73", lineHeight: 20, marginVertical: 6 },
-  error: { color: "#a12e25", marginVertical: 6 },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    form: {
+      marginVertical: 12,
+      padding: 0,
+      gap: 10,
+    },
+    formRow: {
+      minHeight: 52,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 15,
+      gap: 12,
+      backgroundColor: colors.surface,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    fieldLabel: { flex: 1, fontSize: 14, color: colors.text },
+    fieldInput: {
+      width: '48%',
+      minHeight: 44,
+      textAlign: 'right',
+      fontSize: 16,
+      color: colors.text,
+    },
+    title: {
+      color: colors.accent,
+      fontSize: 16,
+      fontWeight: '700',
+      marginBottom: 10,
+    },
+    choices: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 3,
+      padding: 3,
+      backgroundColor: colors.border,
+      borderRadius: 9,
+      marginBottom: 8,
+    },
+    choice: {
+      paddingHorizontal: 10,
+      paddingVertical: 10,
+      minHeight: 44,
+      borderRadius: 7,
+    },
+    selected: { backgroundColor: colors.surface },
+    label: { color: colors.accent, fontWeight: '600' },
+    hint: { color: colors.secondary, lineHeight: 20, marginVertical: 6 },
+    error: { color: colors.danger, marginVertical: 6 },
+  });

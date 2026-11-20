@@ -1,3 +1,4 @@
+import { useTheme, type ThemeColors } from "../theme/ThemeProvider";
 import { ReceiptSigning } from "../components/ReceiptSigning";
 import * as Crypto from "expo-crypto";
 import {
@@ -8,6 +9,7 @@ import {
   useState,
 } from "react";
 import {
+  ActionSheetIOS,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -16,6 +18,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -114,6 +117,9 @@ function Button({
   onPress: () => void;
   disabled?: boolean;
 }) {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -121,7 +127,7 @@ function Button({
       onPress={onPress}
       style={[styles.button, disabled && styles.disabled]}
     >
-      <Text style={styles.buttonText}>{label}</Text>
+      <Text style={[{ color: colors.text }, styles.buttonText]}>{label}</Text>
     </Pressable>
   );
 }
@@ -134,6 +140,9 @@ function Choices<T extends string>({
   value: T;
   onChange: (v: T) => void;
 }) {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
   return (
     <View style={styles.row}>
       {values.map(([id, label]) => (
@@ -144,7 +153,7 @@ function Choices<T extends string>({
           onPress={() => onChange(id)}
           style={[styles.chip, id === value && styles.selected]}
         >
-          <Text style={styles.chipText}>{label}</Text>
+          <Text style={[{ color: colors.text }, styles.chipText]}>{label}</Text>
         </Pressable>
       ))}
     </View>
@@ -156,12 +165,19 @@ export function ConsignmentScreen({
   sellers,
   refreshStock,
   onCreateClient,
+  onFilterControlChange,
 }: {
   active: boolean;
+  onFilterControlChange?: (
+    control: { open: () => void; count: number } | null,
+  ) => void;
   sellers: Seller[];
   refreshStock: () => Promise<void>;
   onCreateClient: () => void;
 }) {
+  const { colors, dark } = useTheme();
+  const styles = createStyles(colors);
+
   const [focusedDeposit, setFocusedDeposit] = useState<string | null>(null);
   const [depositSnapshot, setDepositSnapshot] = useState<Consignment | null>(
     null,
@@ -169,6 +185,10 @@ export function ConsignmentScreen({
   const [editingDraft, setEditingDraft] = useState<string | null>(null);
   const [expandedArticle, setExpandedArticle] = useState<string | null>(null);
   const [dossierError, setDossierError] = useState("");
+  const [depositorBalance, setDepositorBalance] =
+    useState<ConsignmentBalance | null>(null);
+  const [balanceError, setBalanceError] = useState("");
+  const [documentsOpen, setDocumentsOpen] = useState(false);
   const [dossierLoading, setDossierLoading] = useState(false);
   const creationScroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const [tab, setTab] = useState<"history" | "new" | "payments">("history");
@@ -179,6 +199,7 @@ export function ConsignmentScreen({
   const [message, setMessage] = useState("");
   const [sellerId, setSellerId] = useState("");
   const [search, setSearch] = useState("");
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [date, setDate] = useState(today);
   const [due, setDue] = useState("");
   const [reference, setReference] = useState("");
@@ -193,6 +214,17 @@ export function ConsignmentScreen({
   const [balanceFilter, setBalanceFilter] = useState<
     "due" | "settled" | "regularization" | "all"
   >("due");
+  useEffect(() => {
+    onFilterControlChange?.(
+      active && tab !== "new" && !focusedDeposit
+        ? {
+            open: () => setFilterPanelOpen(true),
+            count: tab === "payments" && balanceFilter !== "all" ? 1 : 0,
+          }
+        : null,
+    );
+    return () => onFilterControlChange?.(null);
+  }, [active, tab, focusedDeposit, balanceFilter, onFilterControlChange]);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState(today);
   const [paymentMethod, setPaymentMethod] = useState("Virement");
@@ -232,9 +264,23 @@ export function ConsignmentScreen({
     let current = true;
     setDossierLoading(true);
     setDossierError("");
+    setDepositorBalance(null);
+    setBalanceError("");
+    setDocumentsOpen(false);
     void readRecord<Consignment>("/consignments", focusedDeposit)
-      .then((d) => {
-        if (current) setDepositSnapshot(d);
+      .then(async (d) => {
+        if (!current) return;
+        setDepositSnapshot(d);
+        try {
+          const b = await readRecord<ConsignmentBalance>(
+            "/consignments/balances",
+            d.sellerId,
+          );
+          if (current) setDepositorBalance(b);
+        } catch {
+          if (current)
+            setBalanceError("Solde indisponible. Consultez les reversements.");
+        }
       })
       .catch((e) => {
         if (current)
@@ -406,31 +452,185 @@ export function ConsignmentScreen({
     );
   return (
     <View>
-      <View style={styles.row}>
-        <Button
-          label={
-            reference || rows.some((r) => r.name || r.price) || sellerId
-              ? "Reprendre le dépôt"
-              : "Nouveau dépôt"
-          }
-          onPress={() => setTab("new")}
-        />
-        <Pressable
-          accessibilityRole="button"
-          style={styles.chip}
-          onPress={() => setTab(tab === "payments" ? "history" : "payments")}
-        >
-          <Text style={styles.chipText}>
-            {tab === "payments" ? "‹ Dépôts" : "À reverser ›"}
-          </Text>
-        </Pressable>
+      <Button
+        label={
+          reference || rows.some((r) => r.name || r.price) || sellerId
+            ? "Reprendre le dépôt"
+            : "Nouveau dépôt"
+        }
+        onPress={() => setTab("new")}
+      />
+      <View style={styles.segments}>
+        {(
+          [
+            ["history", "Dépôts"],
+            ["payments", "À reverser"],
+          ] as const
+        ).map(([value, label]) => (
+          <Pressable
+            key={value}
+            accessibilityRole="button"
+            accessibilityState={{ selected: tab === value }}
+            style={[styles.segment, tab === value && styles.segmentActive]}
+            onPress={() => setTab(value)}
+          >
+            <Text style={[{ color: colors.text }, styles.segmentText]}>
+              {label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
+      <Modal
+        visible={filterPanelOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setFilterPanelOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.sheetOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Fermer les filtres"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setFilterPanelOpen(false)}
+          />
+          <SafeAreaView edges={["bottom"]} style={styles.filterSheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Rechercher et filtrer</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setFilterPanelOpen(false)}
+                style={styles.inlineAction}
+              >
+                <Text style={styles.chipText}>Fermer</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{
+                paddingHorizontal: 20,
+                paddingBottom: 12,
+              }}
+            >
+              <View style={styles.searchBar}>
+                <Text style={styles.searchIcon}>⌕</Text>
+                <TextInput
+                  accessibilityLabel={
+                    tab === "payments"
+                      ? "Rechercher un déposant"
+                      : "Rechercher un dépôt"
+                  }
+                  placeholder={
+                    tab === "payments"
+                      ? "Nom, e-mail ou téléphone"
+                      : "Client ou référence"
+                  }
+                  placeholderTextColor={colors.secondary}
+                  value={tab === "payments" ? paymentSearch : search}
+                  onChangeText={
+                    tab === "payments" ? setPaymentSearch : setSearch
+                  }
+                  clearButtonMode="while-editing"
+                  style={styles.searchInput}
+                  returnKeyType="search"
+                  keyboardAppearance={dark ? "dark" : "light"}
+                />
+              </View>
+              {tab === "payments" && (
+                <Pressable
+                  accessibilityRole="button"
+                  style={styles.filterFormRow}
+                  onPress={() => {
+                    const choices = [
+                      ["all", "Tous"],
+                      ["due", "À payer"],
+                      ["settled", "Réglés"],
+                      ["regularization", "Régularisations"],
+                    ] as const;
+                    if (Platform.OS === "ios")
+                      ActionSheetIOS.showActionSheetWithOptions(
+                        {
+                          title: "État du solde",
+                          options: [
+                            ...choices.map(([, label]) => label),
+                            "Annuler",
+                          ],
+                          cancelButtonIndex: choices.length,
+                          userInterfaceStyle: dark ? "dark" : "light",
+                        },
+                        (index) => {
+                          if (index < choices.length)
+                            setBalanceFilter(choices[index][0]);
+                        },
+                      );
+                    else
+                      Alert.alert("État du solde", undefined, [
+                        ...choices.map(([key, label]) => ({
+                          text: label,
+                          onPress: () => setBalanceFilter(key),
+                        })),
+                        { text: "Annuler", style: "cancel" },
+                      ]);
+                  }}
+                >
+                  <Text style={styles.filterFormLabel}>État du solde</Text>
+                  <Text style={styles.filterFormValue}>
+                    {
+                      {
+                        all: "Tous",
+                        due: "À payer",
+                        settled: "Réglés",
+                        regularization: "Régularisations",
+                      }[balanceFilter]
+                    }{" "}
+                    ›
+                  </Text>
+                </Pressable>
+              )}
+              {tab === "payments" && (
+                <Pressable
+                  accessibilityRole="button"
+                  style={styles.inlineAction}
+                  onPress={() => setBalanceFilter("all")}
+                >
+                  <Text style={styles.chipText}>Réinitialiser les filtres</Text>
+                </Pressable>
+              )}
+              <Pressable
+                accessibilityRole="button"
+                style={styles.sheetPrimary}
+                onPress={() => setFilterPanelOpen(false)}
+              >
+                <Text style={styles.sheetPrimaryText}>
+                  {(() => {
+                    const data =
+                      tab === "payments" ? balancesData : historyData;
+                    return data.loading || data.error
+                      ? "Afficher les résultats"
+                      : `Afficher ${data.items.length} résultat${data.items.length === 1 ? "" : "s"}${data.nextCursor || data.hasPrevious ? " sur cette page" : ""}`;
+                  })()}
+                </Text>
+              </Pressable>
+            </ScrollView>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
       {message ? (
-        <Text accessibilityRole="alert" style={styles.message}>
+        <Text
+          accessibilityRole="alert"
+          style={[{ color: colors.text }, styles.message]}
+        >
           {message}
         </Text>
       ) : null}
-      {busy ? <Text style={styles.hint}>Enregistrement…</Text> : null}
+      {busy ? (
+        <Text style={[{ color: colors.text }, styles.hint]}>
+          Enregistrement…
+        </Text>
+      ) : null}
       <View pointerEvents={busy ? "none" : "auto"}>
         {tab === "new" && (
           <Modal
@@ -453,9 +653,13 @@ export function ConsignmentScreen({
                     onPress={() => setTab("history")}
                     style={styles.chip}
                   >
-                    <Text style={styles.chipText}>‹ Dépôts</Text>
+                    <Text style={[{ color: colors.text }, styles.chipText]}>
+                      ‹ Dépôts
+                    </Text>
                   </Pressable>
-                  <Text style={styles.title}>Nouveau dépôt</Text>
+                  <Text style={[{ color: colors.text }, styles.title]}>
+                    Nouveau dépôt
+                  </Text>
                 </View>
                 <ScrollView
                   ref={creationScroll}
@@ -463,7 +667,10 @@ export function ConsignmentScreen({
                   contentContainerStyle={{ padding: 20 }}
                 >
                   {!!message && (
-                    <Text accessibilityRole="alert" style={styles.message}>
+                    <Text
+                      accessibilityRole="alert"
+                      style={[{ color: colors.text }, styles.message]}
+                    >
                       {message}
                     </Text>
                   )}
@@ -478,7 +685,9 @@ export function ConsignmentScreen({
                       ]}
                     />
                     <View style={step === 0 ? undefined : { display: "none" }}>
-                      <Text style={styles.step}>01 · DÉPOSANT</Text>
+                      <Text style={[{ color: colors.text }, styles.step]}>
+                        01 · DÉPOSANT
+                      </Text>
                       <ClientPicker
                         clients={sellers}
                         value={sellerId}
@@ -507,7 +716,9 @@ export function ConsignmentScreen({
                       />
                     </View>
                     <View style={step === 1 ? undefined : { display: "none" }}>
-                      <Text style={styles.step}>02 · ARTICLES CONFIÉS</Text>
+                      <Text style={[{ color: colors.text }, styles.step]}>
+                        02 · ARTICLES CONFIÉS
+                      </Text>
                       {rows.map((r, index) => (
                         <View key={r.key}>
                           <Pressable
@@ -519,16 +730,24 @@ export function ConsignmentScreen({
                             }}
                           >
                             <View style={{ flex: 1 }}>
-                              <Text style={styles.title}>
+                              <Text
+                                style={[{ color: colors.text }, styles.title]}
+                              >
                                 {r.name || `Article ${index + 1}`}
                               </Text>
-                              <Text style={styles.hint}>
+                              <Text
+                                style={[{ color: colors.text }, styles.hint]}
+                              >
                                 {r.price
                                   ? `${r.price} € · Commission ${r.commission} %`
                                   : "Compléter les informations"}
                               </Text>
                             </View>
-                            <Text style={styles.chipText}>›</Text>
+                            <Text
+                              style={[{ color: colors.text }, styles.chipText]}
+                            >
+                              ›
+                            </Text>
                           </Pressable>
                           {editingDraft === r.key && (
                             <Modal
@@ -552,11 +771,21 @@ export function ConsignmentScreen({
                                       style={styles.chip}
                                       onPress={() => setEditingDraft(null)}
                                     >
-                                      <Text style={styles.chipText}>
+                                      <Text
+                                        style={[
+                                          { color: colors.text },
+                                          styles.chipText,
+                                        ]}
+                                      >
                                         ‹ Articles
                                       </Text>
                                     </Pressable>
-                                    <Text style={styles.title}>
+                                    <Text
+                                      style={[
+                                        { color: colors.text },
+                                        styles.title,
+                                      ]}
+                                    >
                                       Article {index + 1}
                                     </Text>
                                   </View>
@@ -567,12 +796,20 @@ export function ConsignmentScreen({
                                     {!!message && (
                                       <Text
                                         accessibilityRole="alert"
-                                        style={styles.message}
+                                        style={[
+                                          { color: colors.text },
+                                          styles.message,
+                                        ]}
                                       >
                                         {message}
                                       </Text>
                                     )}
-                                    <Text style={styles.title}>
+                                    <Text
+                                      style={[
+                                        { color: colors.text },
+                                        styles.title,
+                                      ]}
+                                    >
                                       Article confié
                                     </Text>
                                     <Choices
@@ -730,7 +967,12 @@ export function ConsignmentScreen({
                                           (price * rate) / 10000,
                                         );
                                         return (
-                                          <Text style={styles.hint}>
+                                          <Text
+                                            style={[
+                                              { color: colors.text },
+                                              styles.hint,
+                                            ]}
+                                          >
                                             Commission : {money(commission)} ·
                                             Déposant :{" "}
                                             {money(price - commission)}
@@ -781,26 +1023,28 @@ export function ConsignmentScreen({
                       />
                     </View>
                     <View style={step === 2 ? undefined : { display: "none" }}>
-                      <Text style={styles.title}>Récapitulatif</Text>
-                      <Text style={styles.hint}>
+                      <Text style={[{ color: colors.text }, styles.title]}>
+                        Récapitulatif
+                      </Text>
+                      <Text style={[{ color: colors.text }, styles.hint]}>
                         {sellers.find((s) => s._id === sellerId)?.name ||
                           "Déposant sélectionné"}{" "}
                         · {reference}
                       </Text>
-                      <Text style={styles.hint}>
+                      <Text style={[{ color: colors.text }, styles.hint]}>
                         Dépôt : {date}
                         {due ? ` · Échéance : ${due}` : ""}
                       </Text>
                       {rows.map((row) => (
-                        <Text key={row.key}>
+                        <Text key={row.key} style={{ color: colors.text }}>
                           {row.name} · {row.price} € · {row.commission} %
                         </Text>
                       ))}
-                      <Text style={styles.hint}>
+                      <Text style={[{ color: colors.text }, styles.hint]}>
                         La commission porte sur le prix de vente. Les articles
                         restent distincts des rachats à la marge.
                       </Text>
-                      <Text style={styles.title}>
+                      <Text style={[{ color: colors.text }, styles.title]}>
                         Prix convenus :{" "}
                         {money(
                           rows.reduce(
@@ -813,7 +1057,7 @@ export function ConsignmentScreen({
                           ),
                         )}
                       </Text>
-                      <Text style={styles.hint}>
+                      <Text style={[{ color: colors.text }, styles.hint]}>
                         Part prévisionnelle déposant :{" "}
                         {money(
                           rows.reduce((sum, r) => {
@@ -856,17 +1100,12 @@ export function ConsignmentScreen({
         )}
         {tab === "history" && (
           <>
-            <Field
-              label="Rechercher un dépôt"
-              value={search}
-              onChangeText={setSearch}
-            />
             <Pagination data={historyData} />
             {focusedDeposit &&
               !depositSnapshot &&
               !deposits.some((d) => d._id === focusedDeposit) && (
                 <View style={styles.card}>
-                  <Text style={styles.hint}>
+                  <Text style={[{ color: colors.text }, styles.hint]}>
                     {dossierLoading
                       ? "Chargement du dossier…"
                       : dossierError || "Dossier non présent sur cette page."}
@@ -878,107 +1117,118 @@ export function ConsignmentScreen({
                   />
                 </View>
               )}
-            {(focusedDeposit
-              ? [
-                  depositSnapshot ??
-                    deposits.find((d) => d._id === focusedDeposit),
-                ].filter((d): d is Consignment => Boolean(d))
-              : deposits
-            )
-              .filter((d) =>
-                [d.reference, d.sellerName, ...d.items.map((i) => i.name)]
-                  .join(" ")
-                  .toLocaleLowerCase()
-                  .includes(focusedDeposit ? "" : search.toLocaleLowerCase()),
+            <View
+              style={
+                !focusedDeposit && deposits.length ? styles.group : undefined
+              }
+            >
+              {(focusedDeposit
+                ? [
+                    depositSnapshot ??
+                      deposits.find((d) => d._id === focusedDeposit),
+                  ].filter((d): d is Consignment => Boolean(d))
+                : deposits
               )
-              .map((d) =>
-                !focusedDeposit ? (
-                  <Pressable
-                    key={d._id}
-                    accessibilityRole="button"
-                    onPress={() => {
-                      setDepositSnapshot(d);
-                      setFocusedDeposit(d._id);
-                      setExpandedArticle(null);
-                    }}
-                    style={styles.card}
-                  >
-                    <Text style={styles.title}>
-                      {d.sellerName || d.reference} ›
-                    </Text>
-                    <Text style={styles.hint}>
-                      {d.reference} · {d.items.length} article(s) ·{" "}
-                      {d.items.some((item) => item.status === "available")
-                        ? "En cours"
-                        : "Clôturé"}
-                    </Text>
-                    <Text style={styles.hint}>
-                      {d.items.filter((item) => item.status === "sold").length}{" "}
-                      vendu(s) ·{" "}
-                      {d.dueAt
-                        ? `Échéance ${new Date(d.dueAt).toLocaleDateString("fr-BE")}`
-                        : "Sans échéance"}
-                    </Text>
-                  </Pressable>
-                ) : (
-                  <Modal
-                    key={d._id}
-                    visible
-                    animationType="slide"
-                    presentationStyle="fullScreen"
-                    onRequestClose={() => setFocusedDeposit(null)}
-                  >
-                    <SafeAreaView style={styles.screen}>
-                      <KeyboardAvoidingView
-                        style={{ flex: 1 }}
-                        behavior={Platform.OS === "ios" ? "padding" : undefined}
-                      >
-                        <View style={styles.header}>
-                          <Pressable
-                            accessibilityRole="button"
-                            style={styles.chip}
-                            onPress={() => setFocusedDeposit(null)}
-                          >
-                            <Text style={styles.chipText}>‹ Dépôts</Text>
-                          </Pressable>
-                          <Text style={styles.title}>Dossier de dépôt</Text>
-                        </View>
-                        <ScrollView
-                          keyboardShouldPersistTaps="handled"
-                          contentContainerStyle={{ padding: 20 }}
+                .filter((d) =>
+                  [d.reference, d.sellerName, ...d.items.map((i) => i.name)]
+                    .join(" ")
+                    .toLocaleLowerCase()
+                    .includes(focusedDeposit ? "" : search.toLocaleLowerCase()),
+                )
+                .map((d) =>
+                  !focusedDeposit ? (
+                    <Pressable
+                      key={d._id}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setDepositSnapshot(d);
+                        setFocusedDeposit(d._id);
+                        setExpandedArticle(null);
+                      }}
+                      style={styles.depositRow}
+                    >
+                      <View style={styles.avatar}>
+                        <Text
+                          style={[{ color: colors.text }, styles.avatarText]}
                         >
-                          {!!message && (
-                            <Text
-                              accessibilityRole="alert"
-                              style={styles.message}
+                          {(d.sellerName || d.reference)
+                            .split(" ")
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .map((part) => part[0])
+                            .join("")
+                            .toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <Text style={[{ color: colors.text }, styles.rowTitle]}>
+                          {d.sellerName || d.reference}
+                        </Text>
+                        <Text
+                          style={[{ color: colors.text }, styles.rowSubtitle]}
+                        >
+                          {d.items.length} article(s) ·{" "}
+                          {
+                            d.items.filter((item) => item.status === "sold")
+                              .length
+                          }{" "}
+                          vendu(s)
+                        </Text>
+                        <Text
+                          style={[{ color: colors.text }, styles.rowSubtitle]}
+                        >
+                          {d.reference}
+                          {d.dueAt
+                            ? ` · ${new Date(d.dueAt).toLocaleDateString("fr-BE")}`
+                            : ""}
+                        </Text>
+                      </View>
+                      <Text style={[{ color: colors.text }, styles.tag]}>
+                        {d.items.some((item) => item.status === "available")
+                          ? "En cours"
+                          : "Clôturé"}
+                      </Text>
+                      <Text style={[{ color: colors.text }, styles.chevron]}>
+                        ›
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <Modal
+                      key={d._id}
+                      visible
+                      animationType="slide"
+                      presentationStyle="fullScreen"
+                      onRequestClose={() => setFocusedDeposit(null)}
+                    >
+                      <SafeAreaView style={styles.screen}>
+                        <KeyboardAvoidingView
+                          style={{ flex: 1 }}
+                          behavior={
+                            Platform.OS === "ios" ? "padding" : undefined
+                          }
+                        >
+                          <View style={styles.detailNav}>
+                            <Pressable
+                              accessibilityRole="button"
+                              style={styles.inlineAction}
+                              onPress={() => setFocusedDeposit(null)}
                             >
-                              {message}
+                              <Text style={styles.detailBack}>‹ Dépôts</Text>
+                            </Pressable>
+                            <Text style={styles.detailNavTitle}>
+                              {d.reference}
                             </Text>
-                          )}
-                          {dossierLoading && (
-                            <Text style={styles.hint}>
-                              Actualisation du dossier…
+                            <View style={{ width: 65 }} />
+                          </View>
+                          <ScrollView
+                            keyboardShouldPersistTaps="handled"
+                            contentContainerStyle={{ padding: 20 }}
+                          >
+                            <Text style={styles.detailTitle}>
+                              {d.sellerName || "Dossier de dépôt"}
                             </Text>
-                          )}
-                          {!!dossierError && (
-                            <View style={styles.card}>
-                              <Text
-                                accessibilityRole="alert"
-                                style={styles.message}
-                              >
-                                {dossierError}
-                              </Text>
-                              <Button
-                                label="Actualiser le dossier"
-                                onPress={() => void load()}
-                              />
-                            </View>
-                          )}
-                          <View style={styles.card}>
-                            <Text style={styles.title}>
-                              {d.reference} · {d.sellerName}
-                            </Text>
-                            <Text style={styles.hint}>
+                            <Text style={styles.detailSubtitle}>
+                              {d.reference} ·{" "}
                               {new Date(d.occurredAt).toLocaleDateString(
                                 "fr-BE",
                               )}
@@ -986,10 +1236,70 @@ export function ConsignmentScreen({
                                 ? ` · Échéance ${new Date(d.dueAt).toLocaleDateString("fr-BE")}`
                                 : ""}
                             </Text>
-                            {d.notes ? (
-                              <Text style={styles.hint}>{d.notes}</Text>
-                            ) : null}
-                            <Text style={styles.hint}>
+                            {!!message && (
+                              <Text
+                                accessibilityRole="alert"
+                                style={[{ color: colors.text }, styles.message]}
+                              >
+                                {message}
+                              </Text>
+                            )}
+                            {dossierLoading && (
+                              <Text
+                                style={[{ color: colors.text }, styles.hint]}
+                              >
+                                Actualisation du dossier…
+                              </Text>
+                            )}
+                            {!!dossierError && (
+                              <View style={styles.card}>
+                                <Text
+                                  accessibilityRole="alert"
+                                  style={[
+                                    { color: colors.text },
+                                    styles.message,
+                                  ]}
+                                >
+                                  {dossierError}
+                                </Text>
+                                <Button
+                                  label="Actualiser le dossier"
+                                  onPress={() => void load()}
+                                />
+                              </View>
+                            )}
+                            <View style={styles.hero}>
+                              <Text
+                                style={[{ color: colors.text }, styles.hint]}
+                              >
+                                Solde du déposant · tous ses dépôts
+                              </Text>
+                              <Text
+                                style={[
+                                  { color: colors.text },
+                                  styles.heroAmount,
+                                ]}
+                              >
+                                {depositorBalance
+                                  ? money(depositorBalance.balanceCents)
+                                  : balanceError
+                                    ? "—"
+                                    : "…"}
+                              </Text>
+                              <Text
+                                style={[{ color: colors.text }, styles.tag]}
+                              >
+                                {balanceError ||
+                                  (depositorBalance
+                                    ? depositorBalance.balanceCents > 0
+                                      ? "À reverser"
+                                      : depositorBalance.balanceCents < 0
+                                        ? "Régularisation"
+                                        : "À jour"
+                                    : "Chargement")}
+                              </Text>
+                            </View>
+                            <Text style={styles.detailSubtitle}>
                               {
                                 d.items.filter((item) => item.status === "sold")
                                   .length
@@ -1008,23 +1318,304 @@ export function ConsignmentScreen({
                               }{" "}
                               restitué(s)
                             </Text>
-                            <ReceiptSigning
-                              kind="consignment"
-                              targetId={d._id}
-                            />
+                            {!!d.notes && (
+                              <Text style={styles.detailSubtitle}>
+                                {d.notes}
+                              </Text>
+                            )}
+                            <View style={styles.card}>
+                              <Text
+                                style={[{ color: colors.text }, styles.title]}
+                              >
+                                Articles confiés
+                              </Text>
+                              {d.items.map((item) => (
+                                <View key={item._id} style={styles.article}>
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    onPress={() =>
+                                      setExpandedArticle(
+                                        expandedArticle === item._id
+                                          ? null
+                                          : item._id,
+                                      )
+                                    }
+                                  >
+                                    <Text
+                                      style={[
+                                        { color: colors.text },
+                                        styles.title,
+                                      ]}
+                                    >
+                                      {item.name}{" "}
+                                      {expandedArticle === item._id ? "⌄" : "›"}
+                                    </Text>
+                                  </Pressable>
+                                  <Text
+                                    style={[
+                                      { color: colors.text },
+                                      styles.hint,
+                                    ]}
+                                  >
+                                    {item.productType === "sealed"
+                                      ? "Scellé"
+                                      : item.productType === "other"
+                                        ? "Autre article"
+                                        : "Carte"}{" "}
+                                    ·{" "}
+                                    {item.status === "sold"
+                                      ? "Vendu"
+                                      : item.status === "returned"
+                                        ? "Restitué"
+                                        : "Disponible"}
+                                  </Text>
+                                  {expandedArticle === item._id && (
+                                    <>
+                                      {item.description ? (
+                                        <Text
+                                          style={[
+                                            { color: colors.text },
+                                            styles.hint,
+                                          ]}
+                                        >
+                                          {item.description}
+                                        </Text>
+                                      ) : null}
+                                      <Text
+                                        style={[
+                                          { color: colors.text },
+                                          styles.hint,
+                                        ]}
+                                      >
+                                        Prix convenu{" "}
+                                        {money(
+                                          item.agreedPriceCents ??
+                                            item.askingPriceCents ??
+                                            0,
+                                        )}{" "}
+                                        · Commission{" "}
+                                        {(item.commissionRateBps ?? 3000) / 100}{" "}
+                                        %
+                                      </Text>
+                                      {item.events?.map((event) => (
+                                        <Text
+                                          key={event._id}
+                                          style={[
+                                            { color: colors.text },
+                                            styles.hint,
+                                          ]}
+                                        >
+                                          {new Date(
+                                            event.occurredAt,
+                                          ).toLocaleDateString("fr-BE")}{" "}
+                                          ·{" "}
+                                          {event.kind === "return"
+                                            ? "Restitution au déposant"
+                                            : `Accord : ${money(event.askingPriceCents ?? 0)}, commission ${(event.commissionRateBps ?? 0) / 100} % · ${event.authorizationNote ?? ""}`}
+                                        </Text>
+                                      ))}
+                                      {item.photos?.map((p) => (
+                                        <Button
+                                          key={p._id}
+                                          label={p.filename}
+                                          onPress={() =>
+                                            void run(() =>
+                                              openAttachment(
+                                                p._id,
+                                                p.filename,
+                                                p.contentType,
+                                              ),
+                                            )
+                                          }
+                                        />
+                                      ))}
+                                      <AttachmentPreview
+                                        current={null}
+                                        allowPdf
+                                        onUse={(photo) => {
+                                          if (photo)
+                                            void run(async () => {
+                                              await uploadItemAttachment(
+                                                item._id,
+                                                photo,
+                                              );
+                                              await load();
+                                            });
+                                        }}
+                                      />
+                                      {item.status === "available" && (
+                                        <>
+                                          <Button
+                                            label="Modifier l’accord"
+                                            onPress={() => {
+                                              setEditing(item);
+                                              setTermPrice(
+                                                (
+                                                  (item.agreedPriceCents ??
+                                                    item.askingPriceCents ??
+                                                    0) / 100
+                                                ).toFixed(2),
+                                              );
+                                              setTermRate(
+                                                String(
+                                                  (item.commissionRateBps ??
+                                                    3000) / 100,
+                                                ),
+                                              );
+                                              setAuthorization("");
+                                            }}
+                                          />
+                                          <Button
+                                            label="Restituer au déposant"
+                                            onPress={() =>
+                                              Alert.alert(
+                                                "Restituer cet article ?",
+                                                `${item.name} sera retiré du stock disponible.`,
+                                                [
+                                                  {
+                                                    text: "Annuler",
+                                                    style: "cancel",
+                                                  },
+                                                  {
+                                                    text: "Restituer",
+                                                    onPress: () =>
+                                                      void run(async () => {
+                                                        await returnConsignmentItem(
+                                                          item._id,
+                                                        );
+                                                        await refresh();
+                                                        setMessage(
+                                                          "Article restitué.",
+                                                        );
+                                                      }),
+                                                  },
+                                                ],
+                                              )
+                                            }
+                                          />
+                                        </>
+                                      )}
+                                      {editing?._id === item._id && (
+                                        <View>
+                                          <Field
+                                            label="Nouveau prix convenu (€)"
+                                            value={termPrice}
+                                            onChangeText={setTermPrice}
+                                            keyboardType="decimal-pad"
+                                          />
+                                          <Field
+                                            label="Commission convenue (%)"
+                                            value={termRate}
+                                            onChangeText={setTermRate}
+                                            keyboardType="decimal-pad"
+                                          />
+                                          <Field
+                                            label="Autorisation du déposant (date et accord)"
+                                            value={authorization}
+                                            onChangeText={setAuthorization}
+                                          />
+                                          <Button
+                                            label="Enregistrer l’accord autorisé"
+                                            onPress={() =>
+                                              void run(async () => {
+                                                if (!authorization.trim())
+                                                  throw new Error(
+                                                    "Indiquez l’autorisation du déposant.",
+                                                  );
+                                                const input = {
+                                                  itemId: item._id,
+                                                  askingPriceCents: amount(
+                                                    termPrice,
+                                                    "Prix",
+                                                  ),
+                                                  commissionRateBps: amount(
+                                                    termRate,
+                                                    "Commission",
+                                                    10000,
+                                                  ),
+                                                  authorizationNote:
+                                                    authorization.trim(),
+                                                };
+                                                await updateConsignmentTerms({
+                                                  ...input,
+                                                  operationId: operation(
+                                                    "terms",
+                                                    input,
+                                                  ),
+                                                });
+                                                attempts.current.delete(
+                                                  `terms:${JSON.stringify(input)}`,
+                                                );
+                                                setEditing(null);
+                                                await refresh();
+                                              })
+                                            }
+                                          />
+                                          <Button
+                                            label="Fermer"
+                                            onPress={() => setEditing(null)}
+                                          />
+                                        </View>
+                                      )}
+                                    </>
+                                  )}
+                                </View>
+                              ))}
+                            </View>
                             <Pressable
                               accessibilityRole="button"
-                              style={styles.chip}
-                              onPress={() => void run(() => shareReceipt(d))}
+                              accessibilityState={{ expanded: documentsOpen }}
+                              onPress={() => setDocumentsOpen(!documentsOpen)}
+                              style={styles.documentRow}
                             >
-                              <Text style={styles.chipText}>
-                                Partager une copie non signée
+                              <Text
+                                style={[
+                                  { color: colors.text },
+                                  styles.rowTitle,
+                                ]}
+                              >
+                                Contrat et documents
+                              </Text>
+                              <Text
+                                style={[{ color: colors.text }, styles.chevron]}
+                              >
+                                {documentsOpen ? "⌄" : "›"}
                               </Text>
                             </Pressable>
-                            <Text style={styles.hint}>
-                              Les reversements sont regroupés par déposant, pour
-                              l’ensemble de ses dépôts.
-                            </Text>
+                            {documentsOpen && (
+                              <View style={styles.card}>
+                                {" "}
+                                <ReceiptSigning
+                                  kind="consignment"
+                                  targetId={d._id}
+                                />
+                                <Pressable
+                                  accessibilityRole="button"
+                                  style={styles.chip}
+                                  onPress={() =>
+                                    void run(() => shareReceipt(d))
+                                  }
+                                >
+                                  <Text
+                                    style={[
+                                      { color: colors.text },
+                                      styles.chipText,
+                                    ]}
+                                  >
+                                    Partager une copie non signée
+                                  </Text>
+                                </Pressable>
+                                <Text
+                                  style={[{ color: colors.text }, styles.hint]}
+                                >
+                                  Les reversements sont regroupés par déposant,
+                                  pour l’ensemble de ses dépôts.
+                                </Text>
+                              </View>
+                            )}
+                          </ScrollView>
+                          <View style={styles.footer}>
+                            {" "}
                             <Button
                               label="Voir le solde du déposant"
                               onPress={() => {
@@ -1034,224 +1625,18 @@ export function ConsignmentScreen({
                                 setTab("payments");
                               }}
                             />
-                            <Text style={styles.title}>Articles confiés</Text>
-                            {d.items.map((item) => (
-                              <View key={item._id} style={styles.article}>
-                                <Pressable
-                                  accessibilityRole="button"
-                                  onPress={() =>
-                                    setExpandedArticle(
-                                      expandedArticle === item._id
-                                        ? null
-                                        : item._id,
-                                    )
-                                  }
-                                >
-                                  <Text style={styles.title}>
-                                    {item.name}{" "}
-                                    {expandedArticle === item._id ? "⌄" : "›"}
-                                  </Text>
-                                </Pressable>
-                                <Text style={styles.hint}>
-                                  {item.productType === "sealed"
-                                    ? "Scellé"
-                                    : item.productType === "other"
-                                      ? "Autre article"
-                                      : "Carte"}{" "}
-                                  ·{" "}
-                                  {item.status === "sold"
-                                    ? "Vendu"
-                                    : item.status === "returned"
-                                      ? "Restitué"
-                                      : "Disponible"}
-                                </Text>
-                                {expandedArticle === item._id && (
-                                  <>
-                                    {item.description ? (
-                                      <Text style={styles.hint}>
-                                        {item.description}
-                                      </Text>
-                                    ) : null}
-                                    <Text style={styles.hint}>
-                                      Prix convenu{" "}
-                                      {money(
-                                        item.agreedPriceCents ??
-                                          item.askingPriceCents ??
-                                          0,
-                                      )}{" "}
-                                      · Commission{" "}
-                                      {(item.commissionRateBps ?? 3000) / 100} %
-                                    </Text>
-                                    {item.events?.map((event) => (
-                                      <Text key={event._id} style={styles.hint}>
-                                        {new Date(
-                                          event.occurredAt,
-                                        ).toLocaleDateString("fr-BE")}{" "}
-                                        ·{" "}
-                                        {event.kind === "return"
-                                          ? "Restitution au déposant"
-                                          : `Accord : ${money(event.askingPriceCents ?? 0)}, commission ${(event.commissionRateBps ?? 0) / 100} % · ${event.authorizationNote ?? ""}`}
-                                      </Text>
-                                    ))}
-                                    {item.photos?.map((p) => (
-                                      <Button
-                                        key={p._id}
-                                        label={p.filename}
-                                        onPress={() =>
-                                          void run(() =>
-                                            openAttachment(
-                                              p._id,
-                                              p.filename,
-                                              p.contentType,
-                                            ),
-                                          )
-                                        }
-                                      />
-                                    ))}
-                                    <AttachmentPreview
-                                      current={null}
-                                      allowPdf
-                                      onUse={(photo) => {
-                                        if (photo)
-                                          void run(async () => {
-                                            await uploadItemAttachment(
-                                              item._id,
-                                              photo,
-                                            );
-                                            await load();
-                                          });
-                                      }}
-                                    />
-                                    {item.status === "available" && (
-                                      <>
-                                        <Button
-                                          label="Modifier l’accord"
-                                          onPress={() => {
-                                            setEditing(item);
-                                            setTermPrice(
-                                              (
-                                                (item.agreedPriceCents ??
-                                                  item.askingPriceCents ??
-                                                  0) / 100
-                                              ).toFixed(2),
-                                            );
-                                            setTermRate(
-                                              String(
-                                                (item.commissionRateBps ??
-                                                  3000) / 100,
-                                              ),
-                                            );
-                                            setAuthorization("");
-                                          }}
-                                        />
-                                        <Button
-                                          label="Restituer au déposant"
-                                          onPress={() =>
-                                            Alert.alert(
-                                              "Restituer cet article ?",
-                                              `${item.name} sera retiré du stock disponible.`,
-                                              [
-                                                {
-                                                  text: "Annuler",
-                                                  style: "cancel",
-                                                },
-                                                {
-                                                  text: "Restituer",
-                                                  onPress: () =>
-                                                    void run(async () => {
-                                                      await returnConsignmentItem(
-                                                        item._id,
-                                                      );
-                                                      await refresh();
-                                                      setMessage(
-                                                        "Article restitué.",
-                                                      );
-                                                    }),
-                                                },
-                                              ],
-                                            )
-                                          }
-                                        />
-                                      </>
-                                    )}
-                                    {editing?._id === item._id && (
-                                      <View>
-                                        <Field
-                                          label="Nouveau prix convenu (€)"
-                                          value={termPrice}
-                                          onChangeText={setTermPrice}
-                                          keyboardType="decimal-pad"
-                                        />
-                                        <Field
-                                          label="Commission convenue (%)"
-                                          value={termRate}
-                                          onChangeText={setTermRate}
-                                          keyboardType="decimal-pad"
-                                        />
-                                        <Field
-                                          label="Autorisation du déposant (date et accord)"
-                                          value={authorization}
-                                          onChangeText={setAuthorization}
-                                        />
-                                        <Button
-                                          label="Enregistrer l’accord autorisé"
-                                          onPress={() =>
-                                            void run(async () => {
-                                              if (!authorization.trim())
-                                                throw new Error(
-                                                  "Indiquez l’autorisation du déposant.",
-                                                );
-                                              const input = {
-                                                itemId: item._id,
-                                                askingPriceCents: amount(
-                                                  termPrice,
-                                                  "Prix",
-                                                ),
-                                                commissionRateBps: amount(
-                                                  termRate,
-                                                  "Commission",
-                                                  10000,
-                                                ),
-                                                authorizationNote:
-                                                  authorization.trim(),
-                                              };
-                                              await updateConsignmentTerms({
-                                                ...input,
-                                                operationId: operation(
-                                                  "terms",
-                                                  input,
-                                                ),
-                                              });
-                                              attempts.current.delete(
-                                                `terms:${JSON.stringify(input)}`,
-                                              );
-                                              setEditing(null);
-                                              await refresh();
-                                            })
-                                          }
-                                        />
-                                        <Button
-                                          label="Fermer"
-                                          onPress={() => setEditing(null)}
-                                        />
-                                      </View>
-                                    )}
-                                  </>
-                                )}
-                              </View>
-                            ))}
                           </View>
-                        </ScrollView>
-                      </KeyboardAvoidingView>
-                    </SafeAreaView>
-                  </Modal>
-                ),
-              )}
+                        </KeyboardAvoidingView>
+                      </SafeAreaView>
+                    </Modal>
+                  ),
+                )}
+            </View>
             {!historyData.loading &&
               !historyData.error &&
               !focusedDeposit &&
               !deposits.length && (
-                <Text style={styles.hint}>
+                <Text style={[{ color: colors.text }, styles.hint]}>
                   Aucun dépôt enregistré. Créez le premier dans Nouveau.
                 </Text>
               )}
@@ -1259,14 +1644,14 @@ export function ConsignmentScreen({
         )}
         {tab === "payments" && (
           <>
-            <Text style={styles.hint}>
+            <Text style={[{ color: colors.text }, styles.hint]}>
               Retrouvez les déposants à payer après encaissement de leurs
               ventes, puis marquez le versement effectué. Les ventes
               explicitement « À encaisser » ne sont pas encore dues. Les anciens
               encaissements non renseignés gardent leur traitement précédent.
             </Text>
             <View style={styles.card}>
-              <Text style={styles.title}>
+              <Text style={[{ color: colors.text }, styles.title]}>
                 {money(
                   balances.reduce(
                     (sum, b) => sum + Math.max(0, b.balanceCents),
@@ -1275,31 +1660,11 @@ export function ConsignmentScreen({
                 )}{" "}
                 à reverser sur cette page
               </Text>
-              <Text style={styles.hint}>
+              <Text style={[{ color: colors.text }, styles.hint]}>
                 {balances.filter((b) => b.balanceCents > 0).length} déposant(s)
                 sur cette page
               </Text>
             </View>
-            <Choices
-              value={balanceFilter}
-              onChange={setBalanceFilter}
-              values={[
-                ["due", "À payer"],
-                ["settled", "Réglés"],
-                ["regularization", "Régularisations"],
-                ["all", "Tous"],
-              ]}
-            />
-            <Button
-              label="Actualiser les soldes"
-              onPress={() => void run(load)}
-            />
-            <Field
-              label="Rechercher un déposant à payer"
-              value={paymentSearch}
-              onChangeText={setPaymentSearch}
-              placeholder="Nom, e-mail ou téléphone"
-            />
             <Pagination data={balancesData} />
             {balances
               .filter(
@@ -1322,14 +1687,16 @@ export function ConsignmentScreen({
               })
               .map((b) => (
                 <View key={b.sellerId} style={styles.card}>
-                  <Text style={styles.title}>{b.sellerName}</Text>
-                  <Text style={styles.hint}>
+                  <Text style={[{ color: colors.text }, styles.title]}>
+                    {b.sellerName}
+                  </Text>
+                  <Text style={[{ color: colors.text }, styles.hint]}>
                     Part déposant exigible : {money(b.earnedCents)}
                   </Text>
-                  <Text style={styles.hint}>
+                  <Text style={[{ color: colors.text }, styles.hint]}>
                     Déjà versé : {money(b.paidCents)}
                   </Text>
-                  <Text style={styles.title}>
+                  <Text style={[{ color: colors.text }, styles.title]}>
                     {b.balanceCents < 0
                       ? `Régularisation à récupérer : ${money(-b.balanceCents)}`
                       : `À reverser : ${money(b.balanceCents)}`}
@@ -1353,7 +1720,7 @@ export function ConsignmentScreen({
               !balancesData.error &&
               balanceFilter === "due" &&
               !balances.some((b) => b.balanceCents > 0) && (
-                <Text style={styles.hint}>
+                <Text style={[{ color: colors.text }, styles.hint]}>
                   Tous les déposants sont à jour : aucune somme à reverser.
                 </Text>
               )}
@@ -1372,7 +1739,7 @@ export function ConsignmentScreen({
                       keyboardShouldPersistTaps="handled"
                       contentContainerStyle={styles.modalContent}
                     >
-                      <Text style={styles.title}>
+                      <Text style={[{ color: colors.text }, styles.title]}>
                         Versement à{" "}
                         {
                           balances.find((b) => b.sellerId === paymentSeller)
@@ -1380,7 +1747,10 @@ export function ConsignmentScreen({
                         }
                       </Text>
                       {!!message && (
-                        <Text accessibilityRole="alert" style={styles.message}>
+                        <Text
+                          accessibilityRole="alert"
+                          style={[{ color: colors.text }, styles.message]}
+                        >
                           {message}
                         </Text>
                       )}
@@ -1395,7 +1765,7 @@ export function ConsignmentScreen({
                         value={paymentDate}
                         onChangeText={setPaymentDate}
                       />
-                      <Text style={styles.title}>
+                      <Text style={[{ color: colors.text }, styles.title]}>
                         Mode du versement effectué
                       </Text>
                       <Choices
@@ -1411,7 +1781,7 @@ export function ConsignmentScreen({
                         value={paymentReference}
                         onChangeText={setPaymentReference}
                       />
-                      <Text style={styles.hint}>
+                      <Text style={[{ color: colors.text }, styles.hint]}>
                         Enregistrez uniquement un paiement déjà effectué. Vous
                         pouvez réduire le montant pour un versement partiel ;
                         aucun transfert d’argent n’est déclenché.
@@ -1469,14 +1839,16 @@ export function ConsignmentScreen({
                 </View>
               </Modal>
             )}
-            <Text style={styles.title}>Historique des versements</Text>
+            <Text style={[{ color: colors.text }, styles.title]}>
+              Historique des versements
+            </Text>
             <Pagination data={paymentsData} />
             {payments.map((p) => (
               <View key={p._id} style={styles.card}>
-                <Text style={styles.title}>
+                <Text style={[{ color: colors.text }, styles.title]}>
                   {p.sellerName} · {money(p.amountCents)}
                 </Text>
-                <Text style={styles.hint}>
+                <Text style={[{ color: colors.text }, styles.hint]}>
                   {new Date(p.occurredAt).toLocaleDateString("fr-BE")} ·{" "}
                   {p.method}
                   {p.reference ? ` · ${p.reference}` : ""}
@@ -1489,94 +1861,294 @@ export function ConsignmentScreen({
     </View>
   );
 }
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f2f2f7" },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    backgroundColor: "#fff",
-  },
-  footer: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: "#fff",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: "#ddd",
-  },
-  listRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: "#ddd",
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    padding: 20,
-    justifyContent: "center",
-  },
-  modalCard: { maxHeight: "85%", backgroundColor: "#fff", borderRadius: 14 },
-  modalContent: { padding: 20 },
-  step: {
-    color: "#6b6b73",
-    fontSize: 12,
-    fontWeight: "700",
-    marginVertical: 12,
-  },
-  heading: {
-    fontSize: 25,
-    fontWeight: "700",
-    color: "#815216",
-    marginBottom: 12,
-  },
-  title: { fontSize: 17, fontWeight: "700", color: "#815216", marginBottom: 6 },
-  card: {
-    padding: 16,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    marginVertical: 8,
-    borderWidth: 1,
-    borderColor: "#e7e7ec",
-  },
-  article: {
-    borderTopWidth: 1,
-    borderColor: "#dbe4ea",
-    paddingTop: 16,
-    marginTop: 16,
-  },
-  hint: { color: "#6b6b73", lineHeight: 21, marginVertical: 5 },
-  message: {
-    color: "#815216",
-    backgroundColor: "#e8f1f6",
-    padding: 12,
-    marginVertical: 8,
-    borderRadius: 8,
-  },
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
-  chip: {
-    minHeight: 44,
-    justifyContent: "center",
-    padding: 10,
-    borderWidth: 1,
-    borderColor: "#e7e7ec",
-    borderRadius: 8,
-    backgroundColor: "#fff",
-  },
-  selected: { backgroundColor: "#dcebf4", borderColor: "#815216" },
-  chipText: { color: "#815216", fontWeight: "600" },
-  button: {
-    minHeight: 44,
-    justifyContent: "center",
-    padding: 12,
-    marginVertical: 5,
-    backgroundColor: "#815216",
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  buttonText: { color: "#fff", fontWeight: "600" },
-  disabled: { opacity: 0.5 },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    sheetOverlay: {
+      flex: 1,
+      justifyContent: "flex-end",
+      backgroundColor: colors.overlay,
+    },
+    filterSheet: {
+      maxHeight: "85%",
+      backgroundColor: colors.background,
+      borderTopLeftRadius: 26,
+      borderTopRightRadius: 26,
+      overflow: "hidden",
+    },
+    sheetHandle: {
+      width: 36,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: colors.placeholder,
+      alignSelf: "center",
+      marginTop: 10,
+    },
+    filterFormRow: {
+      minHeight: 49,
+      paddingHorizontal: 15,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      backgroundColor: colors.surface,
+      borderRadius: 15,
+    },
+    filterFormLabel: { fontSize: 15, color: colors.text, flex: 1 },
+    filterFormValue: { fontSize: 14, color: colors.secondary },
+    sheetPrimary: {
+      minHeight: 49,
+      borderRadius: 13,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 6,
+    },
+    sheetPrimaryText: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.onAccent,
+    },
+    detailNav: {
+      height: 51,
+      paddingHorizontal: 20,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+    },
+    detailBack: { fontSize: 15, color: colors.accent },
+    detailNavTitle: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.text,
+      flex: 1,
+      textAlign: "center",
+    },
+    detailTitle: {
+      fontSize: 32,
+      fontWeight: "700",
+      letterSpacing: -1,
+      color: colors.text,
+      marginBottom: 7,
+    },
+    detailSubtitle: { fontSize: 13, color: colors.secondary, marginBottom: 18 },
+    sheetHeader: {
+      height: 56,
+      paddingHorizontal: 20,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    sheetTitle: { fontSize: 19, fontWeight: "700", color: colors.text },
+    inlineAction: {
+      minHeight: 44,
+      justifyContent: "center",
+      paddingHorizontal: 4,
+    },
+    searchBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      minHeight: 44,
+      backgroundColor: colors.border,
+      borderRadius: 11,
+      paddingHorizontal: 12,
+      marginBottom: 18,
+    },
+    searchInput: { flex: 1, minHeight: 44, fontSize: 15, color: colors.text },
+    searchIcon: { fontSize: 22, color: colors.secondary },
+    sectionLabel: {
+      fontSize: 12,
+      color: colors.secondary,
+      marginBottom: 10,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+    },
+    segments: {
+      flexDirection: "row",
+      padding: 3,
+      borderRadius: 9,
+      backgroundColor: colors.border,
+      marginTop: 15,
+      marginBottom: 12,
+    },
+    segment: {
+      flex: 1,
+      minHeight: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 7,
+    },
+    segmentActive: {
+      backgroundColor: colors.surface,
+      shadowColor: colors.shadow,
+      shadowOpacity: 0.08,
+      shadowRadius: 2,
+      shadowOffset: { width: 0, height: 1 },
+    },
+    segmentText: { fontSize: 12, color: colors.text },
+    group: {
+      borderRadius: 15,
+      overflow: "hidden",
+      backgroundColor: colors.surface,
+      marginVertical: 12,
+    },
+    depositRow: {
+      flexDirection: "row",
+      gap: 11,
+      alignItems: "center",
+      paddingVertical: 14,
+      paddingHorizontal: 15,
+      minHeight: 72,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    avatar: {
+      height: 41,
+      width: 41,
+      borderRadius: 21,
+      backgroundColor: colors.accentSoft,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    avatarText: { fontSize: 14, fontWeight: "600", color: colors.accent },
+    rowTitle: { fontSize: 15, fontWeight: "600", color: colors.text },
+    rowSubtitle: { fontSize: 12, color: colors.secondary },
+    tag: {
+      fontSize: 11,
+      fontWeight: "600",
+      color: colors.accent,
+      backgroundColor: colors.accentSoft,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      borderRadius: 7,
+    },
+    chevron: { fontSize: 21, color: colors.secondary },
+    hero: {
+      alignItems: "center",
+      padding: 20,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      marginVertical: 12,
+      gap: 7,
+    },
+    heroAmount: {
+      fontSize: 34,
+      fontWeight: "700",
+      letterSpacing: -1,
+      color: colors.text,
+    },
+    documentRow: {
+      minHeight: 57,
+      paddingHorizontal: 15,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      borderRadius: 15,
+      backgroundColor: colors.surface,
+      marginVertical: 12,
+    },
+    screen: { flex: 1, backgroundColor: colors.background },
+    header: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 16,
+      backgroundColor: colors.surface,
+    },
+    footer: {
+      paddingHorizontal: 20,
+      paddingTop: 12,
+      paddingBottom: 18,
+      backgroundColor: colors.background,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    listRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 16,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: colors.overlay,
+      padding: 20,
+      justifyContent: "center",
+    },
+    modalCard: {
+      maxHeight: "85%",
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+    },
+    modalContent: { padding: 20 },
+    step: {
+      color: colors.secondary,
+      fontSize: 12,
+      fontWeight: "700",
+      marginVertical: 12,
+    },
+    heading: {
+      fontSize: 25,
+      fontWeight: "700",
+      color: colors.accent,
+      marginBottom: 12,
+    },
+    title: {
+      fontSize: 17,
+      fontWeight: "600",
+      color: colors.text,
+      marginBottom: 6,
+    },
+    card: {
+      padding: 16,
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      marginVertical: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    article: {
+      borderTopWidth: 1,
+      borderColor: colors.border,
+      paddingTop: 14,
+      marginTop: 14,
+    },
+    hint: {
+      color: colors.secondary,
+      fontSize: 13,
+      lineHeight: 18,
+      marginVertical: 4,
+    },
+    message: {
+      color: colors.accent,
+      backgroundColor: colors.infoSoft,
+      padding: 12,
+      marginVertical: 8,
+      borderRadius: 8,
+    },
+    row: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
+    chip: {
+      minHeight: 44,
+      justifyContent: "center",
+      padding: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      backgroundColor: colors.surface,
+    },
+    selected: { backgroundColor: colors.infoSoft, borderColor: colors.accent },
+    chipText: { color: colors.accent, fontWeight: "600" },
+    button: {
+      minHeight: 49,
+      justifyContent: "center",
+      padding: 14,
+      marginVertical: 5,
+      backgroundColor: colors.accent,
+      borderRadius: 13,
+      alignItems: "center",
+    },
+    buttonText: { color: colors.onAccent, fontWeight: "600" },
+    disabled: { opacity: 0.5 },
+  });

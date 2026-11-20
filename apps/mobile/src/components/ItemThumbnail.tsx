@@ -33,10 +33,21 @@ export function ItemThumbnail({ item, style }: { item: Item; style: StyleProp<Im
     }).then((uri) => {
       if (active && uri && base === getApiBaseUrl()) setLoaded({ identity, uri });
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [base, identity, photoKey]);
   const personal = loaded?.identity === identity ? loaded.uri : undefined;
-  const uri = [personal, item.catalogueImageUrl].find((source) => source && !failed.includes(source));
-  return uri ? <Image accessibilityLabel={`Photo de ${item.name}`} source={{ uri }} style={style}
-    resizeMode="contain" onError={() => setFailed((previous) => [...previous, uri])} /> : null;
+  const uri = [personal, item.catalogueImageUrl].find(
+    (source) => source && !failed.includes(source),
+  );
+  return uri ? (
+    <Image
+      accessibilityLabel={`Photo de ${item.name}`}
+      source={{ uri }}
+      style={style}
+      resizeMode="contain"
+      onError={() => setFailed((previous) => [...previous, uri])}
+    />
+  ) : null;
 }

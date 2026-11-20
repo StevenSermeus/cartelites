@@ -1,10 +1,5 @@
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 export function Pagination({
   data,
 }: {
@@ -19,6 +14,9 @@ export function Pagination({
     reload(): void;
   };
 }) {
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
+
   const button = (label: string, onPress: () => void, disabled = false) => (
     <Pressable
       accessibilityRole="button"
@@ -27,49 +25,47 @@ export function Pagination({
       onPress={onPress}
       style={[styles.button, disabled && styles.disabled]}
     >
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[{ color: colors.text }, styles.label]}>{label}</Text>
     </Pressable>
   );
-  if (!data.loading && !data.error && !data.hasPrevious && !data.nextCursor)
-    return null;
+  if (!data.loading && !data.error && !data.hasPrevious && !data.nextCursor) return null;
   return (
     <View style={styles.container}>
-      {data.loading && (
-        <ActivityIndicator color="#815216" accessibilityLabel="Chargement" />
-      )}
+      {data.loading && <ActivityIndicator color={colors.accent} accessibilityLabel="Chargement" />}
       {!!data.error && (
         <View>
-          <Text accessibilityRole="alert" style={styles.error}>
+          <Text accessibilityRole="alert" style={[{ color: colors.text }, styles.error]}>
             {data.error}
           </Text>
-          {button("Réessayer", data.reload)}
+          {button('Réessayer', data.reload)}
         </View>
       )}
-      <Text style={styles.page}>Page {data.page}</Text>
+      <Text style={[{ color: colors.text }, styles.page]}>Page {data.page}</Text>
       <View style={styles.actions}>
-        {button("Précédent", data.previous, data.loading || !data.hasPrevious)}
-        {button("Suivant", data.next, data.loading || !data.nextCursor)}
+        {button('Précédent', data.previous, data.loading || !data.hasPrevious)}
+        {button('Suivant', data.next, data.loading || !data.nextCursor)}
       </View>
     </View>
   );
 }
-const styles = StyleSheet.create({
-  container: { gap: 10, marginVertical: 16 },
-  actions: { flexDirection: "row", gap: 12 },
-  button: {
-    flexGrow: 1,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#e7e7ec",
-    borderRadius: 8,
-    backgroundColor: "#fff",
-  },
-  label: { color: "#815216", fontSize: 14, fontWeight: "600" },
-  page: { color: "#6b6b73", textAlign: "center", fontSize: 12 },
-  disabled: { opacity: 0.4 },
-  error: { color: "#a4352d", marginBottom: 8 },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    container: { gap: 10, marginVertical: 16 },
+    actions: { flexDirection: 'row', gap: 12 },
+    button: {
+      flexGrow: 1,
+      minHeight: 44,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      backgroundColor: colors.surface,
+    },
+    label: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+    page: { color: colors.secondary, textAlign: 'center', fontSize: 12 },
+    disabled: { opacity: 0.4 },
+    error: { color: colors.danger, marginBottom: 8 },
+  });
