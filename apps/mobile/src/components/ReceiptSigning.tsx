@@ -586,7 +586,6 @@ export function ReceiptSigning({
                             : "Signature enregistrée"}
                         </Text>
                         <SignaturePad
-                          inline={editingCompany}
                           readOnly={!editingCompany}
                           label={
                             editingCompany ? "Dessinez votre signature" : ""
@@ -664,7 +663,6 @@ export function ReceiptSigning({
                         </Text>
                       </Pressable>
                       <SignaturePad
-                        inline
                         label=""
                         value={client}
                         onChange={(value) => {
