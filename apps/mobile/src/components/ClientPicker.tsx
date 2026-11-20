@@ -185,11 +185,22 @@ export function ClientPicker({
               <View style={{ padding: 16, backgroundColor: colors.surface }}>
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityState={{ disabled: saving || !name.trim(), busy: saving }}
                   disabled={saving || !name.trim()}
                   onPress={() => void saveClient()}
-                  style={[styles.create, { backgroundColor: colors.accent }]}
+                  style={[
+                    styles.create,
+                    { backgroundColor: colors.accent, opacity: saving || !name.trim() ? 0.5 : 1 },
+                  ]}
                 >
-                  <Text style={[{ color: colors.text }, styles.actionText]}>
+                  <Text
+                    style={{
+                      color: colors.onAccent,
+                      fontSize: 16,
+                      fontWeight: '600',
+                      textAlign: 'center',
+                    }}
+                  >
                     {saving ? 'Enregistrement…' : 'Créer et sélectionner ce client'}
                   </Text>
                 </Pressable>
