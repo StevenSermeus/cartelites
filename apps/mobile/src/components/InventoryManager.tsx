@@ -18,6 +18,7 @@ import { Field } from './Field';
 import { AttachmentPreview } from './AttachmentPreview';
 import { ItemThumbnail } from './ItemThumbnail';
 import { Pagination } from './Pagination';
+import { ProductProfitPreview } from './ProductProfitPreview';
 import { usePagedData } from '../data/usePagedData';
 import {
   request,
@@ -719,6 +720,13 @@ export function InventoryManager({
                           value={cost}
                           onChangeText={setCost}
                           keyboardType="decimal-pad"
+                        />
+                        <ProductProfitPreview
+                          cost={cost}
+                          price={existing ? String((existing.askingPriceCents ?? 0) / 100) : price}
+                          rate={existing ? String((existing.taxRateBps ?? 0) / 100) : rate}
+                          quantity={quantity}
+                          onPriceChange={existing ? undefined : setPrice}
                         />
                         <Copy>Photos du produit · {photos.length}/6</Copy>
                         {photos.map((p, i) => (
