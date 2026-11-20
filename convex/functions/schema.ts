@@ -1,3 +1,4 @@
+import { allocation } from './inventoryValidators';
 import { signatureValidator } from './signatures';
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
@@ -64,7 +65,7 @@ export default defineSchema({
     ownerId: v.string(),
     operationId: v.string(),
     purchaseId: v.optional(v.id('purchases')),
-    origin: v.optional(v.union(v.literal('purchase'), v.literal('consignment'))),
+    origin: v.optional(v.union(v.literal('purchase'), v.literal('consignment'), v.literal('supplier'))),
     consignmentId: v.optional(v.id('consignments')),
     productType: v.optional(v.union(v.literal('card'), v.literal('sealed'), v.literal('other'))),
     description: v.optional(v.string()),
@@ -72,6 +73,10 @@ export default defineSchema({
     commissionRateBps: v.optional(v.number()),
     agreedPriceCents: v.optional(v.number()),
     returnedAt: v.optional(v.number()),
+    quantity: v.optional(v.number()),
+    format: v.optional(v.union(v.literal('display'), v.literal('booster'), v.literal('box'), v.literal('other'))),
+    packSize: v.optional(v.number()), taxRateBps: v.optional(v.number()),
+    coverPhotoId: v.optional(v.id('attachments')),
     purchaseOccurredAt: v.number(),
     name: v.string(),
     tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'))),
@@ -106,7 +111,7 @@ export default defineSchema({
       v.literal('available'),
       v.literal('sold'),
       v.literal('cancelled'),
-      v.literal('returned'),
+      v.literal('returned'), v.literal('donated'),
     ),
     createdAt: v.number(),
   })
@@ -141,9 +146,12 @@ export default defineSchema({
     cancelDigest: v.optional(v.string()),
     itemId: v.id('items'),
     occurredAt: v.number(),
+    quantity: v.optional(v.number()), costCents: v.optional(v.number()),
+    allocations: v.optional(v.array(allocation)), itemName: v.optional(v.string()),
+    taxRateBps: v.optional(v.number()), vatRegime: v.optional(v.union(v.literal('margin'), v.literal('other'))),
     salePriceCents: v.number(),
     customerName: v.optional(v.string()),
-    origin: v.optional(v.union(v.literal('purchase'), v.literal('consignment'))),
+    origin: v.optional(v.union(v.literal('purchase'), v.literal('consignment'), v.literal('supplier'))),
     consignmentId: v.optional(v.id('consignments')),
     sellerId: v.optional(v.id('sellers')),
     commissionRateBps: v.optional(v.number()),
@@ -265,7 +273,49 @@ export default defineSchema({
     emailAttemptAt: v.optional(v.number()),
     messageId: v.optional(v.string()),
   }).index('by_target', ['kind', 'targetId']),
+  supplierReceipts: defineTable({
+    ownerId: v.string(), operationId: v.string(), operationDigest: v.string(),
+    supplier: v.string(), reference: v.string(), occurredAt: v.number(), createdAt: v.number(),
+    itemIds: v.array(v.id('items')), totalCostCents: v.number(),
+  }).index('by_owner_operation', ['ownerId', 'operationId']),
+  stockLots: defineTable({
+    itemId: v.id('items'), receiptId: v.optional(v.id('supplierReceipts')),
+    openingId: v.optional(v.id('stockOpenings')), received: v.number(), remaining: v.number(),
+    totalCostCents: v.number(), remainingCostCents: v.number(), occurredAt: v.number(),
+    taxRateBps: v.number(), createdAt: v.number(),
+  }).index('by_item', ['itemId']).index('by_receipt', ['receiptId']).index('by_opening', ['openingId']),
+  stockOpenings: defineTable({
+    ownerId: v.string(), operationId: v.string(), operationDigest: v.string(),
+    sourceId: v.id('items'), targetId: v.id('items'), quantity: v.number(), packSize: v.number(),
+    allocations: v.array(allocation), occurredAt: v.number(), cancelledAt: v.optional(v.number()),
+  }).index('by_owner_operation', ['ownerId', 'operationId']).index('by_source', ['sourceId']),
+  stockGifts: defineTable({
+    ownerId: v.string(), operationId: v.string(), operationDigest: v.string(),
+    itemId: v.id('items'), itemName: v.string(), quantity: v.number(), occurredAt: v.number(),
+    recipient: v.optional(v.string()), reason: v.string(), note: v.optional(v.string()),
+    costCents: v.optional(v.number()), allocations: v.array(allocation), purchaseId: v.optional(v.id('purchases')),
+    cancelledAt: v.optional(v.number()),
+  }).index('by_owner_operation', ['ownerId', 'operationId']).index('by_date', ['occurredAt']),
+  inventoryReversals: defineTable({
+    ownerId: v.string(), operationId: v.string(), operationDigest: v.string(),
+  }).index('by_owner_operation', ['ownerId', 'operationId']),
+  saleTickets: defineTable({
+    ownerId: v.string(), operationId: v.string(), operationDigest: v.string(),
+    saleIds: v.array(v.id('sales')), anchorId: v.id('sales'), snapshot: v.any(),
+    identity: v.optional(v.any()), createdAt: v.number(),
+    objectKey: v.optional(v.string()), sha256: v.optional(v.string()), filename: v.optional(v.string()),
+  }).index('by_owner_operation', ['ownerId', 'operationId']).index('by_sale', ['anchorId']),
+  saleTicketLinks: defineTable({saleId:v.id('sales'),ticketId:v.id('saleTickets')}).index('by_sale',['saleId']),
+  ticketEmails: defineTable({
+    ticketId: v.id('saleTickets'), operationId: v.string(), recipient: v.string(),
+    status: v.union(v.literal('sending'), v.literal('accepted'), v.literal('failed'), v.literal('unknown')),
+    createdAt: v.number(), messageId: v.optional(v.string()),
+  }).index('by_operation', ['operationId']).index('by_ticket', ['ticketId']),
   attachments: defineTable({
+    operationId: v.optional(v.string()), operationDigest: v.optional(v.string()),
+    supplierReceiptId: v.optional(v.id('supplierReceipts')),
+    giftId: v.optional(v.id('stockGifts')),
+
     ownerId: v.string(),
     purchaseId: v.optional(v.id('purchases')),
     itemId: v.optional(v.id('items')),
@@ -275,6 +325,9 @@ export default defineSchema({
     size: v.number(),
     createdAt: v.number(),
   })
+    .index('by_owner_operation', ['ownerId', 'operationId'])
+    .index('by_supplier', ['supplierReceiptId'])
+    .index('by_gift', ['giftId'])
     .index('by_owner_purchase', ['ownerId', 'purchaseId'])
     .index('by_owner_item', ['ownerId', 'itemId'])
     .index('by_purchase', ['purchaseId'])

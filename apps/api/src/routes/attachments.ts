@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
@@ -49,9 +49,12 @@ export function attachmentRoutes(repo: ConvexAccountRepository) {
         return c.json({ error: 'ATTACHMENT_TOO_LARGE' }, 413);
       const form = await c.req.formData();
       const file = form.get('file');
+      const operationId = form.get('operationId')?.toString();
+      if (operationId && !z.string().uuid().safeParse(operationId).success) return c.json({error:'INVALID_ATTACHMENT'},400);
       const purchaseId = form.get('purchaseId');
       const itemId = form.get('itemId');
-      if (!(file instanceof File) || (!purchaseId && !itemId))
+      const supplierReceiptId = form.get('supplierReceiptId'), giftId = form.get('giftId');
+      if (!(file instanceof File) || (!purchaseId && !itemId && !supplierReceiptId && !giftId))
         return c.json({ error: 'ATTACHMENT_TARGET_REQUIRED' }, 400);
       if (!allowedTypes.has(file.type))
         return c.json({ error: 'ATTACHMENT_TYPE_NOT_ALLOWED' }, 415);
@@ -73,9 +76,10 @@ export function attachmentRoutes(repo: ConvexAccountRepository) {
       }
 
       const ownerId = c.get('ownerId');
+      const suffix = operationId ? operationId + '-' + createHash('sha256').update(bytes).digest('hex') : randomUUID();
       const objectKey = itemId && file.type.startsWith('image/')
-        ? `cards/${ownerId}/${randomUUID()}`
-        : `attachments/${ownerId}/${randomUUID()}`;
+        ? `cards/${ownerId}/${suffix}`
+        : `attachments/${ownerId}/${suffix}`;
       const upload = await requestR2(
         'PUT',
         objectKey,
@@ -100,6 +104,9 @@ export function attachmentRoutes(repo: ConvexAccountRepository) {
       client.setAuth(c.get('accessToken'));
       try {
         const id = await client.mutation(createAttachment, {
+          operationId,
+          supplierReceiptId: supplierReceiptId ? supplierReceiptId.toString() : undefined,
+          giftId: giftId ? giftId.toString() : undefined,
           purchaseId: purchaseId ? purchaseId.toString() : undefined,
           itemId: itemId ? itemId.toString() : undefined,
           objectKey,
@@ -109,8 +116,8 @@ export function attachmentRoutes(repo: ConvexAccountRepository) {
         } as never);
         return c.json({ id, filename, contentType, size: bytes.length }, 201);
       } catch {
-        await requestR2('DELETE', objectKey).catch(() => undefined);
-        if (thumbnail) await requestR2('DELETE', `${objectKey}.thumb.webp`).catch(() => undefined);
+        if (!operationId) await requestR2('DELETE', objectKey).catch(() => undefined);
+        if (thumbnail && !operationId) await requestR2('DELETE', `${objectKey}.thumb.webp`).catch(() => undefined);
         return c.json({ error: 'ATTACHMENT_TARGET_INVALID' }, 400);
       }
     },

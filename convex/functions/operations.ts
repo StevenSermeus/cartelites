@@ -1,3 +1,4 @@
+import { consume, restore, integer } from './stockLedger';
 import { paginationOptsValidator } from 'convex/server';
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
@@ -279,6 +280,7 @@ export const updatePurchaseDate = mutation({
 });
 
 type SaleInput = {
+  quantity?: number;
   paymentStatus?: 'pending' | 'received';
   payment?: SalePayment;
   operationId: string;
@@ -312,6 +314,8 @@ async function createSaleTransaction(ctx: MutationCtx, args: SaleInput) {
   if (previousConflict) return { conflict: true as const, id: previousConflict._id };
   const item = await ctx.db.get(args.itemId);
   if (!item) throw new Error('ITEM_NOT_FOUND');
+  integer(args.quantity ?? 1, 1, 100000);
+  if (item.origin !== 'supplier' && (args.quantity ?? 1) !== 1) throw new Error('INVALID_INVENTORY');
   if (!Number.isSafeInteger(args.salePriceCents) || args.salePriceCents < 0)
     throw new Error('INVALID_PRICE');
   if (
@@ -334,7 +338,7 @@ async function createSaleTransaction(ctx: MutationCtx, args: SaleInput) {
       throw new Error('CONSIGNMENT_ITEM_NOT_FOUND');
     if (consignment.flowVersion === 2 && consignment.contractStatus !== 'signed') throw new Error('CONTRACT_SIGNATURE_REQUIRED');
     if (args.salePriceCents < item.agreedPriceCents) throw new Error('PRICE_BELOW_AGREEMENT');
-  } else if (purchase?.status !== 'active') throw new Error('ITEM_UNAVAILABLE');
+  } else if (item.origin !== 'supplier' && purchase?.status !== 'active') throw new Error('ITEM_UNAVAILABLE');
   if (item.status !== 'available') {
     const conflictId = await ctx.db.insert('saleConflicts', {
       ownerId,
@@ -349,7 +353,10 @@ async function createSaleTransaction(ctx: MutationCtx, args: SaleInput) {
     });
     return { conflict: true as const, id: conflictId };
   }
+  const allocations = item.origin === 'supplier' ? await consume(ctx, item, args.quantity ?? 1, args.occurredAt) : undefined;
+  const costCents = allocations ? allocations.reduce((s,a)=>s+a.costCents,0) : item.purchasePriceCents;
   const saleId = await ctx.db.insert('sales', {
+    allocations, costCents, itemName: item.name, taxRateBps: item.taxRateBps, vatRegime: item.vatRegime,
     ...args,
     operationDigest,
     ownerId,
@@ -365,11 +372,12 @@ async function createSaleTransaction(ctx: MutationCtx, args: SaleInput) {
     status: 'active',
     createdAt: Date.now(),
   });
-  await ctx.db.patch(item._id, { status: 'sold' });
+  if (item.origin !== 'supplier') await ctx.db.patch(item._id, { status: 'sold' });
   return saleId;
 }
 export const createSale = mutation({
   args: {
+    quantity: v.optional(v.number()),
     paymentStatus: v.optional(salePaymentStatusValidator),
     payment: v.optional(salePaymentValidator),
     operationId: v.string(),
@@ -387,7 +395,7 @@ export const createSales = mutation({
     payment: v.optional(salePaymentValidator),
     operationId: v.string(),
     occurredAt: v.number(),
-    items: v.array(v.object({ itemId: v.id('items'), salePriceCents: v.number() })),
+    items: v.array(v.object({ itemId: v.id('items'), salePriceCents: v.number(), quantity: v.optional(v.number()) })),
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
@@ -403,7 +411,7 @@ export const createSales = mutation({
     if (prior) return { ids: prior.saleIds };
     if (
       !args.operationId ||
-      !args.items.length ||
+      !args.items.length || args.items.length > 100 ||
       new Set(args.items.map((item) => item.itemId)).size !== args.items.length
     )
       throw new Error('INVALID_SALE_BATCH');
@@ -530,13 +538,14 @@ export const cancelSale = mutation({
       return sale._id;
     }
     const item = await ctx.db.get(sale.itemId);
-    if (!item || item.status !== 'sold') throw new Error('ITEM_STATE_INVALID');
+    if (!item || (item.origin !== 'supplier' && item.status !== 'sold')) throw new Error('ITEM_STATE_INVALID');
     await ctx.db.patch(sale._id, {
       status: 'cancelled',
       cancelOperationId: args.operationId,
       cancelDigest: operationDigest,
     });
-    await ctx.db.patch(item._id, { status: 'available' });
+    if (item.origin === 'supplier') await restore(ctx, item._id, sale.allocations ?? []);
+    else await ctx.db.patch(item._id, { status: 'available' });
     return sale._id;
   },
 });
@@ -609,11 +618,11 @@ export const stock = query({
         const consignment = item.consignmentId ? await ctx.db.get(item.consignmentId) : null;
         const source = consignment ?? purchase;
         const seller = source ? await ctx.db.get(source.sellerId) : null;
-        if (!consignment && purchase?.status !== 'active') return null;
+        if (!consignment && item.origin !== 'supplier' && purchase?.status !== 'active') return null;
         if (consignment?.flowVersion === 2 && consignment.contractStatus !== 'signed') return null;
         return {
           ...item,
-          photos,
+          photos: photos.sort((a,b)=>Number(b._id===item.coverPhotoId)-Number(a._id===item.coverPhotoId)),
           origin: item.origin ?? 'purchase',
           productType: item.productType ?? 'card',
           purchasePriceCents: item.purchasePriceCents ?? 0,
@@ -630,13 +639,15 @@ export const stock = query({
 async function catalogueEligible(ctx: QueryCtx, item: Doc<'items'>): Promise<boolean> {
   if (item.status !== 'available' || item.hiddenFromCatalogue || item.askingPriceCents === undefined) return false;
   if (item.consignmentId) { const d = await ctx.db.get(item.consignmentId); return !!d && (d.flowVersion !== 2 || d.contractStatus === 'signed'); }
+  if (item.origin === 'supplier') return (item.quantity ?? 0) > 0;
   const purchase = item.purchaseId ? await ctx.db.get(item.purchaseId) : null;
   return purchase?.status === 'active';
 }
 
 async function cataloguePhoto(ctx: QueryCtx, itemId: Id<'items'>) {
   const photos = await ctx.db.query('attachments').withIndex('by_item', q => q.eq('itemId', itemId)).collect();
-  return photos.find(photo => !photo.purchaseId && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType)) ?? null;
+  const product = await ctx.db.get(itemId);
+  return photos.find(photo => photo._id === product?.coverPhotoId && photo.contentType.startsWith('image/')) ?? photos.find(photo => !photo.purchaseId && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType)) ?? null;
 }
 
 // Only the service-authenticated action can resolve private object keys.
@@ -797,7 +808,7 @@ export const salesHistory = query({
           ...sale,
           origin: sale.origin ?? item.origin ?? 'purchase',
           productType: item.productType ?? 'card',
-          itemName: item.name,
+          itemName: sale.itemName ?? item.name,
           series: item.series ?? '',
           identifier: item.identifier ?? '',
           language:
@@ -811,7 +822,7 @@ export const salesHistory = query({
           marketValueCents: item.marketValueCents,
           discountPercent: item.discountPercent,
           askingPriceCents: item.askingPriceCents,
-          purchasePriceCents: item.purchasePriceCents ?? 0,
+          purchasePriceCents: sale.costCents ?? item.purchasePriceCents ?? 0,
           purchaseReference: source?.reference ?? '',
           vatRegime: item.vatRegime,
           purchaseOccurredAt: purchase?.occurredAt ?? item.purchaseOccurredAt,
@@ -870,6 +881,9 @@ export const resolveSaleConflict = mutation({
 
 export const createAttachment = mutation({
   args: {
+    operationId: v.optional(v.string()),
+    supplierReceiptId: v.optional(v.id('supplierReceipts')),
+    giftId: v.optional(v.id('stockGifts')),
     purchaseId: v.optional(v.id('purchases')),
     itemId: v.optional(v.id('items')),
     objectKey: v.string(),
@@ -879,7 +893,10 @@ export const createAttachment = mutation({
   },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
-    if (!args.purchaseId && !args.itemId) throw new Error('ATTACHMENT_TARGET_REQUIRED');
+    if (args.operationId) { const prior = await ctx.db.query('attachments').withIndex('by_owner_operation', q=>q.eq('ownerId', ownerId).eq('operationId',args.operationId)).unique(); if (prior) { if(prior.operationDigest !== JSON.stringify(args)) throw new Error('IDEMPOTENCY_KEY_REUSED'); return prior._id; } }
+    if (!args.purchaseId && !args.itemId && !args.supplierReceiptId && !args.giftId) throw new Error('ATTACHMENT_TARGET_REQUIRED');
+    if (args.supplierReceiptId && !(await ctx.db.get(args.supplierReceiptId))) throw new Error('RECEIPT_NOT_FOUND');
+    if (args.giftId && !(await ctx.db.get(args.giftId))) throw new Error('GIFT_NOT_FOUND');
     if (args.purchaseId) {
       const purchase = await ctx.db.get(args.purchaseId);
       if (!purchase) throw new Error('PURCHASE_NOT_FOUND');
@@ -887,6 +904,7 @@ export const createAttachment = mutation({
     if (args.itemId) {
       const item = await ctx.db.get(args.itemId);
       if (!item) throw new Error('ITEM_NOT_FOUND');
+      if (args.contentType.startsWith('image/')) { const photos=await ctx.db.query('attachments').withIndex('by_item',q=>q.eq('itemId',item._id)).collect(); if(photos.filter(p=>p.contentType.startsWith('image/')).length>=6) throw new Error('INVALID_ATTACHMENT'); }
       if (args.purchaseId && item.purchaseId !== args.purchaseId)
         throw new Error('ATTACHMENT_TARGET_MISMATCH');
     }
@@ -899,7 +917,7 @@ export const createAttachment = mutation({
     });
     if (!validKey || args.size <= 0)
       throw new Error('INVALID_ATTACHMENT');
-    return ctx.db.insert('attachments', { ...args, ownerId, createdAt: Date.now() });
+    return ctx.db.insert('attachments', { ...args, operationDigest: args.operationId ? JSON.stringify(args) : undefined, ownerId, createdAt: Date.now() });
   },
 });
 

@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const ItemSchema = z.object({
   id: z.string().min(1),
   purchaseId: z.string().min(1).optional(),
-  origin: z.enum(['purchase', 'consignment']).optional(),
+  origin: z.enum(['purchase', 'consignment', 'supplier']).optional(),
   consignmentId: z.string().min(1).optional(),
   productType: z.enum(['card', 'sealed', 'other']).optional(),
   description: z.string().optional(),
@@ -28,7 +28,7 @@ export const ItemSchema = z.object({
   purchasePriceCents: z.number().int().nonnegative().optional(),
   askingPriceCents: z.number().int().nonnegative().optional(),
   vatRegime: z.enum(['margin', 'other']),
-  status: z.enum(['available', 'sold', 'cancelled', 'returned']),
+  status: z.enum(['available', 'sold', 'cancelled', 'returned', 'donated']),
 });
 export const PurchaseSchema = z.object({
   id: z.string().min(1),
@@ -59,7 +59,7 @@ export const SaleSchema = z.object({
   occurredAt: z.number().int(),
   salePriceCents: z.number().int().nonnegative(),
   customerName: z.string().optional(),
-  origin: z.enum(['purchase', 'consignment']).optional(),
+  origin: z.enum(['purchase', 'consignment', 'supplier']).optional(),
   commissionRateBps: z.number().int().min(0).max(10000).optional(),
   commissionCents: z.number().int().nonnegative().optional(),
   depositorAmountCents: z.number().int().nonnegative().optional(),

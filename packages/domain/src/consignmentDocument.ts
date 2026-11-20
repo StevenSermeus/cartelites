@@ -5,6 +5,7 @@ import type {
 import { signaturePdf, type ReceiptSignatures } from "./signature";
 export type ConsignmentDocumentInput = {
   title: string;
+  clientLabel?: string;
   reference: string;
   occurredAt: number;
   client: { name: string; email?: string; phone?: string; address?: string };
@@ -71,7 +72,7 @@ export function createConsignmentDocumentPdf(
     `${legal.address} | ${legal.email}`,
     `Référence : ${input.reference}`,
     `Date : ${new Date(input.occurredAt).toLocaleString("fr-BE", { timeZone: "Europe/Brussels" })}`,
-    `Déposant : ${input.client.name}`,
+    `${input.clientLabel ?? "Déposant"} : ${input.client.name}`,
     input.client.email ?? "",
   ].flatMap((t) => wrap(t));
   const startY = 718 - headerLines.length * 12 - 18;

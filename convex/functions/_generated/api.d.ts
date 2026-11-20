@@ -12,11 +12,15 @@ import type * as auth from "../auth.js";
 import type * as authService from "../authService.js";
 import type * as consignmentDocuments from "../consignmentDocuments.js";
 import type * as consignmentOperations from "../consignmentOperations.js";
+import type * as inventory from "../inventory.js";
+import type * as inventoryValidators from "../inventoryValidators.js";
 import type * as operations from "../operations.js";
 import type * as readModels from "../readModels.js";
 import type * as salePayments from "../salePayments.js";
+import type * as saleTickets from "../saleTickets.js";
 import type * as signatures from "../signatures.js";
 import type * as signedReceipts from "../signedReceipts.js";
+import type * as stockLedger from "../stockLedger.js";
 
 import type {
   ApiFromModules,
@@ -29,11 +33,15 @@ declare const fullApi: ApiFromModules<{
   authService: typeof authService;
   consignmentDocuments: typeof consignmentDocuments;
   consignmentOperations: typeof consignmentOperations;
+  inventory: typeof inventory;
+  inventoryValidators: typeof inventoryValidators;
   operations: typeof operations;
   readModels: typeof readModels;
   salePayments: typeof salePayments;
+  saleTickets: typeof saleTickets;
   signatures: typeof signatures;
   signedReceipts: typeof signedReceipts;
+  stockLedger: typeof stockLedger;
 }>;
 
 /**

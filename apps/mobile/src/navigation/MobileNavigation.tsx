@@ -21,12 +21,12 @@ export const pageHeaders: Record<Page, [string, string]> = {
   saleSummary: ['Vente', 'Panier en cours'],
   salePayment: ['Encaisser', 'Enregistrez le règlement de cette vente.'],
   saleComplete: ['Vente enregistrée', 'Retrouvez le détail de votre encaissement.'],
-  history: ['Rachats', 'Cartélites · Vos rachats et documents'],
+  history: ['Rachats', 'Vos rachats et documents'],
   purchase: ['Nouveau rachat', 'Client, cartes et document.'],
   consignments: ['Dépôts-vente', 'Dossiers, contrats et reversements.'],
   clients: ['Clients', 'Coordonnées de vos vendeurs et déposants.'],
   salesHistory: ['Historique des ventes', 'Ventes et encaissements.'],
-  account: ['Compte', ''],
+  account: ['Plus', 'Clients, compte et préférences.'],
 };
 export function activeTab(page: Page): Page {
   if (['sales', 'saleSummary', 'salePayment', 'saleComplete', 'salesHistory'].includes(page))
@@ -37,10 +37,10 @@ export function activeTab(page: Page): Page {
 }
 const tabs = [
   ['stock', 'Stock', 'albums-outline'],
-  ['history', 'Rachat', 'add-circle-outline'],
-  ['sales', 'Vente', 'cart-outline'],
+  ['sales', 'Vendre', 'cart-outline'],
+  ['history', 'Rachats', 'receipt-outline'],
   ['consignments', 'Dépôts', 'cube-outline'],
-  ['account', 'Compte', 'person-circle-outline'],
+  ['account', 'Plus', 'ellipsis-horizontal'],
 ] as const;
 export function MobileNavigation({
   page,
@@ -107,7 +107,7 @@ export function MobileHeader({
   return (
     <View style={s.header}>
       <View style={s.nav}>
-        <Text style={[{ color: colors.text }, s.brand]}>cartélites.</Text>
+        <Text style={[{ color: colors.text }, s.brand]}>Espace vendeur</Text>
       </View>
       <Text accessibilityRole="header" style={[{ color: colors.text }, s.title]}>
         {title ?? pageHeaders[page][0]}
@@ -122,12 +122,11 @@ const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     bar: {
       flexDirection: 'row',
-      padding: 5,
-      marginTop: 4,
-      marginHorizontal: -4,
-      borderRadius: 26,
+      paddingHorizontal: 6,
+      paddingVertical: 8,
+      marginHorizontal: -16,
       backgroundColor: colors.surface,
-      borderWidth: StyleSheet.hairlineWidth,
+      borderTopWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
     },
     tab: {
@@ -136,14 +135,14 @@ const createStyles = (colors: ThemeColors) =>
       alignItems: 'center',
       justifyContent: 'center',
       gap: 3,
-      borderRadius: 21,
+      borderRadius: 12,
     },
     selected: { backgroundColor: colors.accentSoft },
-    label: { fontSize: 10, color: colors.secondary, fontWeight: '500' },
+    label: { fontSize: 11, color: colors.secondary, fontWeight: '500' },
     activeLabel: { color: colors.accent, fontWeight: '600' },
     header: { marginBottom: 16 },
-    nav: { height: 51, justifyContent: 'center' },
-    brand: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+    nav: { minHeight: 44, justifyContent: 'center' },
+    brand: { color: colors.text, fontSize: 15, fontWeight: '700' },
     title: {
       color: colors.text,
       fontSize: 32,
@@ -152,5 +151,5 @@ const createStyles = (colors: ThemeColors) =>
       marginTop: 9,
       marginBottom: 10,
     },
-    subtitle: { color: colors.secondary, fontSize: 13, lineHeight: 18 },
+    subtitle: { color: colors.secondary, fontSize: 15, lineHeight: 21 },
   });

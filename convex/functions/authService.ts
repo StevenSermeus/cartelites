@@ -19,6 +19,7 @@ export const execute = action({
   args: {
     secret: v.string(),
     operation: v.union(
+      v.literal('ticketIdentity'), v.literal('ticketArchive'), v.literal('ticketClaimEmail'), v.literal('ticketEmailResult'),
       v.literal('consignmentDocumentIdentity'), v.literal('consignmentDocumentArchive'),
       v.literal('receiptPrepare'), v.literal('receiptGet'), v.literal('receiptList'), v.literal('receiptSign'), v.literal('receiptArchive'), v.literal('receiptClaimEmail'), v.literal('receiptEmailResult'),
       v.literal('cataloguePhotoObject'),
@@ -41,6 +42,10 @@ export const execute = action({
   handler: async (ctx, args): Promise<unknown> => {
     if (!validServiceSecret(args.secret)) throw new Error('UNAUTHORIZED_SERVICE');
     switch (args.operation) {
+      case 'ticketIdentity': return ctx.runMutation(internal.saleTickets.identity, args.payload);
+      case 'ticketArchive': return ctx.runMutation(internal.saleTickets.archive, args.payload);
+      case 'ticketClaimEmail': return ctx.runMutation(internal.saleTickets.claimEmail, args.payload);
+      case 'ticketEmailResult': return ctx.runMutation(internal.saleTickets.emailResult, args.payload);
       case 'consignmentDocumentIdentity': return ctx.runMutation(internal.consignmentDocuments.freezeIdentity, args.payload);
       case 'consignmentDocumentArchive': return ctx.runMutation(internal.consignmentDocuments.archive, args.payload);
       case 'receiptPrepare': return ctx.runMutation(internal.signedReceipts.prepare, args.payload);

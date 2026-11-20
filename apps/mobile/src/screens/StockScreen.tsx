@@ -1,4 +1,7 @@
+import { realtime } from '../data/realtime';
+import { InventoryManager } from '../components/InventoryManager';
 import { useTheme, type ThemeColors } from "../theme/ThemeProvider";
+import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
 import { usePagedData } from "../data/usePagedData";
 import { Pagination } from "../components/Pagination";
@@ -153,6 +156,11 @@ export function StockScreen({
   const styles = createStyles(colors);
 
   const [focusedItem, setFocusedItem] = useState<Item | null>(null);
+  const focusedId = focusedItem?._id;
+  useEffect(() => {
+    if (!focusedId) return;
+    return realtime.subscribe<Item | null>('readModels:record', {resource: 'stock', id: focusedId}, setFocusedItem, error => setPriceMessage(error.message));
+  }, [focusedId]);
   const [priceSaving, setPriceSaving] = useState(false);
   const [priceMessage, setPriceMessage] = useState("");
   const [search, setSearch] = useState("");
@@ -224,7 +232,7 @@ export function StockScreen({
     }
   }
 
-  const [origin, setOrigin] = useState<"all" | "purchase" | "consignment">(
+  const [origin, setOrigin] = useState<"all" | "purchase" | "consignment" | "supplier">(
     "all",
   );
   const [productType, setProductType] = useState<
@@ -427,6 +435,7 @@ export function StockScreen({
                   [
                     ["all", "Toutes"],
                     ["purchase", "Rachats"],
+                    ["supplier", "Fournisseurs"],
                     ["consignment", "Dépôts-ventes"],
                   ] as const,
                   setOrigin,
@@ -498,6 +507,7 @@ export function StockScreen({
       </Modal>
       {!focusedItem && (
         <>
+          <InventoryManager onChanged={async () => { await onRefresh(); data.reload(); }} />
           <View style={styles.filterRow}>
             <Pressable
               accessibilityRole="button"
@@ -677,7 +687,7 @@ export function StockScreen({
                   </Text>
                 )}
                 <ItemThumbnail item={item} style={{ width: 46, height: 64 }} />
-                <View style={{ flex: 1, gap: 2 }}>
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                   <Text style={[{ color: colors.text }, styles.title]}>
                     {item.name}
                   </Text>
@@ -688,19 +698,19 @@ export function StockScreen({
                     {item.gradingCompany
                       ? `${item.gradingCompany} ${item.gradingGrade ?? ""}`
                       : `${languageLabels[item.language ?? "fr"]} · ${conditionLabels[item.condition ?? "NM"]}`}
-                    {item.origin === "consignment" ? " · Dépôt" : ""}
+                    {item.origin === "consignment" ? " · Dépôt" : item.origin === "supplier" ? ` · Fournisseur · ${item.quantity ?? 0} en stock` : ""}
                     {item.hiddenFromCatalogue ? " · Masqué" : " · En ligne"}
                   </Text>
+                  <Text style={styles.rowPrice}>
+                    {item.askingPriceCents === undefined
+                      ? "—"
+                      : (item.askingPriceCents / 100).toLocaleString("fr-BE", {
+                          style: "currency",
+                          currency: "EUR",
+                        })}
+                  </Text>
                 </View>
-                <Text style={[{ color: colors.text }, styles.rowPrice]}>
-                  {item.askingPriceCents === undefined
-                    ? "—"
-                    : (item.askingPriceCents / 100).toLocaleString("fr-BE", {
-                        style: "currency",
-                        currency: "EUR",
-                      })}{" "}
-                  ›
-                </Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.placeholder} />
               </Pressable>
             );
           const selected = selectedIds.includes(item._id);
@@ -742,6 +752,7 @@ export function StockScreen({
                     <Text style={[{ color: colors.text }, styles.detailTitle]}>
                       {item.name}
                     </Text>
+                    <InventoryManager item={item} onChanged={async () => { await onRefresh(); data.reload(); }} />
                     <View style={styles.hero}>
                       <ItemThumbnail item={item} style={styles.cardImage} />
                       <Text style={[{ color: colors.text }, styles.heroTitle]}>
@@ -750,7 +761,7 @@ export function StockScreen({
                           .join(" · ")}
                       </Text>
                       <Text style={[{ color: colors.text }, styles.tag]}>
-                        Disponible
+                        {item.status === 'available' ? 'Disponible' : 'Indisponible'}
                       </Text>
                     </View>
                     <View style={styles.card}>
@@ -935,7 +946,7 @@ export function StockScreen({
                           "Client"}{" "}
                         {item.origin === "consignment"
                           ? ` · Commission ${(item.commissionRateBps ?? 3000) / 100} % · Vente `
-                          : ` · Rachat ${(item.purchasePriceCents / 100).toFixed(2)} € · Vente `}
+                          : item.origin === "supplier" ? " · Coûts et factures dans les lots · Vente " : ` · Rachat ${(item.purchasePriceCents / 100).toFixed(2)} € · Vente `}
                         {item.askingPriceCents === undefined
                           ? "Prix non défini"
                           : (item.askingPriceCents / 100).toLocaleString(
@@ -969,7 +980,8 @@ export function StockScreen({
                   <View style={styles.footer}>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityState={{ selected }}
+                      disabled={!selected && item.status !== 'available'}
+                      accessibilityState={{ selected, disabled: !selected && item.status !== 'available' }}
                       onPress={() => onToggle(item)}
                       style={[styles.button, selected && styles.selectedButton]}
                     >
@@ -1192,7 +1204,7 @@ const createStyles = (colors: ThemeColors) =>
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
     },
-    rowPrice: { fontWeight: "600", color: colors.text },
+    rowPrice: { fontSize: 15, fontWeight: "600", color: colors.text, marginTop: 6 },
     back: { minHeight: 48, justifyContent: "center", marginBottom: 12 },
     visibilityToolbar: {
       padding: 12,
@@ -1295,13 +1307,11 @@ const createStyles = (colors: ThemeColors) =>
     card: {
       padding: 16,
       backgroundColor: colors.surface,
-      borderRadius: 12,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderRadius: 16,
+      marginBottom: 16,
     },
     title: {
-      fontSize: 15,
+      fontSize: 16,
       fontWeight: "600",
       marginBottom: 0,
       color: colors.text,
@@ -1314,9 +1324,9 @@ const createStyles = (colors: ThemeColors) =>
     },
     details: {
       color: colors.secondary,
-      fontSize: 12,
+      fontSize: 13,
       marginTop: 3,
-      lineHeight: 17,
+      lineHeight: 18,
     },
     priceLabel: {
       color: colors.text,

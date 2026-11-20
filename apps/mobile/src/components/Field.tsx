@@ -79,9 +79,9 @@ const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     wrap: { marginBottom: 14 },
     label: {
-      fontSize: 14,
-      fontWeight: "600",
-      marginBottom: 6,
+      fontSize: 15,
+      fontWeight: "500",
+      marginBottom: 8,
       color: colors.text,
     },
     input: {
@@ -92,6 +92,6 @@ const createStyles = (colors: ThemeColors) =>
       paddingHorizontal: 12,
       paddingVertical: 12,
       minHeight: 48,
-      fontSize: 16,
+      fontSize: 17,
     },
   });

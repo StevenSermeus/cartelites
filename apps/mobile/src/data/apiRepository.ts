@@ -17,8 +17,9 @@ export type Seller = {
   address?: string;
 };
 export type Item = {
+  quantity?: number; format?: 'display' | 'booster' | 'box' | 'other'; packSize?: number; taxRateBps?: number; coverPhotoId?: string;
   hiddenFromCatalogue?: boolean;
-  origin?: 'purchase' | 'consignment';
+  origin?: 'purchase' | 'consignment' | 'supplier';
   consignmentId?: string;
   agreedPriceCents?: number;
   productType?: 'card' | 'sealed' | 'other';
@@ -63,7 +64,7 @@ export type SaleSettlement = { paymentStatus: 'pending' | 'received'; payment?: 
 export type Sale = {
   paymentStatus?: 'pending' | 'received';
   payment?: SalePayment;
-  origin?: 'purchase' | 'consignment';
+  origin?: 'purchase' | 'consignment' | 'supplier';
   commissionRateBps?: number;
   commissionCents?: number;
   depositorAmountCents?: number;
@@ -206,6 +207,12 @@ export async function request<T = unknown>(
       SALE_BEFORE_PURCHASE: 'La date de vente ne peut pas précéder le rachat ou le dépôt.',
       PURCHASE_DATE_AFTER_SALE:
         'Impossible de déplacer le rachat après une vente déjà enregistrée.',
+      INVALID_INVENTORY: 'Vérifiez les quantités, les montants et les champs obligatoires.',
+      PRODUCT_MISMATCH: 'Le produit choisi doit avoir le même type et le même taux de TVA.',
+      OPENING_ALREADY_USED: 'Des boosters de cette ouverture sont déjà sortis du stock.',
+      TICKET_STALE: 'Cette version précède une modification de la vente. Régénérez le ticket.',
+      EMAIL_RESULT_UNKNOWN: 'Résultat de l’envoi incertain. Vérifiez avant tout nouvel envoi.',
+      ARCHIVE_UNAVAILABLE: 'Archivage indisponible. La vente reste enregistrée ; réessayez le ticket.',
       INVALID_STOCK_SELECTION: 'Sélectionnez entre 1 et 500 articles distincts.',
       ITEM_NOT_AVAILABLE: 'Une des cartes n’est plus disponible dans le stock.',
       PURCHASE_NOT_FOUND: 'Rachat introuvable.',
@@ -325,8 +332,8 @@ export function updateAskingPrice(itemId: string, askingPriceCents: number) {
   return request('/stock/asking-price', { itemId, askingPriceCents });
 }
 
-export function createSales(items: { itemId: string; salePriceCents: number }[], date: number, settlement?: SaleSettlement, operationId = Crypto.randomUUID()) {
-  return request('/sales/bulk', {
+export function createSales(items: { itemId: string; salePriceCents: number; quantity?: number }[], date: number, settlement?: SaleSettlement, operationId = Crypto.randomUUID()) {
+  return request<{ids:string[]}>('/sales/bulk', {
     operationId,
     ...settlement,
     items,
@@ -342,13 +349,14 @@ export function cancelSale(saleId: string) {
   return request('/sales/cancel', { operationId: Crypto.randomUUID(), saleId });
 }
 
-async function uploadAttachment(field: 'purchaseId' | 'itemId', id: string, file: AttachmentFile) {
+export async function uploadAttachment(field: 'purchaseId' | 'itemId' | 'supplierReceiptId' | 'giftId', id: string, file: AttachmentFile, operationId?: string) {
   const baseUrl = getApiBaseUrl();
   const token = await readSession();
   if (!baseUrl || !token) throw new Error('Reconnectez-vous avant de téléverser la photo.');
   file = await optimizeAttachment(file);
   const form = new FormData();
   form.append(field, id);
+  if (operationId) form.append('operationId', operationId);
   form.append('file', { uri: file.uri, name: file.name, type: file.mimeType } as never);
   const response = await instanceFetch('/attachments', {
     method: 'POST',

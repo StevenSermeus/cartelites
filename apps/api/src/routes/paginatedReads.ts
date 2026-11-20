@@ -8,7 +8,7 @@ import { env } from '../env.js';
 export const readPageQuery = z.object({
   size: z.coerce.number().int().min(1).max(50).default(25),
   cursor: z.string().max(10000).optional(), search: z.string().max(200).default(''),
-  status: z.string().max(30).optional(), origin: z.enum(['all', 'purchase', 'consignment']).optional(),
+  status: z.string().max(30).optional(), origin: z.enum(['all', 'purchase', 'consignment', 'supplier']).optional(),
   visibility: z.enum(['all', 'visible', 'hidden']).optional(), paymentStatus: z.enum(['all', 'pending', 'received', 'unknown']).optional(),
   sellerId: z.string().max(100).optional(), purchaseId: z.string().max(100).optional(),
   consignmentId: z.string().max(100).optional(), itemId: z.string().max(100).optional(),

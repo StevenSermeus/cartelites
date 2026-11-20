@@ -1,3 +1,5 @@
+import { ItemThumbnail } from './src/components/ItemThumbnail';
+import { SaleTicket } from './src/components/SaleTicket';
 import { NativeTabs, type RootTab } from "./src/navigation/NativeTabs";
 import { PageTransition } from "./src/components/PageTransition";
 import { useLocalPurchaseDrafts } from "./src/data/useLocalPurchaseDrafts";
@@ -276,6 +278,8 @@ export default function App() {
   const [clientPhone, setClientPhone] = useState("");
   const [clientAddress, setClientAddress] = useState("");
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [saleQuantities, setSaleQuantities] = useState<Record<string, string>>({});
+  const [completedSaleIds, setCompletedSaleIds] = useState<string[]>([]);
   const [salePrices, setSalePrices] = useState<Record<string, string>>({});
   const [askingPriceEdits, setAskingPriceEdits] = useState<
     Record<string, string>
@@ -407,6 +411,8 @@ export default function App() {
         setSales([]);
         setPurchases([]);
         setSelectedItemIds([]);
+        setSaleQuantities({});
+        setCompletedSaleIds([]);
         setError("");
       }),
     [],
@@ -986,7 +992,7 @@ export default function App() {
   const toggleSale = (item: Item) => {
     setItems((current) =>
       current.some((row) => row._id === item._id)
-        ? current
+        ? current.map(row => row._id === item._id ? item : row)
         : [...current, item],
     );
     setSelectedItemIds((ids) => {
@@ -1003,6 +1009,7 @@ export default function App() {
       return [...ids, item._id];
     });
   };
+  const saleTotalCents = selectedItems.reduce((sum, item) => sum + Math.round((Number((salePrices[item._id] ?? '').replace(',', '.')) || 0) * 100) * (Number(saleQuantities[item._id] ?? '1') || 0), 0);
   const submitSales = async () => {
     if (saleLock.current) return;
     if (!selectedItems.length)
@@ -1020,7 +1027,9 @@ export default function App() {
           price < 0
         )
           throw new Error(`Prix de vente invalide pour ${item.name}.`);
-        const salePriceCents = Math.round(price * 100);
+        const quantity = Number(saleQuantities[item._id] ?? '1');
+        if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > (item.quantity ?? 1)) throw new Error(`Quantité indisponible pour ${item.name}.`);
+        const salePriceCents = Math.round(price * 100) * quantity;
         if (
           item.origin === "consignment" &&
           salePriceCents < (item.agreedPriceCents ?? item.askingPriceCents ?? 0)
@@ -1028,7 +1037,7 @@ export default function App() {
           throw new Error(
             `Le prix de ${item.name} est inférieur à l’accord. Enregistrez l’autorisation du déposant dans Dépôts.`,
           );
-        return { itemId: item._id, salePriceCents };
+        return { itemId: item._id, salePriceCents, quantity };
       });
       const settlement = buildSaleSettlement(
         salePayment,
@@ -1041,21 +1050,23 @@ export default function App() {
           operationId: Crypto.randomUUID(),
           occurredAt: dateAtCurrentTime(saleDate),
         };
-      await createSales(
+      const saleResult = await createSales(
         saleRows,
         saleAttempt.current.occurredAt,
         settlement,
         saleAttempt.current.operationId,
       );
+      setCompletedSaleIds(saleResult.ids);
       setSaleCompleted({
         pending: salePayment.mode === "pending",
-        count: saleRows.length,
+        count: saleRows.reduce((n,row)=>n+row.quantity,0),
         cents: saleRows.reduce((sum, row) => sum + row.salePriceCents, 0),
       });
       setPage("saleComplete");
       saleAttempt.current = null;
       setSalePayment(emptyPaymentDraft());
       setSelectedItemIds([]);
+      setSaleQuantities({});
       await refresh();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Vente impossible.");
@@ -1121,6 +1132,8 @@ export default function App() {
       setSales([]);
       setPurchases([]);
       setSelectedItemIds([]);
+      setSaleQuantities({});
+      setCompletedSaleIds([]);
       setBusy(false);
     }
   };
@@ -1724,17 +1737,12 @@ export default function App() {
                 const selected = selectedItemIds.includes(item._id);
                 return (
                   <View key={item._id} style={styles.saleResultCard}>
-                    {item.catalogueImageUrl ? (
-                      <Image
-                        source={{ uri: item.catalogueImageUrl }}
-                        style={styles.saleThumb}
-                        resizeMode="contain"
-                      />
-                    ) : null}
+                    <ItemThumbnail item={item} style={styles.saleThumb} />
                     <View style={styles.flex}>
                       <Text style={[{ color: colors.text }, styles.bold]}>
                         {item.name}
                       </Text>
+                      {item.origin === 'supplier' && <Text style={styles.muted}>{item.quantity ?? 0} disponible(s) · Fournisseur</Text>}
                       <Text style={[{ color: colors.text }, styles.muted]}>
                         {[item.series, item.identifier]
                           .filter(Boolean)
@@ -1834,14 +1842,7 @@ export default function App() {
                       </Text>
                       <Text style={[{ color: colors.text }, styles.heroAmount]}>
                         {formatEuros(
-                          selectedItems.reduce(
-                            (total, item) =>
-                              total +
-                              (Number(
-                                (salePrices[item._id] ?? "").replace(",", "."),
-                              ) || 0),
-                            0,
-                          ),
+                          (saleTotalCents / 100),
                         )}
                       </Text>
                     </View>
@@ -1882,11 +1883,12 @@ export default function App() {
                             />
                           </Pressable>
                         </View>
+                        {item.origin === 'supplier' && <Field label={`Quantité · ${item.quantity ?? 0} disponible(s)`} value={saleQuantities[item._id] ?? '1'} onChangeText={value => setSaleQuantities(current => ({...current, [item._id]: value}))} keyboardType="decimal-pad" />}
                         <View style={styles.priceLine}>
                           <Text
                             style={[{ color: colors.text }, styles.rowSubtitle]}
                           >
-                            Prix vendu
+                            Prix unitaire TTC
                           </Text>
                           <TextInput
                             accessibilityLabel={`Prix vendu de ${item.name}`}
@@ -1959,16 +1961,7 @@ export default function App() {
                         value={salePayment}
                         onChange={setSalePayment}
                         disabled={busy}
-                        totalCents={selectedItems.reduce(
-                          (total, item) =>
-                            total +
-                            Math.round(
-                              (Number(
-                                (salePrices[item._id] ?? "").replace(",", "."),
-                              ) || 0) * 100,
-                            ),
-                          0,
-                        )}
+                        totalCents={saleTotalCents}
                       />
                     </>
                   )}
@@ -1977,6 +1970,7 @@ export default function App() {
             </View>
           )}
 
+          {page === "saleComplete" && completedSaleIds.length > 0 && <SaleTicket key={completedSaleIds.join(',')} saleIds={completedSaleIds} autoCreate />}
           {page === "saleComplete" && (
             <View style={styles.card}>
               <Ionicons
@@ -2617,7 +2611,7 @@ export default function App() {
                       </Text>
                     </Pressable>
                     {focusedSale === sale._id && (
-                      <SalePaymentHistory sale={sale} onChanged={refresh} />
+                      <><SalePaymentHistory sale={sale} onChanged={refresh} /><SaleTicket saleIds={[sale._id]} /></>
                     )}
                     {sale.origin === "consignment" && (
                       <Text style={[{ color: colors.text }, styles.muted]}>
@@ -2740,13 +2734,7 @@ export default function App() {
             <View style={styles.flowFooter}>
               <Text style={[{ color: colors.text }, styles.cartSummaryTotal]}>
                 {formatEuros(
-                  selectedItems.reduce(
-                    (total, item) =>
-                      total +
-                      (Number((salePrices[item._id] ?? "").replace(",", ".")) ||
-                        0),
-                    0,
-                  ),
+                  (saleTotalCents / 100),
                 )}
               </Text>
               {page === "saleSummary" ? (
@@ -2755,6 +2743,7 @@ export default function App() {
                   onPress={() => {
                     const invalid = selectedItems.some(
                       (item) =>
+                        !Number.isSafeInteger(Number(saleQuantities[item._id] ?? '1')) || Number(saleQuantities[item._id] ?? '1') < 1 || Number(saleQuantities[item._id] ?? '1') > (item.quantity ?? 1) ||
                         !/^\d+(?:[.,]\d{1,2})?$/.test(
                           (salePrices[item._id] ?? "").trim(),
                         ),
@@ -2775,12 +2764,12 @@ export default function App() {
                   label={
                     busy
                       ? "Enregistrement…"
-                      : `Confirmer la vente · ${formatEuros(selectedItems.reduce((total, item) => total + (Number((salePrices[item._id] ?? "").replace(",", ".")) || 0), 0))}`
+                      : `Confirmer la vente · ${formatEuros((saleTotalCents / 100))}`
                   }
                   onPress={() =>
                     Alert.alert(
                       "Confirmer la vente ?",
-                      `${selectedItems.length} article(s) · ${formatEuros(selectedItems.reduce((total, item) => total + (Number((salePrices[item._id] ?? "").replace(",", ".")) || 0), 0))}`,
+                      `${selectedItems.length} article(s) · ${formatEuros((saleTotalCents / 100))}`,
                       [
                         { text: "Revoir le panier", style: "cancel" },
                         {
@@ -3250,7 +3239,7 @@ const createStyles = (colors: ThemeColors) =>
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.border,
     },
-    rowTitle: { fontSize: 15, fontWeight: "600", color: colors.text },
+    rowTitle: { fontSize: 16, fontWeight: "600", color: colors.text },
     rowSubtitle: {
       fontSize: 12,
       color: colors.secondary,
@@ -3484,7 +3473,7 @@ const createStyles = (colors: ThemeColors) =>
       fontWeight: "700",
       textAlign: "center",
     },
-    secondaryAction: { backgroundColor: colors.surface },
+    secondaryAction: { backgroundColor: colors.raised },
     secondaryText: { color: colors.accent },
     disabled: { opacity: 0.55 },
     choice: {

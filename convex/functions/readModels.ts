@@ -28,15 +28,15 @@ async function itemRecord(ctx: QueryCtx, item: Doc<'items'>) {
   return { ...item, origin: item.origin ?? 'purchase', productType: item.productType ?? 'card', purchasePriceCents: item.purchasePriceCents ?? 0,
     purchaseReference: source?.reference ?? '', sellerId: source?.sellerId, sellerName: seller?.name ?? '',
     contractPending: source && 'flowVersion' in source && source.flowVersion === 2 && source.contractStatus !== 'signed',
-    sourceStatus: source && 'status' in source ? source.status : undefined, photos: photos.slice(0, 10), hasMorePhotos: photos.length > 10 };
+    sourceStatus: item.origin === 'supplier' ? 'active' : source && 'status' in source ? source.status : undefined, photos: photos.sort((a,b)=>Number(b._id===item.coverPhotoId)-Number(a._id===item.coverPhotoId)).slice(0, 10), hasMorePhotos: photos.length > 10 };
 }
 async function saleRecord(ctx: QueryCtx, sale: Doc<'sales'>) {
   const item = await ctx.db.get(sale.itemId);
   const source = item ? await itemRecord(ctx, item) : null;
-  return { ...sale, catalogueImageUrl: item?.catalogueImageUrl, photos: source?.photos ?? [], itemName: item?.name ?? 'Article supprimé', origin: sale.origin ?? item?.origin ?? 'purchase',
+  return { ...sale, catalogueImageUrl: item?.catalogueImageUrl, photos: source?.photos ?? [], itemName: sale.itemName ?? item?.name ?? 'Article supprimé', origin: sale.origin ?? item?.origin ?? 'purchase',
     productType: item?.productType ?? 'card', series: item?.series, identifier: item?.identifier, language: item?.language,
     condition: item?.condition, gradingCompany: item?.gradingCompany, gradingGrade: item?.gradingGrade,
-    gradingCertificate: item?.gradingCertificate, purchasePriceCents: item?.purchasePriceCents ?? 0,
+    gradingCertificate: item?.gradingCertificate, purchasePriceCents: sale.costCents ?? item?.purchasePriceCents ?? 0,
     vatRegime: item?.vatRegime, purchaseOccurredAt: item?.purchaseOccurredAt,
     sellerId: sale.sellerId ?? source?.sellerId, sellerName: source?.sellerName ?? '', purchaseReference: source?.purchaseReference ?? '' };
 }
@@ -162,9 +162,9 @@ export const dashboardSummary = query({ args: {}, handler: async ctx => {
   const tcgGroup = (item: Doc<'items'> | null) => byTcg.find(group => group.key === (item?.tcg ?? (item && (item.productType ?? 'card') === 'card' ? 'pokemon' : 'other')))!;
   for await (const item of ctx.db.query('items').withIndex('by_status', q => q.eq('status', 'available'))) {
     const deposit = (item.origin ?? (item.consignmentId ? 'consignment' : 'purchase')) === 'consignment';
-    if (!deposit && (!item.purchaseId || (await ctx.db.get(item.purchaseId))?.status !== 'active')) continue;
-    tcgGroup(item).stockCount++;
-    byOrigin[deposit ? 1 : 0].stockCount++;
+    if (!deposit && item.origin !== 'supplier' && (!item.purchaseId || (await ctx.db.get(item.purchaseId))?.status !== 'active')) continue;
+    tcgGroup(item).stockCount += item.quantity ?? 1;
+    byOrigin[deposit ? 1 : 0].stockCount += item.quantity ?? 1;
   }
   const days = new Map<string, { key: string; purchases: number; sales: number; gains: number; losses: number }>();
   const bucket = (date: number) => { const key = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Brussels', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date); if (!days.has(key)) days.set(key, { key, purchases: 0, sales: 0, gains: 0, losses: 0 }); return days.get(key)!; };
@@ -173,6 +173,7 @@ export const dashboardSummary = query({ args: {}, handler: async ctx => {
     summary.purchaseCount++;
     for await (const item of ctx.db.query('items').withIndex('by_purchase', q => q.eq('purchaseId', purchase._id))) { summary.purchaseCents += item.purchasePriceCents ?? 0; bucket(purchase.occurredAt).purchases += item.purchasePriceCents ?? 0; }
   }
+  for await (const receipt of ctx.db.query('supplierReceipts')) { summary.purchaseCents += receipt.totalCostCents; summary.purchaseCount++; bucket(receipt.occurredAt).purchases += receipt.totalCostCents; }
   for await (const sale of ctx.db.query('sales')) {
     if (sale.status !== 'active') continue;
     summary.saleCount++;
@@ -181,7 +182,8 @@ export const dashboardSummary = query({ args: {}, handler: async ctx => {
     else summary.unknownCents += sale.salePriceCents;
     const item = await ctx.db.get(sale.itemId);
     const deposit = (sale.origin ?? item?.origin ?? (sale.consignmentId || item?.consignmentId ? 'consignment' : 'purchase')) === 'consignment';
-    const margin = deposit ? sale.commissionCents ?? 0 : sale.salePriceCents - (item?.purchasePriceCents ?? 0);
+    const netSales = sale.origin === 'supplier' && sale.taxRateBps !== undefined ? sale.salePriceCents - Math.round(sale.salePriceCents * sale.taxRateBps / (10000 + sale.taxRateBps)) : sale.salePriceCents;
+    const margin = deposit ? sale.commissionCents ?? 0 : netSales - (sale.costCents ?? item?.purchasePriceCents ?? 0);
     if (deposit) { summary.commissions += margin; summary.consignmentSales += sale.salePriceCents; }
     else { summary.gains += Math.max(0, margin); summary.losses += Math.max(0, -margin); }
     tcgGroup(item).marginCents += margin;

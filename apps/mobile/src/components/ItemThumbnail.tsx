@@ -1,5 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../theme/ThemeProvider';
 import { useEffect, useState } from 'react';
-import { Image, type ImageStyle, type StyleProp } from 'react-native';
+import { Image, View, type ImageStyle, type StyleProp } from 'react-native';
 import { getApiBaseUrl, instanceFetch } from '../auth/session';
 import type { Item } from '../data/apiRepository';
 import { loadItemPhoto } from '../data/itemPhoto';
@@ -14,6 +16,7 @@ function dataUrl(blob: Blob): Promise<string> {
 }
 
 export function ItemThumbnail({ item, style }: { item: Item; style: StyleProp<ImageStyle> }) {
+  const { colors } = useTheme();
   const base = getApiBaseUrl();
   const photoKey = JSON.stringify(item.photos ?? []);
   const identity = `${base}:${item._id}:${photoKey}`;
@@ -49,5 +52,9 @@ export function ItemThumbnail({ item, style }: { item: Item; style: StyleProp<Im
       resizeMode="contain"
       onError={() => setFailed((previous) => [...previous, uri])}
     />
-  ) : null;
+  ) : (
+    <View accessible accessibilityLabel={`Photo indisponible pour ${item.name}`} style={[style, { backgroundColor: colors.raised, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }]}>
+      <Ionicons name="image-outline" size={26} color={colors.secondary} />
+    </View>
+  );
 }

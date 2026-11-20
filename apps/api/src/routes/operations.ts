@@ -1,3 +1,5 @@
+import { registerInventoryRoutes } from './inventory.js';
+import { registerSaleTicketRoutes } from './saleTickets.js';
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
@@ -52,6 +54,7 @@ const salePayment = z.object({
   reference: z.string().max(300).optional(),
 });
 const sale = z.object({
+  quantity: z.number().int().min(1).max(100000).optional(),
   paymentStatus: z.enum(['pending', 'received']).optional(),
   payment: salePayment.optional(),
   operationId: z.string().uuid(),
@@ -65,7 +68,7 @@ const bulkSale = z.object({
   payment: salePayment.optional(),
   operationId: z.string().uuid(),
   items: z
-    .array(z.object({ itemId: z.string().min(1), salePriceCents: z.number().int().nonnegative() }))
+    .array(z.object({ itemId: z.string().min(1), salePriceCents: z.number().int().nonnegative(), quantity: z.number().int().min(1).max(100000).optional() }))
     .min(1),
   occurredAt: z.number().int(),
 });
@@ -95,6 +98,8 @@ export function operationRoutes(repo: ConvexAccountRepository) {
   const app = new OpenAPIHono<{ Variables: Variables }>();
   app.use('*', authMiddleware(repo));
   registerPaginatedReads(app);
+  registerInventoryRoutes(app);
+  registerSaleTicketRoutes(app);
   registerConsignmentRoutes(app);
   app.onError((error, c) => {
     if (/\b(INVALID_CURSOR|INVALID_PAGINATION|INVALID_FILTER|INVALID_RESOURCE)\b/.test(error.message)) return c.json({ error: 'INVALID_QUERY' }, 400);
@@ -136,7 +141,7 @@ export function operationRoutes(repo: ConvexAccountRepository) {
       'INVALID_SALE_PAYMENT_DATE',
       'SALE_NOT_FOUND',
       'SALE_CANCELLED',
-      'INVALID_STOCK_SELECTION',
+      'INVALID_STOCK_SELECTION', 'INVALID_INVENTORY', 'PRODUCT_MISMATCH', 'OPENING_ALREADY_USED', 'GIFT_NOT_FOUND', 'OPENING_NOT_FOUND', 'TICKET_NOT_FOUND', 'INVALID_TICKET', 'TICKET_STALE', 'INVALID_ATTACHMENT',
     ];
     const code = codes.find((value) => new RegExp(`\\b${value}\\b`).test(error.message));
     if (code === 'UNAUTHENTICATED') return c.json({ error: code }, 401);

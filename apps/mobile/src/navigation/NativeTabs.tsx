@@ -26,7 +26,7 @@ import { useTheme } from '../theme/ThemeProvider';
 export type RootTab = 'stock' | 'history' | 'sales' | 'consignments' | 'account';
 type Tabs = Record<RootTab, undefined>;
 const Tab = createBottomTabNavigator<Tabs>();
-const routes: RootTab[] = ['stock', 'history', 'sales', 'consignments', 'account'];
+const routes: RootTab[] = ['stock', 'sales', 'history', 'consignments', 'account'];
 const SceneContent = createContext<(tab: RootTab) => ReactNode>(() => null);
 function TabContent({ route }: { route: { name: RootTab } }) {
   return useContext(SceneContent)(route.name);
