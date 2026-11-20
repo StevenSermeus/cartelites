@@ -210,6 +210,19 @@ et servie aux listes avec `?size=thumbnail`, avec repli sur l'image existante po
 les anciennes pièces. Les PDF et signatures ne passent pas par ce traitement.
 Les photos déjà stockées ne sont pas migrées.
 
+La réception fournisseur et les fiches stock mobiles permettent de sélectionner
+plusieurs photos en une fois, avec aperçu et retrait avant envoi (six photos par
+produit). Un envoi partiel conserve uniquement les fichiers restant à envoyer.
+Le transport iOS utilise les octets du fichier, compatibles avec Expo fetch,
+en conservant son nom, son type et la clé de réessai.
+
+Sur le web, **Stock → Modifier la fiche et les photos** permet de modifier les
+informations du catalogue, le prix et la visibilité, d’ajouter plusieurs photos,
+de choisir une couverture et de supprimer une photo. L’édition ne modifie pas
+les lots, quantités, coûts d’acquisition ou taux de TVA. Le prix d’un dépôt ne
+peut pas descendre sous l’accord enregistré. Déployer également la mutation
+Convex `inventory:updateProduct` et l’API avant d’utiliser cette édition web.
+
 ## Stock fournisseur, dons et tickets mobiles
 
 L’app mobile propose **Stock → Ajouter un achat fournisseur** : fournisseur, référence, date, facture, lignes de scellés/cartes à l’unité/autres objets, quantités, coût unitaire HT et taux de TVA de vente explicite. Une fiche existante se réapprovisionne sans changer son prix ni sa visibilité ; les nouvelles fiches sont masquées par défaut. Les photos utilisent la caméra/galerie existante, avec couverture et suppression. Les factures restent privées et consultables depuis les réceptions.

@@ -5,6 +5,54 @@ import type { Id } from './_generated/dataModel';
 import { productFields } from './inventoryValidators';
 import { stockOwner, checkReplay, integer, validDate, consume, restore } from './stockLedger';
 
+export const updateProduct = mutation({
+  args: {
+    itemId: v.id('items'),
+    name: v.string(),
+    description: v.string(),
+    series: v.string(),
+    identifier: v.string(),
+    askingPriceCents: v.number(),
+    hiddenFromCatalogue: v.boolean(),
+    language: productFields.language,
+    condition: productFields.condition,
+    gradingCompany: productFields.gradingCompany,
+    gradingGrade: v.string(),
+    gradingCertificate: v.string(),
+  },
+  handler: async (ctx, { itemId, ...fields }) => {
+    await stockOwner(ctx);
+    const item = await ctx.db.get(itemId);
+    if (!item) throw new Error('ITEM_NOT_FOUND');
+    if (
+      !fields.name.trim() ||
+      fields.name.length > 300 ||
+      fields.description.length > 3000 ||
+      fields.series.length > 300 ||
+      fields.identifier.length > 100 ||
+      fields.gradingGrade.length > 32 ||
+      fields.gradingCertificate.length > 100
+    )
+      throw new Error('INVALID_INVENTORY');
+    integer(fields.askingPriceCents);
+    if (
+      item.origin === 'consignment' &&
+      fields.askingPriceCents < (item.agreedPriceCents ?? item.askingPriceCents ?? 0)
+    )
+      throw new Error('PRICE_BELOW_AGREEMENT');
+    await ctx.db.patch(itemId, {
+      ...fields,
+      name: fields.name.trim(),
+      language: fields.language,
+      condition: fields.condition,
+      gradingCompany: fields.gradingCompany,
+      gradingGrade: fields.gradingCompany ? fields.gradingGrade : undefined,
+      gradingCertificate: fields.gradingCompany ? fields.gradingCertificate : undefined,
+    });
+    return { id: itemId };
+  },
+});
+
 export const receive = mutation({
   args: {
     operationId: v.string(),

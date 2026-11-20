@@ -301,3 +301,46 @@ test('mixed basket failure rolls back earlier quantity debits; deposit gifts are
     /ITEM_UNAVAILABLE/,
   );
 });
+
+test('product editor changes catalogue fields without changing stock or acquisition history', async () => {
+  const { t, user, itemId } = await fixture();
+  const before = await user.query(api.inventory.detail, { itemId });
+  const fields = {
+    itemId,
+    name: 'Display corrigé',
+    description: 'Édition française',
+    series: 'Série',
+    identifier: 'ABC',
+    askingPriceCents: 15000,
+    hiddenFromCatalogue: false,
+    gradingGrade: '',
+    gradingCertificate: '',
+  };
+  await user.mutation(api.inventory.updateProduct, fields);
+  const after = await user.query(api.inventory.detail, { itemId });
+  assert.equal(after.item.name, fields.name);
+  assert.equal(after.item.askingPriceCents, 15000);
+  assert.equal(after.item.hiddenFromCatalogue, false);
+  assert.equal(after.item.quantity, before.item.quantity);
+  assert.equal(after.item.taxRateBps, before.item.taxRateBps);
+  assert.deepEqual(after.lots, before.lots);
+  await assert.rejects(t.mutation(api.inventory.updateProduct, fields), /UNAUTHENTICATED/);
+  await assert.rejects(
+    t
+      .withIdentity({ subject: 'employee', scope: 'realtime:read' })
+      .mutation(api.inventory.updateProduct, fields),
+    /READ_ONLY_TOKEN/,
+  );
+  await assert.rejects(
+    user.mutation(api.inventory.updateProduct, { ...fields, name: ' ' }),
+    /INVALID_INVENTORY/,
+  );
+  await assert.rejects(
+    user.mutation(api.inventory.updateProduct, { ...fields, askingPriceCents: -1 }),
+    /INVALID_INVENTORY/,
+  );
+  await t.run(async (ctx) => {
+    await ctx.db.patch(itemId, { origin: 'consignment', agreedPriceCents: 16000 });
+  });
+  await assert.rejects(user.mutation(api.inventory.updateProduct, fields), /PRICE_BELOW_AGREEMENT/);
+});

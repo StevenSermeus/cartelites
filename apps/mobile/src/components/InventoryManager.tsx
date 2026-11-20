@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type ComponentRef } from 'react';
 import {
   Alert,
   Modal,
@@ -8,6 +8,7 @@ import {
   View,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Crypto from 'expo-crypto';
@@ -18,6 +19,7 @@ import { Field } from './Field';
 import { AttachmentPreview } from './AttachmentPreview';
 import { ItemThumbnail } from './ItemThumbnail';
 import { Pagination } from './Pagination';
+import { MultiPhotoPicker } from './MultiPhotoPicker';
 import { ProductProfitPreview } from './ProductProfitPreview';
 import { usePagedData } from '../data/usePagedData';
 import {
@@ -89,6 +91,52 @@ function Panel({ children }: { children: ReactNode }) {
 function Copy({ children }: { children: ReactNode }) {
   const { colors } = useTheme();
   return <Text style={{ color: colors.text, fontSize: 15 }}>{children}</Text>;
+}
+function SectionHeading({ title, detail }: { title: string; detail?: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ gap: 4, marginBottom: 6 }}>
+      <Text
+        accessibilityRole="header"
+        style={{ color: colors.text, fontSize: 19, fontWeight: '600' }}
+      >
+        {title}
+      </Text>
+      {!!detail && (
+        <Text style={{ color: colors.secondary, fontSize: 14, lineHeight: 20 }}>{detail}</Text>
+      )}
+    </View>
+  );
+}
+function SupplierProgress({ step }: { step: number }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      accessibilityLabel={`Étape ${step + 1} sur 3 : ${['Facture', 'Produits', 'Vérification'][step]}`}
+      style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}
+    >
+      {['Facture', 'Produits', 'Vérification'].map((label, index) => (
+        <View key={label} style={{ flex: 1, gap: 7 }}>
+          <View
+            style={{
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: index <= step ? colors.accent : colors.border,
+            }}
+          />
+          <Text
+            style={{
+              color: index === step ? colors.accent : colors.secondary,
+              fontSize: 12,
+              fontWeight: index === step ? '700' : '400',
+            }}
+          >
+            {index + 1} · {label}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
 }
 const cents = (value: string) => {
   if (!/^\d+(?:[.,]\d{1,2})?$/.test(value.trim()))
@@ -195,6 +243,7 @@ export function InventoryManager({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [message, setMessage] = useState('');
+  const supplierScroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const lock = useRef(false),
     attempts = useRef(new Map<string, string>());
   const [details, setDetails] = useState<Details | null>(null),
@@ -222,7 +271,7 @@ export function InventoryManager({
     [pack, setPack] = useState(String(item?.packSize ?? 36));
   const [photos, setPhotos] = useState<AttachmentFile[]>([]),
     [invoice, setInvoice] = useState<AttachmentFile | null>(null),
-    [newPhoto, setNewPhoto] = useState<AttachmentFile | null>(null);
+    [newPhotos, setNewPhotos] = useState<AttachmentFile[]>([]);
   const [saved, setSaved] = useState<{ id: string; itemIds: string[] } | null>(null),
     [uploaded, setUploaded] = useState<string[]>([]);
   const [recipient, setRecipient] = useState(''),
@@ -271,6 +320,7 @@ export function InventoryManager({
       await action();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Opération impossible. Réessayez.');
+      if (mode === 'supplier') supplierScroll.current?.scrollTo({ y: 0, animated: true });
     } finally {
       lock.current = false;
       setBusy(false);
@@ -282,6 +332,10 @@ export function InventoryManager({
   useEffect(() => {
     if (mode && item) void run(loadDetails);
   }, [mode, item?._id]);
+  useEffect(() => {
+    setNewPhotos([]);
+    setDetails(null);
+  }, [item?._id]);
   async function showEvidence(kind: 'receiptId' | 'giftId', id: string) {
     setEvidence(
       await request<Attachment[]>('/inventory/evidence?' + kind + '=' + encodeURIComponent(id)),
@@ -309,6 +363,26 @@ export function InventoryManager({
     setCertificate(i.gradingCertificate ?? '');
     setRate(String((i.taxRateBps ?? 0) / 100));
     setPrice(String((i.askingPriceCents ?? 0) / 100));
+    setPicker(false);
+  }
+  function resetProductFields() {
+    setExisting(null);
+    setName('');
+    setKind('sealed');
+    setFormat('display');
+    setSeries('');
+    setIdentifier('');
+    setLanguage('fr');
+    setCondition('NM');
+    setGradingCompany(undefined);
+    setGrade('');
+    setCertificate('');
+    setQuantity('1');
+    setCost('');
+    setPrice('');
+    setRate('');
+    setPack('36');
+    setPhotos([]);
     setPicker(false);
   }
   function product(): Product {
@@ -428,6 +502,138 @@ export function InventoryManager({
       UTI: 'public.comma-separated-values-text',
     });
   }
+  const supplierTotal = lines.reduce((sum, line) => sum + line.quantity * line.unitCostCents, 0);
+  const supplierUnits = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const supplierPhotoCapacity = Math.max(
+    0,
+    6 -
+      (existing?.photos?.filter((photo) => photo.contentType.startsWith('image/')).length ?? 0) -
+      (existing
+        ? lines
+            .filter((line) => line.itemId === existing._id)
+            .reduce((sum, line) => sum + line.photos.length, 0)
+        : 0),
+  );
+  const productInProgress = !!(
+    existing ||
+    name.trim() ||
+    series.trim() ||
+    identifier.trim() ||
+    cost ||
+    price ||
+    rate ||
+    photos.length ||
+    grade ||
+    certificate
+  );
+  function validateSupplier() {
+    if (!supplier.trim()) throw new Error('Indiquez le nom du fournisseur.');
+    if (!reference.trim()) throw new Error('Indiquez la référence de la facture.');
+    if (supplier.length > 200 || reference.length > 200)
+      throw new Error('Le fournisseur et la référence sont limités à 200 caractères.');
+    timestamp(date);
+  }
+  function supplierStep(next: number) {
+    if (next > 0) validateSupplier();
+    if (next === 2) {
+      if (!lines.length) throw new Error('Ajoutez au moins un produit à cette réception.');
+      if (productInProgress)
+        throw new Error(
+          'Ajoutez le produit en cours avec « Ajouter à la réception » avant de vérifier.',
+        );
+    }
+    Keyboard.dismiss();
+    setStep(next);
+    setError('');
+    setMessage('');
+    supplierScroll.current?.scrollTo({ y: 0, animated: true });
+  }
+  function addSupplierLine() {
+    if (lines.length >= 50) throw new Error('Une réception peut contenir au maximum 50 produits.');
+    if (photos.length > supplierPhotoCapacity)
+      throw new Error(
+        'Ce produit est limité à six photos, y compris celles des autres lignes de la réception.',
+      );
+    const nextProduct = product();
+    if (
+      nextProduct.name.length > 300 ||
+      series.length > 300 ||
+      identifier.length > 100 ||
+      grade.length > 32 ||
+      certificate.length > 100
+    )
+      throw new Error(
+        'Le nom ou les détails du produit sont trop longs. Raccourcissez les champs avant de continuer.',
+      );
+    const units = count(quantity),
+      unitCost = cents(cost);
+    if (units > 100000) throw new Error('La quantité est limitée à 100 000 unités.');
+    if (nextProduct.taxRateBps > 10000)
+      throw new Error('Le taux de TVA doit être compris entre 0 et 100 %.');
+    if (nextProduct.packSize !== undefined && nextProduct.packSize > 1000)
+      throw new Error('Un display peut contenir au maximum 1 000 boosters.');
+    if (!Number.isSafeInteger(units * unitCost + supplierTotal))
+      throw new Error('Le montant total est trop élevé.');
+    setLines([
+      ...lines,
+      {
+        itemId: existing?._id,
+        product: nextProduct,
+        quantity: units,
+        unitCostCents: unitCost,
+        photos,
+      },
+    ]);
+    resetProductFields();
+    Keyboard.dismiss();
+    setMessage(`${nextProduct.name} ajouté. Ajoutez un autre produit ou vérifiez la réception.`);
+    supplierScroll.current?.scrollTo({ y: 0, animated: true });
+  }
+  async function saveSupplierReceipt() {
+    validateSupplier();
+    if (!lines.length) throw new Error('Ajoutez au moins un produit avant de valider.');
+    let result = saved;
+    if (!result) {
+      const response = await operation('/supplier-receipts', {
+        supplier,
+        reference,
+        occurredAt: timestamp(date),
+        lines: lines.map(({ photos, ...l }) => l),
+      });
+      result = response.result;
+      setSaved(result);
+    }
+    const done = [...uploaded];
+    const send = async (
+      key: string,
+      target: 'itemId' | 'supplierReceiptId',
+      id: string,
+      file: AttachmentFile,
+    ) => {
+      if (done.includes(key)) return;
+      await upload(target, id, file);
+      done.push(key);
+      setUploaded([...done]);
+    };
+    if (invoice) await send('invoice', 'supplierReceiptId', result!.id, invoice);
+    for (const [i, line] of lines.entries())
+      for (const [j, file] of line.photos.entries())
+        await send(`${i}:${j}`, 'itemId', result!.itemIds[i], file);
+    await onChanged();
+    setMessage('Stock et pièces jointes enregistrés.');
+    setLines([]);
+    setSaved(null);
+    setInvoice(null);
+    setUploaded([]);
+    setStep(0);
+    attempts.current.clear();
+    setReference('');
+    setSupplier('');
+    setDate(today());
+    resetProductFields();
+    Keyboard.dismiss();
+    supplierScroll.current?.scrollTo({ y: 0, animated: true });
+  }
   const activeItem = details?.item ?? item;
   return (
     <>
@@ -511,10 +717,41 @@ export function InventoryManager({
             style={{ flex: 1 }}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           >
-            <View style={{ paddingHorizontal: 16 }}>
-              <InventoryButton secondary label="‹ Retour" disabled={busy} onPress={close} />
-            </View>
+            {mode === 'supplier' ? (
+              <View
+                style={{
+                  paddingHorizontal: 16,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  minHeight: 52,
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '600', fontSize: 17 }}>
+                  Entrée en stock
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={close}
+                  style={{
+                    minHeight: 44,
+                    minWidth: 60,
+                    justifyContent: 'center',
+                    alignItems: 'flex-end',
+                  }}
+                >
+                  <Text style={{ color: colors.accent, fontSize: 17 }}>Fermer</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={{ paddingHorizontal: 16 }}>
+                <InventoryButton secondary label="‹ Retour" disabled={busy} onPress={close} />
+              </View>
+            )}
             <ScrollView
+              ref={supplierScroll}
+              keyboardDismissMode="interactive"
               pointerEvents={busy ? 'none' : 'auto'}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
@@ -526,7 +763,9 @@ export function InventoryManager({
                 {
                   (
                     {
-                      supplier: 'Achat fournisseur',
+                      supplier: ['Votre facture', 'Les produits reçus', 'Vérifier la réception'][
+                        step
+                      ],
                       gift: 'Donner / Offrir',
                       opening: 'Ouvrir un display',
                       photos: 'Photos et lots',
@@ -551,7 +790,7 @@ export function InventoryManager({
               )}
               {mode === 'supplier' && (
                 <>
-                  <Copy>{['1 · Facture', '2 · Produits', '3 · Vérifier'][step]}</Copy>
+                  <SupplierProgress step={step} />
                   {saved ? (
                     <Panel>
                       <Copy>
@@ -560,17 +799,36 @@ export function InventoryManager({
                       </Copy>
                     </Panel>
                   ) : step === 0 ? (
-                    <Panel>
-                      <Field label="Fournisseur" value={supplier} onChangeText={setSupplier} />
-                      <Field
-                        label="Référence de facture"
-                        value={reference}
-                        onChangeText={setReference}
-                      />
-                      <Field label="Date (AAAA-MM-JJ)" value={date} onChangeText={setDate} />
-                      <Copy>Facture / justificatif</Copy>
-                      <AttachmentPreview allowPdf current={invoice} onUse={setInvoice} />
-                    </Panel>
+                    <>
+                      <Panel>
+                        <SectionHeading
+                          title="Origine de l’achat"
+                          detail="Associez les produits à leur facture fournisseur."
+                        />
+                        <Field
+                          label="Fournisseur"
+                          placeholder="Nom du fournisseur"
+                          maxLength={200}
+                          value={supplier}
+                          onChangeText={setSupplier}
+                        />
+                        <Field
+                          label="Référence de facture"
+                          maxLength={200}
+                          placeholder="Ex. FAC-2026-042"
+                          value={reference}
+                          onChangeText={setReference}
+                        />
+                        <Field label="Date (AAAA-MM-JJ)" value={date} onChangeText={setDate} />
+                      </Panel>
+                      <Panel>
+                        <SectionHeading
+                          title="Justificatif"
+                          detail="Facultatif · une photo ou un PDF à conserver avec l’achat."
+                        />
+                        <AttachmentPreview allowPdf current={invoice} onUse={setInvoice} />
+                      </Panel>
+                    </>
                   ) : step === 1 ? (
                     <>
                       <InventoryButton
@@ -580,6 +838,14 @@ export function InventoryManager({
                       />
                       {picker && <ProductPicker onPick={pick} onClose={() => setPicker(false)} />}
                       <Panel>
+                        <SectionHeading
+                          title={existing ? 'Produit existant' : 'Nouvelle fiche produit'}
+                          detail={
+                            existing
+                              ? 'Les unités sont ajoutées à la même fiche.'
+                              : 'Un même produit peut avoir plusieurs exemplaires.'
+                          }
+                        />
                         {existing ? (
                           <>
                             <Copy>
@@ -695,6 +961,28 @@ export function InventoryManager({
                                 )}
                               </>
                             )}
+                          </>
+                        )}
+                      </Panel>
+                      <Panel>
+                        <SectionHeading
+                          title="Quantité et prix"
+                          detail="Saisissez le coût d’achat, puis choisissez votre prix de vente."
+                        />
+                        <Field
+                          label="Quantité reçue"
+                          value={quantity}
+                          onChangeText={setQuantity}
+                          keyboardType="decimal-pad"
+                        />
+                        <Field
+                          label="Coût unitaire HT (€)"
+                          value={cost}
+                          onChangeText={setCost}
+                          keyboardType="decimal-pad"
+                        />
+                        {!existing && (
+                          <>
                             <Field
                               label="Prix de vente unitaire TTC (€)"
                               value={price}
@@ -709,18 +997,6 @@ export function InventoryManager({
                             />
                           </>
                         )}
-                        <Field
-                          label="Quantité reçue"
-                          value={quantity}
-                          onChangeText={setQuantity}
-                          keyboardType="decimal-pad"
-                        />
-                        <Field
-                          label="Coût unitaire HT (€)"
-                          value={cost}
-                          onChangeText={setCost}
-                          keyboardType="decimal-pad"
-                        />
                         <ProductProfitPreview
                           cost={cost}
                           price={existing ? String((existing.askingPriceCents ?? 0) / 100) : price}
@@ -728,45 +1004,50 @@ export function InventoryManager({
                           quantity={quantity}
                           onPriceChange={existing ? undefined : setPrice}
                         />
-                        <Copy>Photos du produit · {photos.length}/6</Copy>
-                        {photos.map((p, i) => (
+                      </Panel>
+                      <Panel>
+                        <SectionHeading
+                          title="Photos du produit"
+                          detail="Facultatif · sélectionnez plusieurs photos en une fois."
+                        />
+                        <MultiPhotoPicker
+                          photos={photos}
+                          onChange={setPhotos}
+                          disabled={busy}
+                          limit={supplierPhotoCapacity}
+                        />
+                        <InventoryButton
+                          label="Ajouter à la réception"
+                          disabled={busy}
+                          onPress={() => void run(async () => addSupplierLine())}
+                        />
+                        {productInProgress && (
                           <InventoryButton
-                            key={i}
                             secondary
-                            label={`Retirer ${p.name}`}
-                            onPress={() => setPhotos(photos.filter((_, j) => j !== i))}
-                          />
-                        ))}
-                        {photos.length < Math.max(0, 6 - (existing?.photos?.filter(p=>p.contentType.startsWith('image/')).length ?? 0)) && (
-                          <AttachmentPreview
-                            current={null}
-                            onUse={(p) => {
-                              if (p) setPhotos([...photos, p]);
-                            }}
+                            disabled={busy}
+                            label="Effacer le produit en cours"
+                            onPress={() =>
+                              Alert.alert(
+                                'Effacer ce produit ?',
+                                'Les produits déjà ajoutés à la réception seront conservés.',
+                                [
+                                  { text: 'Annuler', style: 'cancel' },
+                                  {
+                                    text: 'Effacer',
+                                    style: 'destructive',
+                                    onPress: () => {
+                                      resetProductFields();
+                                      setError('');
+                                      setMessage('');
+                                      Keyboard.dismiss();
+                                      supplierScroll.current?.scrollTo({ y: 0, animated: true });
+                                    },
+                                  },
+                                ],
+                              )
+                            }
                           />
                         )}
-                        <InventoryButton
-                          label="Ajouter cette ligne"
-                          disabled={busy}
-                          onPress={() =>
-                            void run(async () => {
-                              setLines([
-                                ...lines,
-                                {
-                                  itemId: existing?._id,
-                                  product: product(),
-                                  quantity: count(quantity),
-                                  unitCostCents: cents(cost),
-                                  photos,
-                                },
-                              ]);
-                              setPhotos([]);
-                              setMessage(
-                                'Ligne ajoutée. Ajoutez un autre produit ou vérifiez la réception.',
-                              );
-                            })
-                          }
-                        />
                       </Panel>
                     </>
                   ) : null}
@@ -776,16 +1057,43 @@ export function InventoryManager({
                         {supplier} · {reference}
                       </Copy>
                       <Copy>Date : {date}</Copy>
+                      <Text style={{ color: colors.secondary }}>
+                        Justificatif : {invoice?.name ?? 'Non ajouté'}
+                      </Text>
                     </Panel>
                   )}
-                  {lines.length > 0 && (
+                  {lines.length > 0 && step > 0 && (
                     <Panel>
+                      <SectionHeading
+                        title={step === 2 ? 'Produits à enregistrer' : 'Dans cette réception'}
+                        detail={`${lines.length} produit(s) · ${supplierUnits} unité(s)`}
+                      />
                       {lines.map((l, i) => (
-                        <View key={i}>
+                        <View
+                          key={i}
+                          style={{
+                            paddingVertical: 12,
+                            borderBottomWidth: i < lines.length - 1 ? 1 : 0,
+                            borderBottomColor: colors.border,
+                            gap: 5,
+                          }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '600', fontSize: 17 }}>
+                            {l.product.name}
+                          </Text>
                           <Copy>
-                            {l.quantity} × {l.product.name} · {money(l.quantity * l.unitCostCents)}{' '}
-                            HT
+                            {l.quantity} × {money(l.unitCostCents)} HT ·{' '}
+                            {money(l.quantity * l.unitCostCents)} HT
                           </Copy>
+                          <Text style={{ color: colors.secondary, fontSize: 14 }}>
+                            Vente {money(l.product.askingPriceCents)} TTC / unité ·{' '}
+                            {l.photos.length} photo(s)
+                          </Text>
+                          <Text style={{ color: colors.secondary, fontSize: 14 }}>
+                            {l.itemId
+                              ? 'Réapprovisionnement · visibilité conservée'
+                              : 'Nouvelle fiche · masquée du catalogue'}
+                          </Text>
                           {!saved && (
                             <InventoryButton
                               secondary
@@ -804,62 +1112,6 @@ export function InventoryManager({
                       </Copy>
                     </Panel>
                   )}
-                  {!saved && step > 0 && (
-                    <InventoryButton
-                      secondary
-                      label="Étape précédente"
-                      onPress={() => setStep(step - 1)}
-                    />
-                  )}{' '}
-                  {!saved && step < 2 ? (
-                    <InventoryButton label="Continuer" onPress={() => setStep(step + 1)} />
-                  ) : (
-                    <InventoryButton
-                      label={saved ? 'Réessayer les pièces jointes' : 'Valider l’entrée en stock'}
-                      disabled={busy}
-                      onPress={() =>
-                        void run(async () => {
-                          let result = saved;
-                          if (!result) {
-                            const response = await operation('/supplier-receipts', {
-                              supplier,
-                              reference,
-                              occurredAt: timestamp(date),
-                              lines: lines.map(({ photos, ...l }) => l),
-                            });
-                            result = response.result;
-                            setSaved(result);
-                          }
-                          const done = [...uploaded];
-                          const send = async (
-                            key: string,
-                            target: 'itemId' | 'supplierReceiptId',
-                            id: string,
-                            file: AttachmentFile,
-                          ) => {
-                            if (done.includes(key)) return;
-                            await upload(target, id, file);
-                            done.push(key);
-                            setUploaded([...done]);
-                          };
-                          if (invoice)
-                            await send('invoice', 'supplierReceiptId', result!.id, invoice);
-                          for (const [i, line] of lines.entries())
-                            for (const [j, file] of line.photos.entries())
-                              await send(`${i}:${j}`, 'itemId', result!.itemIds[i], file);
-                          await onChanged();
-                          setMessage('Stock et pièces jointes enregistrés.');
-                          setLines([]);
-                          setSaved(null);
-                          setInvoice(null);
-                          setUploaded([]);
-                          setStep(0);
-                          attempts.current.clear();
-                          setReference('');
-                        })
-                      }
-                    />
-                  )}
                 </>
               )}
               {mode === 'photos' && item && (
@@ -869,17 +1121,36 @@ export function InventoryManager({
                       item={{ ...item, photos: details?.photos ?? item.photos }}
                       style={{ width: '100%', height: 180 }}
                     />
-                    <AttachmentPreview current={newPhoto} onUse={setNewPhoto} />
+                    <MultiPhotoPicker
+                      photos={newPhotos}
+                      onChange={setNewPhotos}
+                      disabled={busy}
+                      limit={Math.max(
+                        0,
+                        6 -
+                          (details?.photos.filter((p) => p.contentType.startsWith('image/'))
+                            .length ??
+                            item.photos?.length ??
+                            0),
+                      )}
+                    />
                     <InventoryButton
-                      disabled={busy || !newPhoto}
-                      label="Enregistrer la photo"
+                      disabled={busy || !newPhotos.length}
+                      label="Enregistrer les photos"
                       onPress={() =>
                         void run(async () => {
-                          await upload('itemId', item._id, newPhoto!);
-                          setNewPhoto(null);
-                          await loadDetails();
-                          await onChanged();
-                          setMessage('Photo enregistrée.');
+                          try {
+                            for (const photo of newPhotos) {
+                              await upload('itemId', item._id, photo);
+                              setNewPhotos((remaining) =>
+                                remaining.filter((p) => p.uri !== photo.uri),
+                              );
+                            }
+                          } finally {
+                            await loadDetails();
+                            await onChanged();
+                          }
+                          setMessage('Photos enregistrées.');
                         })
                       }
                     />
@@ -1237,6 +1508,70 @@ export function InventoryManager({
                 </Panel>
               )}
             </ScrollView>
+            {mode === 'supplier' && (
+              <View
+                style={{
+                  paddingHorizontal: 16,
+                  paddingTop: 12,
+                  paddingBottom: 8,
+                  borderTopWidth: 1,
+                  borderTopColor: colors.border,
+                  backgroundColor: colors.surface,
+                }}
+              >
+                {step > 0 && (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <Text style={{ color: colors.secondary, flex: 1 }}>
+                      {supplierUnits} unité(s) · {lines.length} produit(s)
+                    </Text>
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontWeight: '700',
+                        fontVariant: ['tabular-nums'],
+                      }}
+                    >
+                      {money(supplierTotal)} HT
+                    </Text>
+                  </View>
+                )}
+                <InventoryButton
+                  disabled={busy || (!saved && step > 0 && !lines.length)}
+                  label={
+                    busy
+                      ? 'Enregistrement…'
+                      : saved
+                        ? 'Terminer l’envoi des pièces'
+                        : step === 0
+                          ? 'Continuer vers les produits'
+                          : step === 1
+                            ? 'Vérifier la réception'
+                            : 'Confirmer l’entrée en stock'
+                  }
+                  onPress={() =>
+                    void run(async () => {
+                      if (!saved && step < 2) supplierStep(step + 1);
+                      else await saveSupplierReceipt();
+                    })
+                  }
+                />
+                {!saved && step > 0 && (
+                  <InventoryButton
+                    secondary
+                    disabled={busy}
+                    label={step === 2 ? 'Modifier les produits' : 'Modifier la facture'}
+                    onPress={() => void run(async () => supplierStep(step - 1))}
+                  />
+                )}
+              </View>
+            )}
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>

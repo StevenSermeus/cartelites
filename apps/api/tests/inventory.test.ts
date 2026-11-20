@@ -144,3 +144,33 @@ test('gift export reads preserve dates and cursor and require authentication', a
   );
   assert.equal((await app().request('/gifts?from=0&to=2000')).status, 401);
 });
+
+test('product editing validates fields and refuses stock or accounting changes', async (t) => {
+  const calls: string[] = [];
+  t.mock.method(ConvexHttpClient.prototype, 'mutation', async (ref) => {
+    calls.push(getFunctionName(ref));
+    return { id: 'item' };
+  });
+  const body = {
+    itemId: 'item',
+    name: 'Display',
+    description: '',
+    series: '',
+    identifier: '',
+    askingPriceCents: 14000,
+    hiddenFromCatalogue: false,
+    gradingGrade: '',
+    gradingCertificate: '',
+  };
+  assert.equal((await app().request('/stock/product', post(body, false))).status, 401);
+  assert.equal((await app().request('/stock/product', post(body))).status, 201);
+  for (const invalid of [
+    { ...body, name: '' },
+    { ...body, askingPriceCents: -1 },
+    { ...body, quantity: 500 },
+    { ...body, taxRateBps: 0 },
+  ]) {
+    assert.equal((await app().request('/stock/product', post(invalid))).status, 400);
+  }
+  assert.deepEqual(calls, ['inventory:updateProduct']);
+});

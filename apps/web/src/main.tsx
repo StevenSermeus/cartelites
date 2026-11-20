@@ -1,3 +1,4 @@
+import { ProductEditor } from './ProductEditor';
 import { optimizeUploadImage } from './optimizeImage';
 import BuybackPage, { PublicNavigation } from './BuybackPage';
 import { ReceiptSigning, ReceiptSigningPage, parseSignaturePath } from './ReceiptSigning';
@@ -25,9 +26,10 @@ const DashboardPage = lazy(() => import('./DashboardPage'));
 const SettingsPage = lazy(() => import('./SettingsPage'));
 
 type Item = {
+  quantity?: number;
   hiddenFromCatalogue?: boolean;
   description?: string;
-  origin?: 'purchase' | 'consignment';
+  origin?: 'purchase' | 'consignment' | 'supplier';
   productType?: 'card' | 'sealed' | 'other';
   commissionRateBps?: number;
   agreedPriceCents?: number;
@@ -191,7 +193,7 @@ type Sale = {
   photos?: { _id: string; filename: string; contentType?: string }[];
   paymentStatus?: 'pending' | 'received';
   payment?: SalePayment;
-  origin?: 'purchase' | 'consignment';
+  origin?: 'purchase' | 'consignment' | 'supplier';
   commissionRateBps?: number;
   commissionCents?: number;
   depositorAmountCents?: number;
@@ -709,6 +711,7 @@ function ConventionCatalog() {
   );
 }
 function App() {
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
   useEffect(() => {
     const events = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
     for (const event of events) window.addEventListener(event, markWebActivity, { passive: true });
@@ -1467,10 +1470,11 @@ function App() {
       setLoading(false);
     }
   }
-  async function uploadItemAttachment(itemId: string, file: File) {
+  async function uploadItemAttachment(itemId: string, file: File, operationId?: string) {
     file = await optimizeUploadImage(file, API);
     const form = new FormData();
     form.append('itemId', itemId);
+    if (operationId) form.append('operationId', operationId);
     form.append('file', file);
     const headers = new Headers(sessionActivityHeaders());
     if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
@@ -2148,7 +2152,7 @@ function App() {
             <label>Visibilité du catalogue<select value={stockVisibility} disabled={visibilityBusy} onChange={event => { setStockVisibility(event.target.value as typeof stockVisibility); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="visible">Visibles dans le catalogue</option><option value="hidden">Masqués du catalogue</option></select></label>
             {visibilityNotice && <p role="status">{visibilityNotice}</p>}
 
-            <label>Origine<select value={stockOrigin} onChange={event => { setStockOrigin(event.target.value); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="purchase">Articles rachetés</option><option value="consignment">Dépôts-ventes</option></select></label>
+            <label>Origine<select value={stockOrigin} onChange={event => { setStockOrigin(event.target.value); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="purchase">Articles rachetés</option><option value="consignment">Dépôts-ventes</option><option value="supplier">Achats fournisseurs</option></select></label>
             {error && <p className="error">{error}</p>}
             <label>
               Rechercher dans le stock
@@ -2249,6 +2253,7 @@ function App() {
                 </button>
               </div>
             )}
+            {editingProductId && <ProductEditor key={editingProductId} itemId={editingProductId} apiBase={API} request={request} upload={uploadItemAttachment} onClose={() => setEditingProductId(null)} onChanged={async () => { stockRead.reload(); await load(); }} />}
             {visibleItems.map((item) => (
               <article key={item._id} className="stock-row">
                 <label className="stock-select">
@@ -2278,7 +2283,7 @@ function App() {
                         .filter(Boolean)
                         .join(' · ') || 'Carte sans détails'}{' '}
                       {item.language && ` · ${languageLabel(item.language)}`}{(!item.productType || item.productType === 'card') && ` · ${conditionLabel(item.condition)}`}
-                      {item.origin === 'consignment' ? ` · Dépôt de ${item.sellerName} · Commission ${(item.commissionRateBps ?? 3000) / 100} %` : ` · Racheté à ${item.sellerName} · Achat ${(item.purchasePriceCents / 100).toFixed(2)} €`}
+                      {item.origin === 'supplier' ? ` · Stock fournisseur · ${item.quantity ?? 0} unité(s)` : item.origin === 'consignment' ? ` · Dépôt de ${item.sellerName} · Commission ${(item.commissionRateBps ?? 3000) / 100} %` : ` · Racheté à ${item.sellerName} · Achat ${(item.purchasePriceCents / 100).toFixed(2)} €`}
                     </small>
                     {item.gradingCompany && (
                       <GradingBadge
@@ -2325,6 +2330,7 @@ function App() {
                       </button>
                     </div>
                   </div>
+                  <button type="button" className="secondary" onClick={() => setEditingProductId(item._id)}>Modifier la fiche et les photos</button>
                   <ItemThumbnail name={item.name} catalogueImageUrl={item.catalogueImageUrl} photos={item.photos} apiBase={API} />
                 </div>
                 {item.askingPriceCents !== undefined && (
@@ -2338,7 +2344,7 @@ function App() {
           <section className="panel" hidden={adminPage !== 'sales'}>
             <h2>Choisir les articles</h2>
             {error && <p className="error" role="alert">{error}</p>}
-            <label>Origine<select value={stockOrigin} onChange={event => { setStockOrigin(event.target.value); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="purchase">Articles rachetés</option><option value="consignment">Dépôts-ventes</option></select></label>
+            <label>Origine<select value={stockOrigin} onChange={event => { setStockOrigin(event.target.value); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="purchase">Articles rachetés</option><option value="consignment">Dépôts-ventes</option><option value="supplier">Achats fournisseurs</option></select></label>
             {selectedItemIds.length > 0 && (
               <p className="sale-cart-nudge">
                 {selectedItemIds.length} article(s) dans le panier. Utilisez le caddie flottant pour

@@ -40,6 +40,26 @@ export function registerInventoryRoutes(app: OpenAPIHono<{ Variables: Variables 
   });
   const mutations: [string, string, z.ZodTypeAny][] = [
     [
+      '/stock/product',
+      'updateProduct',
+      z
+        .object({
+          itemId: z.string(),
+          name: z.string().trim().min(1).max(300),
+          description: z.string().max(3000),
+          series: z.string().max(300),
+          identifier: z.string().max(100),
+          askingPriceCents: money,
+          hiddenFromCatalogue: z.boolean(),
+          language: product.shape.language,
+          condition: product.shape.condition,
+          gradingCompany: product.shape.gradingCompany,
+          gradingGrade: z.string().max(32),
+          gradingCertificate: z.string().max(100),
+        })
+        .strict(),
+    ],
+    [
       '/supplier-receipts',
       'receive',
       z.object({
