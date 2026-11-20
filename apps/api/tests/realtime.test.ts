@@ -52,3 +52,12 @@ test('revoked sessions cannot acquire live credentials', async () => {
   const app = authRoutes({ isSessionValid: async () => false } as unknown as ConvexAccountRepository);
   assert.equal((await app.request('/realtime', { headers: { Authorization: `Bearer ${token}` } })).status, 401);
 });
+
+test('stock query validates product types without stripping the selected filter', async () => {
+  const { readPageQuery } = await import('../src/routes/paginatedReads.js');
+  for (const productType of ['all','card','sealed','other']) {
+    assert.equal(readPageQuery.parse({productType}).productType, productType);
+  }
+  assert.equal(readPageQuery.safeParse({productType:'invalid'}).success, false);
+  assert.equal(readPageQuery.parse({}).productType, undefined);
+});

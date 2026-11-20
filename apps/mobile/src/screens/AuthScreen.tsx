@@ -1,43 +1,60 @@
-import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { type AuthMode, authenticate, getApiBaseUrl, requestPasswordReset } from '../auth/session';
-import { Field } from '../components/Field';
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import {
+  type AuthMode,
+  authenticate,
+  getApiBaseUrl,
+  requestPasswordReset,
+} from "../auth/session";
+import { Field } from "../components/Field";
 
-export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
-  const [mode, setMode] = useState<AuthMode>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+export function AuthScreen({
+  onAuthenticated,
+}: {
+  onAuthenticated: () => Promise<void>;
+}) {
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [resetRequested, setResetRequested] = useState(false);
   const submit = async () => {
     setBusy(true);
-    setError('');
+    setError("");
     try {
       await authenticate(mode, email, password);
       await onAuthenticated();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Connexion impossible.');
+      setError(e instanceof Error ? e.message : "Connexion impossible.");
     } finally {
       setBusy(false);
     }
   };
   const requestReset = async () => {
     setBusy(true);
-    setError('');
+    setError("");
     setResetRequested(false);
     try {
       await requestPasswordReset(email);
       setResetRequested(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'La demande a échoué.');
+      setError(e instanceof Error ? e.message : "La demande a échoué.");
     } finally {
       setBusy(false);
     }
   };
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>{mode === 'login' ? 'Connexion' : 'Créer un compte'}</Text>
+      <Text style={styles.title}>
+        {mode === "login" ? "Connexion" : "Créer un compte"}
+      </Text>
       <Text style={styles.note}>
         Une connexion Internet est nécessaire pour ouvrir une session.
       </Text>
@@ -48,6 +65,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
       )}
       <Field
         label="Adresse e-mail"
+        keyboardType="email-address"
         value={email}
         onChangeText={setEmail}
         placeholder="nom@exemple.be"
@@ -65,7 +83,8 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
       )}
       {resetRequested && (
         <Text style={styles.note}>
-          Si un compte correspond à cette adresse, un lien de réinitialisation vous a été envoyé.
+          Si un compte correspond à cette adresse, un lien de réinitialisation
+          vous a été envoyé.
         </Text>
       )}
       <Pressable
@@ -78,12 +97,16 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
           <ActivityIndicator color="white" />
         ) : (
           <Text style={styles.primaryText}>
-            {mode === 'login' ? 'Se connecter' : 'Créer le compte'}
+            {mode === "login" ? "Se connecter" : "Créer le compte"}
           </Text>
         )}
       </Pressable>
-      {mode === 'login' ? (
-        <Pressable accessibilityRole="button" disabled={busy} onPress={() => void requestReset()}>
+      {mode === "login" ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() => void requestReset()}
+        >
           <Text style={styles.switchText}>Mot de passe oublié ?</Text>
         </Pressable>
       ) : null}
@@ -91,13 +114,13 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
         accessibilityRole="button"
         disabled={busy}
         onPress={() => {
-          setMode(mode === 'login' ? 'register' : 'login');
-          setError('');
+          setMode(mode === "login" ? "register" : "login");
+          setError("");
         }}
         style={styles.switch}
       >
         <Text style={styles.switchText}>
-          {mode === 'login' ? 'Créer un compte' : 'J’ai déjà un compte'}
+          {mode === "login" ? "Créer un compte" : "J’ai déjà un compte"}
         </Text>
       </Pressable>
     </View>
@@ -105,24 +128,24 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
 }
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     padding: 18,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e3e8ec',
+    borderColor: "#e3e8ec",
     marginTop: 20,
   },
-  title: { fontSize: 22, fontWeight: '700', color: '#152b3a', marginBottom: 8 },
-  note: { color: '#5b6d78', lineHeight: 21, marginBottom: 16 },
-  error: { color: '#a12e25', marginBottom: 12, lineHeight: 20 },
+  title: { fontSize: 22, fontWeight: "700", color: "#19191c", marginBottom: 8 },
+  note: { color: "#5b6d78", lineHeight: 21, marginBottom: 16 },
+  error: { color: "#a12e25", marginBottom: 12, lineHeight: 20 },
   primary: {
-    backgroundColor: '#143d59',
+    backgroundColor: "#815216",
     padding: 14,
-    alignItems: 'center',
+    alignItems: "center",
     borderRadius: 9,
     marginTop: 5,
   },
-  primaryText: { color: 'white', fontWeight: '700' },
-  switch: { padding: 14, alignItems: 'center' },
-  switchText: { color: '#164f73', fontWeight: '600' },
+  primaryText: { color: "white", fontWeight: "700" },
+  switch: { padding: 14, alignItems: "center" },
+  switchText: { color: "#815216", fontWeight: "600" },
 });

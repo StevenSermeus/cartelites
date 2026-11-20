@@ -43,7 +43,11 @@ export async function instanceFetch(path: string, init: RequestInit = {}, authen
     const response = await fetch(`${base}/api/v1${path}`, { ...init, redirect: 'error', signal: controller.signal,
       headers: { ...init.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(authenticated && foreground && Date.now() - lastActivity < 60_000 ? { 'X-Session-Activity': '1' } : {}) } });
-    const body = response.status === 204 ? null : await response.arrayBuffer();
+    // React Native's Response(ArrayBuffer).text() can interpret UTF-8 bytes as Latin-1.
+    // Decode JSON through the original native response; preserve bytes for attachments.
+    const body = response.status === 204 ? null :
+      response.headers.get('content-type')?.includes('application/json')
+        ? await response.text() : await response.arrayBuffer();
     if (base !== apiBaseUrl || revision !== generation) throw new Error('L’instance a changé.');
     const replacement = response.headers.get('X-Access-Token');
     if (authenticated && replacement) {

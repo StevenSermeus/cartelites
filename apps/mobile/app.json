@@ -3,10 +3,12 @@
     "name": "TVA sur marge",
     "slug": "tcg-marge",
     "version": "0.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "dev.wdee.cartelites",
+      "supportsTablet": true,
+      "buildNumber": "3"
     },
     "plugins": [
       "expo-secure-store",

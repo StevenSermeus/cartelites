@@ -76,6 +76,7 @@ const filterArgs = {
   status: v.optional(v.string()), origin: v.optional(v.string()), visibility: v.optional(v.string()), sellerId: v.optional(v.string()),
   purchaseId: v.optional(v.string()), consignmentId: v.optional(v.string()), itemId: v.optional(v.string()),
   from: v.optional(v.number()), to: v.optional(v.number()), paymentStatus: v.optional(v.string()),
+  productType: v.optional(v.union(v.literal('all'), v.literal('card'), v.literal('sealed'), v.literal('other'))),
   gradingStatus: v.optional(v.string()), gradingCompany: v.optional(v.string()), gradingText: v.optional(v.string()),
 };
 export const browse = query({ args: filterArgs, handler: async (ctx, args) => {
@@ -115,6 +116,7 @@ export const browse = query({ args: filterArgs, handler: async (ctx, args) => {
     if (args.origin && args.origin !== 'all' && (row.origin ?? 'purchase') !== args.origin) return false;
     if (args.visibility === 'hidden' && !row.hiddenFromCatalogue) return false;
     if (args.visibility === 'visible' && row.hiddenFromCatalogue) return false;
+    if (args.productType && args.productType !== 'all' && (row.productType ?? 'card') !== args.productType) return false;
     if (args.gradingStatus === 'graded' && !row.gradingCompany || args.gradingStatus === 'ungraded' && !!row.gradingCompany) return false;
     if (args.gradingCompany && args.gradingCompany !== 'all' && row.gradingCompany !== args.gradingCompany) return false;
     if (args.gradingText && !normalize([row.gradingGrade, row.gradingCertificate, row.gradingNotes].join(' ')).includes(normalize(args.gradingText))) return false;

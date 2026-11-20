@@ -13,6 +13,7 @@ export const readPageQuery = z.object({
   sellerId: z.string().max(100).optional(), purchaseId: z.string().max(100).optional(),
   consignmentId: z.string().max(100).optional(), itemId: z.string().max(100).optional(),
   from: z.coerce.number().finite().optional(), to: z.coerce.number().finite().optional(),
+  productType: z.enum(['all', 'card', 'sealed', 'other']).optional(),
   gradingStatus: z.enum(['all', 'graded', 'ungraded']).optional(), gradingCompany: z.string().max(40).optional(), gradingText: z.string().max(100).optional(),
 }).refine(value => value.from === undefined || value.to === undefined || value.from <= value.to);
 

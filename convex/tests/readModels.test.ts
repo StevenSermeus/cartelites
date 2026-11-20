@@ -80,3 +80,30 @@ test('dashboard distributions reconcile games, origins and received sales', asyn
   assert.equal(result.days.reduce((sum: number, day: { sales: number }) => sum + day.sales, 0), 1000);
   assert.equal(result.summary.salesCents, 1000);
 });
+
+test('stock product filters include legacy cards, exclude other types and bind pagination cursors', async () => {
+  const t = convexTest(schema, modules), user = t.withIdentity({ subject: 'staff' });
+  await t.run(async ctx => {
+    const sellerId = await ctx.db.insert('sellers', {name:'Client',ownerId:'staff',operationId:'s',operationDigest:'',createdAt:1});
+    const purchaseId = await ctx.db.insert('purchases', {sellerId,reference:'P',ownerId:'staff',operationId:'p',operationDigest:'',occurredAt:1,createdAt:1,status:'active'});
+    for (const [name, productType, gradingCompany] of [['legacy', undefined, undefined], ['card', 'card', undefined], ['graded', 'card', 'PSA'], ['sealed', 'sealed', undefined], ['other', 'other', undefined]] as const) {
+      await ctx.db.insert('items', {name,productType,gradingCompany,purchaseId,ownerId:'staff',operationId:name,purchaseOccurredAt:1,vatRegime:'margin',status:'available',createdAt:1});
+    }
+  });
+  const collect = async (productType: string, gradingStatus = 'all') => {
+    let cursor: string | undefined; const names: string[] = [];
+    do {
+      const page = await user.query(browse, {resource:'stock',size:2,productType,gradingStatus,...(cursor ? {cursor} : {})});
+      names.push(...page.items.map((item: {name:string})=>item.name)); cursor=page.nextCursor ?? undefined;
+    } while (cursor);
+    return names.sort();
+  };
+  assert.deepEqual(await collect('card'), ['card','graded','legacy']);
+  assert.deepEqual(await collect('card','graded'), ['graded']);
+  assert.deepEqual(await collect('sealed'), ['sealed']);
+  assert.deepEqual(await collect('other'), ['other']);
+  assert.equal((await collect('all')).length,5);
+  const first = await user.query(browse,{resource:'stock',size:2,productType:'card'});
+  await assert.rejects(user.query(browse,{resource:'stock',size:2,productType:'sealed',cursor:first.nextCursor}), /INVALID_CURSOR/);
+  await assert.rejects(user.query(browse,{resource:'stock',productType:'invalid'}));
+});

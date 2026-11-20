@@ -1,3 +1,4 @@
+import { createPurchaseReceiptPdf } from '../../../../packages/domain/src/purchaseReceipt';
 import { createConsignmentReceiptPdf, type SignatoryProfile, type ConsignmentReceiptIdentity, type ReceiptLogo } from '../../../../packages/domain/src/consignmentReceipt';
 import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -374,95 +375,26 @@ export async function openAttachment(attachmentId: string, filename: string, con
   await Sharing.shareAsync(localUri, { mimeType: contentType, dialogTitle: filename });
 }
 
-function ascii(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/€/g, 'EUR')
-    .replace(/[^\x20-\x7e]/g, '?');
+export async function purchaseReceiptPdf(input: import('./purchaseReceipt').ReceiptInput) {
+  const [signatory, identity] = await Promise.all([
+    request<SignatoryProfile>('/auth/profile'),
+    request<ConsignmentReceiptIdentity & { logo: ReceiptLogo }>('/receipt-identity'),
+  ]);
+  return btoa(createPurchaseReceiptPdf({ ...input, signatory }, identity.logo, identity));
 }
 
-export async function sharePurchaseReceipt(input: {
-  reference: string;
-  occurredAt: number;
-  status?: 'pending' | 'active' | 'cancelled';
-  client: Seller;
-  items: {
-    name: string;
-    tcg?: 'pokemon' | 'riftbound';
-    series: string;
-    identifier: string;
-    language: string;
-    condition: string;
-    gradingCompany?: string;
-    gradingGrade?: string;
-    gradingCertificate?: string;
-    gradingNotes?: string;
-    marketValueCents: number;
-    discountPercent: number;
-    purchasePriceCents: number;
-  }[];
-}) {
-  const lines = [
-    'BORDEREAU DE RACHAT',
-    `Reference : ${input.reference}`,
-    `Date : ${new Date(input.occurredAt).toLocaleString('fr-BE')}`,
-    `Statut : ${input.status === 'active' ? 'valide' : input.status === 'cancelled' ? 'annule' : 'en attente de validation du client'}`,
-    `Client : ${input.client.name}`,
-    ...(input.client.email ? [`Email : ${input.client.email}`] : []),
-    ...(input.client.phone ? [`Telephone : ${input.client.phone}`] : []),
-    '',
-    ...input.items.flatMap((item, index) => [
-      `${index + 1}. ${item.name}`,
-      `   Serie : ${item.series || '-'} | Identification : ${item.identifier || '-'}`,
-      `   Langue : ${item.language} | Etat : ${item.condition}`,
-      ...(item.gradingCompany ? [`   Gradation : ${item.gradingCompany} ${item.gradingGrade ?? ''} | Cert. ${item.gradingCertificate ?? '-'} | ${item.gradingNotes ?? ''}`] : []),
-      `   Valeur actuelle : ${(item.marketValueCents / 100).toFixed(2)} EUR`,
-      `   Decote : ${item.discountPercent}% | Prix de rachat : ${(item.purchasePriceCents / 100).toFixed(2)} EUR`,
-    ]),
-    '',
-    `Total verse : ${(input.items.reduce((sum, item) => sum + item.purchasePriceCents, 0) / 100).toFixed(2)} EUR`,
-    '',
-    'Le prix de vente propose est exclu de ce recu.',
-  ].map(ascii);
-  const linesPerPage = 42;
-  const pageCount = Math.max(1, Math.ceil(lines.length / linesPerPage));
-  const pageIds = Array.from({ length: pageCount }, (_, index) => 4 + index * 2);
-  const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageCount} >>`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
-  ];
-  for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-    const pageId = 4 + pageIndex * 2;
-    const contentId = pageId + 1;
-    const pageLines = lines.slice(pageIndex * linesPerPage, (pageIndex + 1) * linesPerPage);
-    const content = pageLines.map((line, index) => {
-      const safe = line.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-      return `BT /F1 11 Tf 48 ${790 - index * 17} Td (${safe}) Tj ET`;
-    }).join('\n');
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`,
-      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
-    );
-  }
-  let pdf = '%PDF-1.4\n';
-  const offsets = [0];
-  for (const [index, object] of objects.entries()) {
-    offsets.push(pdf.length);
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  }
-  const xrefOffset = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+export async function sharePurchaseReceipt(input: import('./purchaseReceipt').ReceiptInput, base64?: string) {
+  const pdf = base64 ?? await purchaseReceiptPdf(input);
   const filename = `rachat-${input.reference.replace(/[^a-z0-9-]/gi, '-')}.pdf`;
   const uri = `${FileSystem.cacheDirectory}${filename}`;
-  await FileSystem.writeAsStringAsync(uri, pdf, { encoding: FileSystem.EncodingType.UTF8 });
   if (!(await Sharing.isAvailableAsync())) throw new Error('Le partage de PDF est indisponible.');
-  await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Reçu de rachat' });
+  await FileSystem.writeAsStringAsync(uri, pdf, { encoding: FileSystem.EncodingType.Base64 });
+  try {
+    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' });
+  } finally {
+    await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+  }
 }
-
 
 export type Consignment = {
   _id: string;
