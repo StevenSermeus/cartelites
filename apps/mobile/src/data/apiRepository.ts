@@ -1,4 +1,5 @@
 import { optimizeAttachment } from './optimizeAttachment';
+import { attachmentForm } from './attachmentForm';
 import { createPurchaseReceiptPdf } from '../../../../packages/domain/src/purchaseReceipt';
 import { createConsignmentReceiptPdf, type SignatoryProfile, type ConsignmentReceiptIdentity, type ReceiptLogo } from '../../../../packages/domain/src/consignmentReceipt';
 import * as Crypto from 'expo-crypto';
@@ -354,10 +355,12 @@ export async function uploadAttachment(field: 'purchaseId' | 'itemId' | 'supplie
   const token = await readSession();
   if (!baseUrl || !token) throw new Error('Reconnectez-vous avant de téléverser la photo.');
   file = await optimizeAttachment(file);
-  const form = new FormData();
-  form.append(field, id);
-  if (operationId) form.append('operationId', operationId);
-  form.append('file', { uri: file.uri, name: file.name, type: file.mimeType } as never);
+  const nativeFile = new File(file.uri);
+  const form = attachmentForm(field, id, {
+    name: file.name,
+    mimeType: file.mimeType,
+    bytes: () => nativeFile.bytes(),
+  }, operationId);
   const response = await instanceFetch('/attachments', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
