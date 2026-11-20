@@ -1,3 +1,5 @@
+import { NativeTabs, type RootTab } from "./src/navigation/NativeTabs";
+import { PageTransition } from "./src/components/PageTransition";
 import { useLocalPurchaseDrafts } from "./src/data/useLocalPurchaseDrafts";
 import { SwipeToDelete } from './src/components/SwipeToDelete';
 import {
@@ -9,6 +11,7 @@ import { loadReceiptDocument } from "./src/data/receiptDocument";
 import { dateFilters } from "./src/data/dateFilters";
 import {
   MobileNavigation,
+  activeTab,
   MobileHeader,
   type Page,
 } from "./src/navigation/MobileNavigation";
@@ -235,10 +238,10 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState<Page>("stock");
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false);
-  const [filterControl, setFilterControl] = useState<{
-    open: () => void;
-    count: number;
-  } | null>(null);
+  type FilterControl = { open: () => void; count: number } | null;
+  const [stockFilterControl, setStockFilterControl] = useState<FilterControl>(null);
+  const [depositFilterControl, setDepositFilterControl] = useState<FilterControl>(null);
+  const filterControl = page === "stock" ? stockFilterControl : page === "consignments" ? depositFilterControl : null;
   const [purchaseDateEditing, setPurchaseDateEditing] = useState(false);
   const [purchaseOperationsOpen, setPurchaseOperationsOpen] = useState(false);
   const [saleDateEditing, setSaleDateEditing] = useState(false);
@@ -1333,29 +1336,24 @@ export default function App() {
     );
   }
 
-  return (
-    <SafeAreaView style={styles.page} onTouchStart={markUserActivity}>
-      <StatusBar style={dark ? "light" : "dark"} />
+  const renderPageContent = (page: Page, isActive: boolean) => (
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
       {(page === "purchase" || page === "history") && (
         <Text accessibilityLiveRegion="polite" style={{ color: localPurchases.error ? colors.danger : colors.secondary, paddingHorizontal: 20, paddingVertical: 6 }}>
           {localPurchases.error || (!localPurchases.ready ? "Chargement des brouillons…" : localPurchases.saving ? "Sauvegarde sur cet appareil…" : "Brouillons sauvegardés sur cet appareil")}
         </Text>
       )}
-      {!!error && (
-        <View accessibilityRole="alert" style={styles.errorBox}>
-          <Text style={[{ color: colors.text }, styles.error]}>{error}</Text>
-        </View>
-      )}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
         <ScrollView
           automaticallyAdjustKeyboardInsets
           keyboardShouldPersistTaps="handled"
-          ref={contentScroll}
+          ref={(node) => { if (isActive && node) contentScroll.current = node; }}
           contentContainerStyle={{ paddingTop: 0, paddingBottom: 100 }}
         >
+          <PageTransition transitionKey={`${page}:${page === "purchase" ? purchaseStep : ""}:${expandedPurchase ?? ""}:${accountDetailsOpen}:${accountEditing}:${focusedSale ?? ""}`}>
+
           {page === "purchase" ? (
             <>
               <View style={[styles.flowNav, { paddingHorizontal: 0 }]}>
@@ -1651,13 +1649,11 @@ export default function App() {
             </View>
           )}
 
-          <View
-            style={page === "consignments" ? undefined : { display: "none" }}
-          >
+          {page === "consignments" && <View>
             <ConsignmentScreen
               resetVersion={tabResetVersion.consignments ?? 0}
-              onFilterControlChange={setFilterControl}
-              active={page === "consignments"}
+              onFilterControlChange={setDepositFilterControl}
+              active={isActive && page === "consignments"}
               sellers={sellers}
               refreshStock={refresh}
               onCreateClient={() => {
@@ -1665,12 +1661,12 @@ export default function App() {
                 setPage("clients");
               }}
             />
-          </View>
+          </View>}
 
           {page === "stock" && (
             <StockScreen
               resetVersion={tabResetVersion.stock ?? 0}
-              onFilterControlChange={setFilterControl}
+              onFilterControlChange={setStockFilterControl}
               revision={historyRevision}
               items={items}
               sellers={sellers}
@@ -2737,6 +2733,7 @@ export default function App() {
               )}
             </View>
           )}
+          </PageTransition>
         </ScrollView>
         {["saleSummary", "salePayment"].includes(page) &&
           selectedItems.length > 0 && (
@@ -2830,6 +2827,20 @@ export default function App() {
           />
         )}
       </KeyboardAvoidingView>
+  );
+
+  return (
+    <SafeAreaView style={styles.page} onTouchStart={markUserActivity}>
+      <StatusBar style={dark ? "light" : "dark"} />
+      {!!error && (
+        <View accessibilityRole="alert" style={styles.errorBox}>
+          <Text style={[{ color: colors.text }, styles.error]}>{error}</Text>
+        </View>
+      )}
+      <NativeTabs active={activeTab(page) as RootTab} onChange={tab => setPage(tab === "sales" ? "saleSummary" : tab)} renderScene={tab => {
+        const scenePage = tab === activeTab(page) ? page : tab === "sales" ? "saleSummary" : tab;
+        return renderPageContent(scenePage, tab === activeTab(page));
+      }} />
       {busy ? <ActivityIndicator style={styles.spinner} /> : null}
       {page !== "purchase" && (
         <MobileNavigation

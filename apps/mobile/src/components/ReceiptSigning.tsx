@@ -1,3 +1,4 @@
+import { PageTransition } from "./PageTransition";
 import { useTheme } from "../theme/ThemeProvider";
 import { useRef, useState, type ComponentRef } from "react";
 import {
@@ -453,6 +454,7 @@ export function ReceiptSigning({
                 gap: 12,
               }}
             >
+              <PageTransition transitionKey={step} style={{ gap: 12 }}>
               {!!error && (
                 <Text
                   accessibilityRole="alert"
@@ -1052,6 +1054,7 @@ export function ReceiptSigning({
                     )}
                 </View>
               )}
+              </PageTransition>
             </ScrollView>
             {draft && (
               <View

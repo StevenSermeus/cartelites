@@ -1,3 +1,4 @@
+import { PageTransition } from "../components/PageTransition";
 import { useTheme, type ThemeColors } from "../theme/ThemeProvider";
 import { ConsignmentDocuments } from "../components/ConsignmentDocuments";
 import { ReceiptSigning } from "../components/ReceiptSigning";
@@ -474,7 +475,7 @@ export function ConsignmentScreen({
       sellers.find((client) => client._id === deposit.sellerId),
     );
   return (
-    <View>
+    <PageTransition transitionKey={tab}>
       <Button
         label={
           reference || rows.some((r) => r.name || r.price) || sellerId
@@ -697,7 +698,7 @@ export function ConsignmentScreen({
                       {message}
                     </Text>
                   )}
-                  <View style={styles.card}>
+                  <PageTransition transitionKey={step} style={styles.card}>
                     <Choices
                       value={String(step)}
                       onChange={(value) => advance(Number(value))}
@@ -1110,7 +1111,7 @@ export function ConsignmentScreen({
                       <Text style={styles.hint}>Conditions version {contractVersion} : {contractTerms}</Text>
                       <Text style={styles.hint}>Aucun versement n’est attesté. Après enregistrement : lecture du contrat, signatures, puis mise en vente.</Text>
                     </View>
-                  </View>
+                  </PageTransition>
                 </ScrollView>
                 <View style={styles.footer}>
                   <Button
@@ -1867,7 +1868,7 @@ export function ConsignmentScreen({
           </>
         )}
       </View>
-    </View>
+    </PageTransition>
   );
 }
 const createStyles = (colors: ThemeColors) =>

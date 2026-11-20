@@ -4,7 +4,7 @@ module.exports = () => {
   const development = process.env.APP_VARIANT === 'development';
   return {
     ...expo,
-    name: development ? 'Cartélites Dev' : expo.name,
+    name: development ? 'Mew Dev' : expo.name,
     scheme: development ? 'cartelites-dev' : 'cartelites',
     ios: {
       ...expo.ios,

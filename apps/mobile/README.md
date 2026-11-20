@@ -2,12 +2,12 @@
 
 ## Build de développement iOS
 
-Le projet inclut `expo-dev-client`. La version autonome utilise `dev.wdee.cartelites` et la variante « Cartélites Dev » utilise `dev.wdee.cartelites.dev` : les deux peuvent être installées ensemble.
+Le projet inclut `expo-dev-client`. La version autonome « Projet Mew » utilise `dev.wdee.cartelites` et la variante « Mew Dev » utilise `dev.wdee.cartelites.dev` : les deux peuvent être installées ensemble.
 Pour installer un build sur un iPhone connecté en USB :
 
 1. Configurer un compte Apple et un certificat Apple Development dans Xcode, puis activer le mode développeur sur l’iPhone.
 2. Depuis `apps/mobile`, lancer `pnpm ios --device` et sélectionner l’iPhone et l’équipe personnelle de signature.
-3. Pour les sessions suivantes, lancer `pnpm start` et ouvrir le serveur de développement dans « Cartélites Dev ».
+3. Pour les sessions suivantes, lancer `pnpm start` et ouvrir le serveur de développement dans « Mew Dev ».
 
 Pour construire la version autonome avec le JavaScript embarqué, utiliser `pnpm ios:release --device`. Ces scripts régénèrent le dossier natif pour la variante choisie avant compilation. `APP_VARIANT=development` sélectionne la variante Dev dans `app.config.js` ; la configuration par défaut correspond à la version autonome.
 
@@ -34,3 +34,7 @@ version courante ; les deux appareils doivent utiliser le même compte et la
 même instance. La case d’enregistrement dans le parcours de signature prend
 effet à la validation finale ; les paramètres du compte permettent de
 l’enregistrer indépendamment d’un document.
+
+Le nom de code temporaire et l’icône Cartélites sont configurés dans `app.json`. Les identifiants de bundle restent stables pour conserver les données lors des mises à jour.
+
+La navigation entre les cinq onglets utilise React Navigation (`bottom-tabs`) et `react-native-screens`. La transition `shift` est étendue à la largeur de l'écran via l'option `sceneStyleInterpolator` du navigateur ; les scènes restent montées et les animations s'exécutent via le pilote natif. Le sens suit l'ordre des onglets. Le réglage iOS « Réduire les animations » désactive ce mouvement. Les étapes d'un formulaire utilisent un fondu court, sans recréer les champs.
