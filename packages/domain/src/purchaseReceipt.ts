@@ -128,8 +128,12 @@ export function createPurchaseReceiptPdf(
   );
   const declarationHeight = 32 + sellerDeclarationLines.length * 12;
   const declarationTop = signatureTop + declarationHeight;
-  const availableHeight = tableTop - declarationTop - 70;
-  if (availableHeight < 30)
+  // Only the final page needs space for the declaration and signatures.
+  // Fill preceding pages down to the footer instead of reserving that space
+  // on every page (which used to limit a page to just a few cards).
+  const finalPageHeight = tableTop - declarationTop - 70;
+  const availableHeight = tableTop - 70;
+  if (finalPageHeight < 30)
     throw new Error('Les coordonnees du bordereau sont trop longues pour tenir sur une page.');
   const groups: ReceiptPdfInput['items'][] = [[]];
   let usedHeight = 0;
@@ -144,6 +148,7 @@ export function createPurchaseReceiptPdf(
     groups[groups.length - 1].push(item);
     usedHeight += height;
   }
+  if (usedHeight > finalPageHeight) groups.push([]);
   const pageIds = groups.map((_, index) => 6 + index * 2);
   const objects: string[] = [
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -209,12 +214,14 @@ export function createPurchaseReceiptPdf(
       true,
     );
     clientLines.forEach((line, index) => draw(48, clientTop - index * 13, 10, line, index === 0));
-    box(40, tableTop - 9, 515, 26, brand.colors.primary);
-    draw(48, tableTop, 10, 'Carte / Série / Identifiant / Gradation', true, brand.colors.onPrimary);
-    draw(365, tableTop, 10, 'Valeur', true, brand.colors.onPrimary);
-    draw(430, tableTop, 10, 'Décote', true, brand.colors.onPrimary);
-    draw(490, tableTop, 10, 'Prix payé', true, brand.colors.onPrimary);
-    commands.push(`0.3 w 48 ${tableTop - 8} m 547 ${tableTop - 8} l S`);
+    if (items.length || groups.length === 1) {
+      box(40, tableTop - 9, 515, 26, brand.colors.primary);
+      draw(48, tableTop, 10, 'Carte / Série / Identifiant / Gradation', true, brand.colors.onPrimary);
+      draw(365, tableTop, 10, 'Valeur', true, brand.colors.onPrimary);
+      draw(430, tableTop, 10, 'Décote', true, brand.colors.onPrimary);
+      draw(490, tableTop, 10, 'Prix payé', true, brand.colors.onPrimary);
+      commands.push(`0.3 w 48 ${tableTop - 8} m 547 ${tableTop - 8} l S`);
+    }
     let y = tableTop - 27;
     for (const [itemIndex, item] of items.entries()) {
       if (itemIndex % 2 === 0)
