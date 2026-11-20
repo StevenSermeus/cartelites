@@ -20,6 +20,7 @@ import { AttachmentPreview } from './AttachmentPreview';
 import { ItemThumbnail } from './ItemThumbnail';
 import { Pagination } from './Pagination';
 import { MultiPhotoPicker } from './MultiPhotoPicker';
+import { ProductEditor } from './ProductEditor';
 import { ProductProfitPreview } from './ProductProfitPreview';
 import { usePagedData } from '../data/usePagedData';
 import {
@@ -241,6 +242,7 @@ export function InventoryManager({
   const [mode, setMode] = useState<
     'supplier' | 'gift' | 'opening' | 'photos' | 'gifts' | 'receipts' | null
   >(null);
+  const [editingProduct, setEditingProduct] = useState(false);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [message, setMessage] = useState('');
@@ -671,6 +673,8 @@ export function InventoryManager({
         </View>
       ) : (
         <Panel>
+          <InventoryButton label="Modifier la fiche" onPress={() => setEditingProduct(true)} />
+          {editingProduct && <ProductEditor itemId={item._id} onClose={() => setEditingProduct(false)} onChanged={async () => { await loadDetails(); await onChanged(); }} />}
           <InventoryButton secondary label="Photos du produit" onPress={() => setMode('photos')} />
           {item.origin !== 'consignment' && (
             <InventoryButton
