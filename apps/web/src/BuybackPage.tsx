@@ -11,6 +11,7 @@ import {
 import { brand } from './brand';
 import { legal } from '../../../branding/legal';
 import logo from '../../../branding/logo.png';
+import { SocialLinks } from './SocialLinks';
 
 export function PublicNavigation({ active }: { active: 'catalogue' | 'rachat' }) {
   return (
@@ -21,6 +22,7 @@ export function PublicNavigation({ active }: { active: 'catalogue' | 'rachat' })
       <a href="/rachat" aria-current={active === 'rachat' ? 'page' : undefined}>
         Rachat & dépôt-vente <FiArrowRight aria-hidden="true" />
       </a>
+      <SocialLinks />
     </nav>
   );
 }

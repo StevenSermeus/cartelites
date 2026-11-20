@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { brand } from './brand';
 import { legal, legalReady } from '../../../branding/legal';
+import { SocialLinks } from './SocialLinks';
 
 export const legalPages = {
   '/mentions-legales': 'Mentions légales',
@@ -18,6 +19,7 @@ export function SiteFooter() {
           <strong>{brand.name}</strong>
           {legal.companyName && legal.companyName !== brand.name && <p>Une enseigne de {legal.companyName}</p>}
           <p>© {new Date().getFullYear()} {legal.companyName || brand.name}</p>
+          <SocialLinks />
         </div>
         <nav aria-label="Informations et contact">
           <a href="/rachat">Rachat & dépôt-vente</a>
