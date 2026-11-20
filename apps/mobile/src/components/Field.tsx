@@ -1,22 +1,27 @@
-import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
-import { markUserActivity } from '../auth/session';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { useTheme, type ThemeColors } from "../theme/ThemeProvider";
+import { markUserActivity } from "../auth/session";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 export function Field({
   label,
   value,
   onChangeText,
-  keyboardType = 'default',
+  keyboardType = "default",
   placeholder,
   secureTextEntry = false,
   editable = true,
+  multiline = false,
+  maxLength,
 }: {
   label: string;
   value: string;
   onChangeText: (s: string) => void;
-  keyboardType?: 'default' | 'decimal-pad' | 'phone-pad' | 'email-address' | 'url';
+  keyboardType?:
+    "default" | "decimal-pad" | "phone-pad" | "email-address" | "url";
   placeholder?: string;
   secureTextEntry?: boolean;
   editable?: boolean;
+  multiline?: boolean;
+  maxLength?: number;
 }) {
   const { colors, dark } = useTheme();
   const styles = createStyles(colors);
@@ -33,26 +38,39 @@ export function Field({
         }}
         keyboardType={keyboardType}
         autoCapitalize={
-          secureTextEntry || keyboardType === 'email-address' || keyboardType === 'url'
-            ? 'none'
-            : 'sentences'
+          secureTextEntry ||
+          keyboardType === "email-address" ||
+          keyboardType === "url"
+            ? "none"
+            : "sentences"
         }
-        autoCorrect={!secureTextEntry && keyboardType !== 'email-address' && keyboardType !== 'url'}
+        autoCorrect={
+          !secureTextEntry &&
+          keyboardType !== "email-address" &&
+          keyboardType !== "url"
+        }
         textContentType={
           secureTextEntry
-            ? 'password'
-            : keyboardType === 'email-address'
-              ? 'emailAddress'
-              : keyboardType === 'url'
-                ? 'URL'
+            ? "password"
+            : keyboardType === "email-address"
+              ? "emailAddress"
+              : keyboardType === "url"
+                ? "URL"
                 : undefined
         }
         placeholderTextColor={colors.placeholder}
         placeholder={placeholder}
         secureTextEntry={secureTextEntry}
         editable={editable}
-        style={[{ color: colors.text }, styles.input]}
-        keyboardAppearance={dark ? 'dark' : 'light'}
+        multiline={multiline}
+        maxLength={maxLength}
+        textAlignVertical={multiline ? "top" : "auto"}
+        style={[
+          { color: colors.text },
+          styles.input,
+          multiline && { minHeight: 120 },
+        ]}
+        keyboardAppearance={dark ? "dark" : "light"}
       />
     </View>
   );
@@ -60,7 +78,12 @@ export function Field({
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     wrap: { marginBottom: 14 },
-    label: { fontSize: 14, fontWeight: '600', marginBottom: 6, color: colors.text },
+    label: {
+      fontSize: 14,
+      fontWeight: "600",
+      marginBottom: 6,
+      color: colors.text,
+    },
     input: {
       borderWidth: 1,
       borderColor: colors.border,

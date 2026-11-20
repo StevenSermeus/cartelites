@@ -23,7 +23,7 @@ app.use(
   }),
 );
 app.get('/.well-known/jwks.json', async (c) => c.json(await jwks()));
-app.get('/api/v1/instance', (c) => c.json({ service: 'tcg-marge-api', apiVersion: 1, convexUrl: env.CONVEX_URL }));
+app.get('/api/v1/instance', (c) => c.json({ service: 'tcg-marge-api', apiVersion: 1, imageUploadFormats: ['image/jpeg', 'image/png', 'image/webp'], convexUrl: env.CONVEX_URL }));
 app.route('/api/v1/auth', authRoutes(repo));
 app.route('/', catalogueRoutes());
 app.route('/api/v1/receipts', receiptRoutes(repo));

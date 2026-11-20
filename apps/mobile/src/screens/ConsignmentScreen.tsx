@@ -1,4 +1,5 @@
 import { useTheme, type ThemeColors } from "../theme/ThemeProvider";
+import { ConsignmentDocuments } from "../components/ConsignmentDocuments";
 import { ReceiptSigning } from "../components/ReceiptSigning";
 import * as Crypto from "expo-crypto";
 import {
@@ -166,8 +167,10 @@ export function ConsignmentScreen({
   refreshStock,
   onCreateClient,
   onFilterControlChange,
+  resetVersion = 0,
 }: {
   active: boolean;
+  resetVersion?: number;
   onFilterControlChange?: (
     control: { open: () => void; count: number } | null,
   ) => void;
@@ -204,6 +207,8 @@ export function ConsignmentScreen({
   const [due, setDue] = useState("");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
+  const [contractTerms, setContractTerms] = useState("");
+  const [contractVersion, setContractVersion] = useState("1");
   const [rows, setRows] = useState<Draft[]>(() => [fresh()]);
   const [editing, setEditing] = useState<Item | null>(null);
   const [termPrice, setTermPrice] = useState("");
@@ -234,6 +239,19 @@ export function ConsignmentScreen({
   const running = useRef(false);
   const [revision, setRevision] = useState(0);
   const [step, setStep] = useState(0);
+  const previousReset = useRef(resetVersion);
+  useEffect(() => {
+    if (previousReset.current === resetVersion) return;
+    previousReset.current = resetVersion;
+    setTab("history");
+    setFocusedDeposit(null);
+    setExpandedArticle(null);
+    setFilterPanelOpen(false);
+    setDocumentsOpen(false);
+    setEditing(null);
+    setEditingDraft(null);
+    creationScroll.current?.scrollTo({ y: 0, animated: false });
+  }, [resetVersion]);
   const historyData = usePagedData<Consignment>(
     "/consignments",
     { search },
@@ -336,6 +354,7 @@ export function ConsignmentScreen({
       if (!sellerId) throw new Error("Choisissez le déposant.");
       if (!reference.trim())
         throw new Error("Saisissez une référence de dépôt.");
+      if (!contractTerms.trim() || !contractVersion.trim()) throw new Error("Renseignez les conditions réellement convenues et leur version.");
       const occurredAt = dateValue(date);
       const dueAt = due ? dateValue(due) : undefined;
       if (dueAt !== undefined && dueAt < occurredAt)
@@ -366,6 +385,8 @@ export function ConsignmentScreen({
       });
       const input = {
         sellerId,
+        flowVersion: 2 as const,
+        contractTerms: {version:contractVersion.trim(),text:contractTerms.trim()},
         occurredAt,
         dueAt,
         reference: reference.trim(),
@@ -390,6 +411,7 @@ export function ConsignmentScreen({
       setSearch("");
       setReference("");
       setNotes("");
+      setContractTerms("");
       setDue("");
       setTab("history");
       let failures = 0;
@@ -404,7 +426,7 @@ export function ConsignmentScreen({
       setMessage(
         failures
           ? `Dépôt enregistré. ${failures} pièce(s) non téléversée(s) : utilisez « Ajouter une pièce » dans l’historique.`
-          : "Dépôt enregistré et articles disponibles dans le stock.",
+          : "Dépôt enregistré. Lisez et signez le contrat pour rendre les articles disponibles à la vente.",
       );
     });
   function advance(next: number) {
@@ -426,6 +448,7 @@ export function ConsignmentScreen({
           amount(r.commission, "Commission", 10000);
         });
       }
+      if (next > 2 && (!contractTerms.trim() || !contractVersion.trim())) throw new Error("Complétez les conditions du contrat et leur version.");
       setMessage("");
       setStep(next);
       creationScroll.current?.scrollTo({ y: 0, animated: false });
@@ -681,7 +704,8 @@ export function ConsignmentScreen({
                       values={[
                         ["0", "Client"],
                         ["1", "Articles"],
-                        ["2", "Vérifier"],
+                        ["2", "Conditions"],
+                        ["3", "Vérifier"],
                       ]}
                     />
                     <View style={step === 0 ? undefined : { display: "none" }}>
@@ -1023,8 +1047,15 @@ export function ConsignmentScreen({
                       />
                     </View>
                     <View style={step === 2 ? undefined : { display: "none" }}>
+                      <Text style={styles.title}>Conditions convenues</Text>
+                      <Text style={styles.hint}>Renseignez le texte effectivement convenu avec le déposant : propriété, durée, modalités et délai de versement, restitution et garde des articles. Aucun texte juridique ou régime TVA n’est appliqué automatiquement.</Text>
+                      <Field label="Version des conditions" value={contractVersion} onChangeText={setContractVersion}/>
+                      <Field label="Conditions du contrat" value={contractTerms} onChangeText={setContractTerms} multiline maxLength={10000}/>
+                      <Text style={styles.hint}>La commission est déduite du prix effectivement vendu. Aucun frais supplémentaire n’est ajouté par l’application. Une remise sous le prix convenu exige un nouvel accord.</Text>
+                    </View>
+                    <View style={step === 3 ? undefined : { display: "none" }}>
                       <Text style={[{ color: colors.text }, styles.title]}>
-                        Récapitulatif
+                        Vérifier le contrat
                       </Text>
                       <Text style={[{ color: colors.text }, styles.hint]}>
                         {sellers.find((s) => s._id === sellerId)?.name ||
@@ -1076,6 +1107,8 @@ export function ConsignmentScreen({
                           }, 0),
                         )}
                       </Text>
+                      <Text style={styles.hint}>Conditions version {contractVersion} : {contractTerms}</Text>
+                      <Text style={styles.hint}>Aucun versement n’est attesté. Après enregistrement : lecture du contrat, signatures, puis mise en vente.</Text>
                     </View>
                   </View>
                 </ScrollView>
@@ -1084,13 +1117,13 @@ export function ConsignmentScreen({
                     label={
                       busy
                         ? "Enregistrement…"
-                        : step === 2
-                          ? "Enregistrer le dépôt"
+                        : step === 3
+                          ? "Préparer le contrat"
                           : "Continuer"
                     }
                     disabled={busy}
                     onPress={() =>
-                      step === 2 ? void submit() : advance(step + 1)
+                      step === 3 ? void submit() : advance(step + 1)
                     }
                   />
                 </View>
@@ -1184,7 +1217,7 @@ export function ConsignmentScreen({
                         </Text>
                       </View>
                       <Text style={[{ color: colors.text }, styles.tag]}>
-                        {d.items.some((item) => item.status === "available")
+                        {d.flowVersion === 2 && d.contractStatus !== "signed" ? "À signer" : d.items.some((item) => item.status === "available")
                           ? "En cours"
                           : "Clôturé"}
                       </Text>
@@ -1465,34 +1498,7 @@ export function ConsignmentScreen({
                                               setAuthorization("");
                                             }}
                                           />
-                                          <Button
-                                            label="Restituer au déposant"
-                                            onPress={() =>
-                                              Alert.alert(
-                                                "Restituer cet article ?",
-                                                `${item.name} sera retiré du stock disponible.`,
-                                                [
-                                                  {
-                                                    text: "Annuler",
-                                                    style: "cancel",
-                                                  },
-                                                  {
-                                                    text: "Restituer",
-                                                    onPress: () =>
-                                                      void run(async () => {
-                                                        await returnConsignmentItem(
-                                                          item._id,
-                                                        );
-                                                        await refresh();
-                                                        setMessage(
-                                                          "Article restitué.",
-                                                        );
-                                                      }),
-                                                  },
-                                                ],
-                                              )
-                                            }
-                                          />
+                                          <Button label="Préparer une restitution signée" onPress={()=>{setDocumentsOpen(true);setMessage("Sélectionnez les articles dans Documents et restitution.");}} />
                                         </>
                                       )}
                                       {editing?._id === item._id && (
@@ -1562,6 +1568,7 @@ export function ConsignmentScreen({
                                 </View>
                               ))}
                             </View>
+                            {d.flowVersion === 2 && d.contractStatus !== "signed" && <View style={styles.card}><Text style={styles.rowTitle}>Contrat à signer · révision {d.contractRevision ?? 1}</Text><Text style={styles.hint}>Les articles ne sont pas encore proposés à la vente. Après modification d’accord, préparez une nouvelle version dans les options du document.</Text><ReceiptSigning kind="consignment" targetId={d._id} onSigned={()=>{void refresh();}}/></View>}
                             <Pressable
                               accessibilityRole="button"
                               accessibilityState={{ expanded: documentsOpen }}
@@ -1588,7 +1595,9 @@ export function ConsignmentScreen({
                                 <ReceiptSigning
                                   kind="consignment"
                                   targetId={d._id}
+                                  onSigned={()=>{void refresh();}}
                                 />
+                                <ConsignmentDocuments deposit={d} onChanged={refresh}/>
                                 <Pressable
                                   accessibilityRole="button"
                                   style={styles.chip}

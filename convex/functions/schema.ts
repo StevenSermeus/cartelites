@@ -195,6 +195,10 @@ export default defineSchema({
     reference: v.string(),
     notes: v.optional(v.string()),
     dueAt: v.optional(v.number()),
+    flowVersion: v.optional(v.number()),
+    contractTerms: v.optional(v.object({ version: v.string(), text: v.string() })),
+    contractRevision: v.optional(v.number()),
+    contractStatus: v.optional(v.union(v.literal('awaiting_signature'), v.literal('signed'))),
     createdAt: v.number(),
   })
     .index('by_owner_operation', ['ownerId', 'operationId'])
@@ -228,9 +232,21 @@ export default defineSchema({
   })
     .index('by_owner_operation', ['ownerId', 'operationId'])
     .index('by_item', ['itemId']),
+  consignmentReturns: defineTable({
+    ownerId: v.string(), operationId: v.string(), operationDigest: v.string(),
+    consignmentId: v.id('consignments'), occurredAt: v.number(),
+    itemIds: v.array(v.id('items')), conditionNotes: v.string(),
+    completedAt: v.optional(v.number()), createdAt: v.number(),
+  }).index('by_owner_operation', ['ownerId', 'operationId']).index('by_consignment', ['consignmentId']),
+  consignmentDocuments: defineTable({
+    ownerId: v.string(), operationId: v.string(), operationDigest: v.string(),
+    sellerId: v.id('sellers'), kind: v.union(v.literal('statement'), v.literal('payment')),
+    snapshot: v.any(), identity: v.optional(v.any()), createdAt: v.number(),
+    objectKey: v.optional(v.string()), sha256: v.optional(v.string()), filename: v.optional(v.string()),
+  }).index('by_owner_operation', ['ownerId', 'operationId']).index('by_seller', ['sellerId']),
   signedReceipts: defineTable({
     ownerId: v.string(),
-    kind: v.union(v.literal('purchase'), v.literal('consignment')),
+    kind: v.union(v.literal('purchase'), v.literal('consignment'), v.literal('consignment_return')),
     targetId: v.string(),
     snapshot: v.any(),
     identity: v.any(),

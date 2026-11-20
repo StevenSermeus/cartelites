@@ -1,3 +1,4 @@
+import { registerConsignmentDocumentRoutes } from './consignmentDocuments.js';
 import { createRoute, type OpenAPIHono, z } from '@hono/zod-openapi';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
@@ -15,6 +16,8 @@ export const consignmentSchema = z
     occurredAt: timestamp,
     reference: z.string().trim().min(1).max(200),
     notes: z.string().trim().max(5000).optional(),
+    flowVersion: z.literal(2).optional(),
+    contractTerms: z.object({ version: z.string().trim().min(1).max(100), text: z.string().trim().min(1).max(10000) }).optional(),
     dueAt: timestamp.optional(),
     items: z
       .array(
@@ -39,6 +42,7 @@ export const consignmentSchema = z
       .min(1)
       .max(200),
   })
+  .refine((value) => value.flowVersion !== 2 || !!value.contractTerms, { message: 'Les conditions du contrat sont requises.', path: ['contractTerms'] })
   .refine((value) => value.dueAt === undefined || value.dueAt >= value.occurredAt, {
     message: 'L’échéance ne peut pas précéder le dépôt.',
     path: ['dueAt'],
@@ -74,6 +78,7 @@ export const consignmentTermsSchema = z.object({
 
 /** Registered after operationRoutes' authentication middleware. */
 export function registerConsignmentRoutes(app: OpenAPIHono<{ Variables: Variables }>) {
+  registerConsignmentDocumentRoutes(app);
   app.openapi(
     createRoute({
       method: 'get',

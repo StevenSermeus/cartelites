@@ -11,7 +11,7 @@ export async function loadItemPhoto(
       : /\.(jpe?g|png|webp|heic|avif)$/i.test(photo.filename);
     if (!isImage) continue;
     try {
-      return await load(`/attachments/${encodeURIComponent(photo._id)}/download`);
+      return await load(`/attachments/${encodeURIComponent(photo._id)}/download?size=thumbnail`);
     } catch {
       // Another attachment, then the catalogue image, can still be displayed.
     }

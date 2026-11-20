@@ -128,9 +128,11 @@ export function StockScreen({
   onRefresh,
   onVisibilitySaved,
   revision = 0,
+  resetVersion = 0,
   onFilterControlChange,
 }: {
   revision?: number;
+  resetVersion?: number;
   onFilterControlChange?: (
     control: { open: () => void; count: number } | null,
   ) => void;
@@ -156,6 +158,11 @@ export function StockScreen({
   const [search, setSearch] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [visibilityToolsOpen, setVisibilityToolsOpen] = useState(false);
+  useEffect(() => {
+    setFocusedItem(null);
+    setFiltersOpen(false);
+    setVisibilityToolsOpen(false);
+  }, [resetVersion]);
   const [visibility, setVisibility] = useState<"all" | "visible" | "hidden">(
     "all",
   );

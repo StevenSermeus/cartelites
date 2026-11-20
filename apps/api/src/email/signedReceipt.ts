@@ -5,7 +5,7 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
 })[char]!);
 
 export function signedReceiptEmail(input: {
-  kind: 'purchase' | 'consignment';
+  kind: 'purchase' | 'consignment' | 'consignment_return';
   reference: string;
   clientName: string;
   signedAt?: number;
@@ -13,15 +13,15 @@ export function signedReceiptEmail(input: {
   identity: typeof receiptIdentity;
 }) {
   const { brand, legal } = input.identity;
-  const title = input.kind === 'purchase' ? 'Votre rachat, signé et confirmé' : 'Votre dépôt-vente, signé et confirmé';
-  const document = input.kind === 'purchase' ? 'Document de rachat' : 'Contrat de dépôt-vente';
+  const title = input.kind === 'purchase' ? 'Votre rachat, signé et confirmé' : input.kind === 'consignment_return' ? 'Votre bon de restitution signé' : 'Votre dépôt-vente, signé et confirmé';
+  const document = input.kind === 'purchase' ? 'Document de rachat' : input.kind === 'consignment_return' ? 'Bon de restitution' : 'Contrat de dépôt-vente';
   const greeting = input.clientName.trim() ? `Bonjour ${input.clientName.trim()},` : 'Bonjour,';
   const date = input.signedAt ? new Intl.DateTimeFormat('fr-BE', {
     dateStyle: 'long', timeZone: 'Europe/Brussels',
   }).format(input.signedAt) : undefined;
   const e = escapeHtml;
   const contact = legal.email;
-  const subject = `${brand.name} — votre ${input.kind === 'purchase' ? 'rachat' : 'dépôt-vente'} signé · ${input.reference}`;
+  const subject = `${brand.name} — votre ${input.kind === 'purchase' ? 'rachat' : input.kind === 'consignment_return' ? 'bon de restitution' : 'dépôt-vente'} signé · ${input.reference}`;
   const text = `${greeting}\n\nMerci pour votre confiance. Vous trouverez en pièce jointe votre exemplaire du document signé par les deux parties.\n\n${document}\nRéférence : ${input.reference}${date ? `\nSigné le : ${date}` : ''}\nPièce jointe : ${input.filename}\n\nConservez ce PDF : il reprend les détails et les conditions de notre accord.\n\nUne question concernant votre document ? Écrivez-nous à ${contact} en rappelant la référence ${input.reference}.\n\nÀ bientôt,\nL’équipe ${brand.name}\n${legal.companyName} ${legal.legalForm} · ${legal.vatNumber}\n${legal.address} · ${legal.country}`;
   const html = `<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${e(subject)}</title></head>

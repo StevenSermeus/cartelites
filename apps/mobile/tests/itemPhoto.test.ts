@@ -10,7 +10,7 @@ test('personal image wins and PDF attachments are skipped', async () => {
     { _id: 'second', filename: 'card.jpg', contentType: 'image/jpeg' },
   ], async (path) => { paths.push(path); return 'data:image/png;base64,AQ=='; });
   assert.equal(result, 'data:image/png;base64,AQ==');
-  assert.deepEqual(paths, ['/attachments/photo%2Fid/download']);
+  assert.deepEqual(paths, ['/attachments/photo%2Fid/download?size=thumbnail']);
 });
 
 test('unavailable attachments fall through to another photo or catalogue fallback', async () => {

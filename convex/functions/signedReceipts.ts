@@ -8,7 +8,7 @@ import {
 import type { Id } from './_generated/dataModel';
 import { signatureValidator, validSignature } from './signatures';
 
-const kind = v.union(v.literal('purchase'), v.literal('consignment'));
+const kind = v.union(v.literal('purchase'), v.literal('consignment'), v.literal('consignment_return'));
 const clean = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 // Convex may reorder object keys when storing values; compare content canonically.
 const canonical = (value: unknown): string =>
@@ -22,7 +22,7 @@ const consent =
 async function snapshot(
   ctx: QueryCtx | MutationCtx,
   ownerId: string,
-  type: 'purchase' | 'consignment',
+  type: 'purchase' | 'consignment' | 'consignment_return',
   targetId: string,
 ) {
   const account = await ctx.db.get(ownerId as Id<'accounts'>);
@@ -30,6 +30,24 @@ async function snapshot(
   const signatory = account.signatory;
   if (!signatory?.firstName || !signatory.lastName || !signatory.capacity)
     throw new Error('SIGNATORY_REQUIRED');
+  if (type === 'consignment_return') {
+    const operation = await ctx.db.get(targetId as Id<'consignmentReturns'>);
+    if (!operation || operation.completedAt) throw new Error('RETURN_ALREADY_COMPLETED');
+    const dossier = await ctx.db.get(operation.consignmentId);
+    if (!dossier) throw new Error('RECEIPT_TARGET_INVALID');
+    const client = await ctx.db.get(dossier.sellerId);
+    if (!client) throw new Error('CLIENT_NOT_FOUND');
+    const items = await Promise.all(operation.itemIds.map(id => ctx.db.get(id)));
+    if (items.some(i => !i || i.consignmentId !== dossier._id || i.status !== 'available')) throw new Error('ITEM_UNAVAILABLE');
+    return clean({ reference: `RET-${dossier.reference}-${operation._id}`, occurredAt: operation.occurredAt,
+      client: {name: client.name,email:client.email,phone:client.phone,address:client.address},
+      signatory: {firstName:signatory.firstName,lastName:signatory.lastName,capacity:signatory.capacity},
+      title: 'Bon de restitution', signatureRequired: true,
+      items: items.map(i=>({name:i!.name})),
+      lines: items.map(i=>({label:i!.name,detail:[i!._id,i!.series,i!.identifier,i!.condition,i!.gradingCompany,i!.gradingGrade,i!.gradingCertificate].filter(Boolean).join(' / ')})),
+      totals: [], notes: [`Dépôt : ${dossier.reference}`, `État à la remise : ${operation.conditionNotes}`, 'Le déposant accuse réception des articles listés. Cette restitution ne constitue ni une vente ni un reversement.'],
+    });
+  }
   const row =
     type === 'purchase'
       ? await ctx.db.get(targetId as Id<'purchases'>)
@@ -52,7 +70,7 @@ async function snapshot(
   return clean({
     reference: row.reference,
     occurredAt: row.occurredAt,
-    ...('status' in row ? { status: row.status } : { notes: row.notes, dueAt: row.dueAt }),
+    ...('status' in row ? { status: row.status } : { notes: row.notes, dueAt: row.dueAt, contractTerms: row.contractTerms, contractRevision: row.contractRevision }),
     client: {
       name: client.name,
       email: client.email,
@@ -162,6 +180,14 @@ export const sign = internalMutation({
       canonical(row.snapshot)
     )
       throw new Error('RECEIPT_CHANGED');
+    if (row.kind === 'consignment_return') {
+      const operation = (await ctx.db.get(row.targetId as Id<'consignmentReturns'>))!;
+      for (const itemId of operation.itemIds) {
+        await ctx.db.patch(itemId, {status:'returned',returnedAt:operation.occurredAt});
+        await ctx.db.insert('consignmentEvents', {ownerId:args.ownerId,operationId:`${operation.operationId}:${itemId}`,operationDigest:operation.operationDigest,itemId,kind:'return',occurredAt:operation.occurredAt,authorizationNote:`Bon de restitution ${row._id} - ${operation.conditionNotes}`,createdAt:Date.now()});
+      }
+      await ctx.db.patch(operation._id,{completedAt:Date.now()});
+    }
     await ctx.db.patch(args.id, {
       signedAt: Date.now(),
       companySignature: args.company,
@@ -184,6 +210,11 @@ export const archive = internalMutation({
     if (!row?.signedAt) throw new Error('NOT_SIGNED');
     if (row.sha256 && row.sha256 !== data.sha256) throw new Error('ARCHIVE_IMMUTABLE');
     await ctx.db.patch(id, data);
+    if (row.kind === 'consignment') {
+      const dossier = await ctx.db.get(row.targetId as Id<'consignments'>);
+      if (dossier?.flowVersion === 2 && dossier.contractRevision === row.snapshot.contractRevision)
+        await ctx.db.patch(dossier._id, {contractStatus:'signed'});
+    }
   },
 });
 export const claimEmail = internalMutation({

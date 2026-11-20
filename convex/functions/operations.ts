@@ -332,6 +332,7 @@ async function createSaleTransaction(ctx: MutationCtx, args: SaleInput) {
   if (item.origin === 'consignment') {
     if (!consignment || item.commissionRateBps === undefined || item.agreedPriceCents === undefined)
       throw new Error('CONSIGNMENT_ITEM_NOT_FOUND');
+    if (consignment.flowVersion === 2 && consignment.contractStatus !== 'signed') throw new Error('CONTRACT_SIGNATURE_REQUIRED');
     if (args.salePriceCents < item.agreedPriceCents) throw new Error('PRICE_BELOW_AGREEMENT');
   } else if (purchase?.status !== 'active') throw new Error('ITEM_UNAVAILABLE');
   if (item.status !== 'available') {
@@ -609,6 +610,7 @@ export const stock = query({
         const source = consignment ?? purchase;
         const seller = source ? await ctx.db.get(source.sellerId) : null;
         if (!consignment && purchase?.status !== 'active') return null;
+        if (consignment?.flowVersion === 2 && consignment.contractStatus !== 'signed') return null;
         return {
           ...item,
           photos,
@@ -627,14 +629,14 @@ export const stock = query({
 
 async function catalogueEligible(ctx: QueryCtx, item: Doc<'items'>): Promise<boolean> {
   if (item.status !== 'available' || item.hiddenFromCatalogue || item.askingPriceCents === undefined) return false;
-  if (item.consignmentId) return Boolean(await ctx.db.get(item.consignmentId));
+  if (item.consignmentId) { const d = await ctx.db.get(item.consignmentId); return !!d && (d.flowVersion !== 2 || d.contractStatus === 'signed'); }
   const purchase = item.purchaseId ? await ctx.db.get(item.purchaseId) : null;
   return purchase?.status === 'active';
 }
 
 async function cataloguePhoto(ctx: QueryCtx, itemId: Id<'items'>) {
   const photos = await ctx.db.query('attachments').withIndex('by_item', q => q.eq('itemId', itemId)).collect();
-  return photos.find(photo => !photo.purchaseId && ['image/jpeg', 'image/png'].includes(photo.contentType)) ?? null;
+  return photos.find(photo => !photo.purchaseId && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType)) ?? null;
 }
 
 // Only the service-authenticated action can resolve private object keys.
@@ -888,7 +890,7 @@ export const createAttachment = mutation({
       if (args.purchaseId && item.purchaseId !== args.purchaseId)
         throw new Error('ATTACHMENT_TARGET_MISMATCH');
     }
-    const prefix = args.itemId && ['image/jpeg', 'image/png'].includes(args.contentType)
+    const prefix = args.itemId && ['image/jpeg', 'image/png', 'image/webp'].includes(args.contentType)
       ? `cards/${ownerId}/` : `attachments/${ownerId}/`;
     const validKey = [prefix, `${ownerId}/`].some(base => {
       if (!args.objectKey.startsWith(base)) return false;

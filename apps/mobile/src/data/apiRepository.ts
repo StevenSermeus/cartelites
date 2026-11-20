@@ -1,3 +1,4 @@
+import { optimizeAttachment } from './optimizeAttachment';
 import { createPurchaseReceiptPdf } from '../../../../packages/domain/src/purchaseReceipt';
 import { createConsignmentReceiptPdf, type SignatoryProfile, type ConsignmentReceiptIdentity, type ReceiptLogo } from '../../../../packages/domain/src/consignmentReceipt';
 import * as Crypto from 'expo-crypto';
@@ -345,6 +346,7 @@ async function uploadAttachment(field: 'purchaseId' | 'itemId', id: string, file
   const baseUrl = getApiBaseUrl();
   const token = await readSession();
   if (!baseUrl || !token) throw new Error('Reconnectez-vous avant de téléverser la photo.');
+  file = await optimizeAttachment(file);
   const form = new FormData();
   form.append(field, id);
   form.append('file', { uri: file.uri, name: file.name, type: file.mimeType } as never);
@@ -403,6 +405,10 @@ export type Consignment = {
   reference: string;
   occurredAt: number;
   notes?: string;
+  flowVersion?: number;
+  contractStatus?: 'awaiting_signature' | 'signed';
+  contractRevision?: number;
+  contractTerms?: {version:string;text:string};
   dueAt?: number;
   items: Item[];
 };
@@ -450,6 +456,8 @@ export const createConsignment = (input: {
   occurredAt: number;
   reference: string;
   notes?: string;
+  flowVersion?: 2;
+  contractTerms?: {version:string;text:string};
   dueAt?: number;
   items: ConsignmentEntry[];
 }) => request<{ consignmentId: string; itemIds: string[] }>('/consignments', input);

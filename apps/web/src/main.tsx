@@ -1,3 +1,4 @@
+import { optimizeUploadImage } from './optimizeImage';
 import BuybackPage, { PublicNavigation } from './BuybackPage';
 import { ReceiptSigning, ReceiptSigningPage, parseSignaturePath } from './ReceiptSigning';
 import { FiArchive, FiDownload, FiGrid, FiList, FiPackage, FiSettings, FiShoppingBag, FiShoppingCart, FiUsers, FiExternalLink } from 'react-icons/fi';
@@ -1467,6 +1468,7 @@ function App() {
     }
   }
   async function uploadItemAttachment(itemId: string, file: File) {
+    file = await optimizeUploadImage(file, API);
     const form = new FormData();
     form.append('itemId', itemId);
     form.append('file', file);
@@ -1484,7 +1486,8 @@ function App() {
       const messages: Record<string, string> = {
         ATTACHMENT_STORAGE_ACCESS_DENIED: 'Accès R2 refusé : vérifiez les droits du jeton sur le bucket',
         ATTACHMENT_STORAGE_UNAVAILABLE: 'Stockage R2 indisponible',
-        ATTACHMENT_TYPE_NOT_ALLOWED: 'Format refusé : utilisez une image JPEG ou PNG',
+        ATTACHMENT_IMAGE_INVALID: 'La photo est illisible ou son format est invalide',
+        ATTACHMENT_TYPE_NOT_ALLOWED: 'Format refusé : utilisez une image JPEG, PNG ou WebP',
         ATTACHMENT_SIZE_NOT_ALLOWED: 'La photo est vide ou dépasse la taille autorisée',
         ATTACHMENT_TOO_LARGE: 'La photo dépasse la taille autorisée',
       };

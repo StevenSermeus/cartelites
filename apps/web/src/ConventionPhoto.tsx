@@ -5,7 +5,7 @@ export function ConventionPhoto({ id, name, hasPhoto, catalogueImageUrl, apiBase
 }) {
   const [failed, setFailed] = useState<string[]>([]);
   const sources = [
-    ...(hasPhoto ? [`${apiBase}/catalogue/${encodeURIComponent(id)}/photo`] : []),
+    ...(hasPhoto ? [`${apiBase}/catalogue/${encodeURIComponent(id)}/photo?size=thumbnail`] : []),
     ...(catalogueImageUrl ? [catalogueImageUrl] : []),
   ];
   const src = sources.find(source => !failed.includes(source));

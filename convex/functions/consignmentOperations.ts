@@ -1,4 +1,5 @@
 import { v } from 'convex/values';
+import { snapshotPayment } from './consignmentDocuments';
 import type { Id } from './_generated/dataModel';
 import { mutation, type QueryCtx, query } from './_generated/server';
 
@@ -36,6 +37,8 @@ export const createConsignment = mutation({
     occurredAt: v.number(),
     reference: v.string(),
     notes: v.optional(v.string()),
+    flowVersion: v.optional(v.literal(2)),
+    contractTerms: v.optional(v.object({ version: v.string(), text: v.string() })),
     dueAt: v.optional(v.number()),
     items: v.array(
       v.object({
@@ -106,9 +109,12 @@ export const createConsignment = mutation({
       if (!item.operationId || !item.name.trim()) throw new Error('INVALID_ITEM');
       validateTerms(item.askingPriceCents, item.commissionRateBps);
     }
+    if (args.flowVersion === 2 && (!args.contractTerms?.version.trim() || !args.contractTerms.text.trim() || args.contractTerms.text.length > 10000))
+      throw new Error('CONTRACT_TERMS_REQUIRED');
     const { items, ...header } = args;
     const consignmentId = await ctx.db.insert('consignments', {
       ...header,
+      ...(args.flowVersion === 2 ? { contractRevision: 1, contractStatus: 'awaiting_signature' as const } : {}),
       ownerId,
       operationDigest: JSON.stringify(args),
       createdAt: Date.now(),
@@ -168,7 +174,7 @@ export const consignmentHistory = query({
   },
 });
 
-async function readBalances(ctx: Pick<QueryCtx, 'db'>) {
+export async function readBalances(ctx: Pick<QueryCtx, 'db'>) {
   const [sales, payments, dossiers, sellers] = await Promise.all([
     ctx.db.query('sales').collect(),
     ctx.db.query('consignmentPayments').collect(),
@@ -280,13 +286,15 @@ export const recordConsignmentPayment = mutation({
       .reduce((sum, payment) => sum + BigInt(payment.amountCents), 0n);
     if (BigInt(args.amountCents) > earnedAtDate - paidAtDate)
       throw new Error('INVALID_PAYMENT_DATE');
-    return ctx.db.insert('consignmentPayments', {
+    const paymentId = await ctx.db.insert('consignmentPayments', {
       ...args,
       method: args.method.trim(),
       ownerId,
       operationDigest: JSON.stringify(args),
       createdAt: Date.now(),
     });
+    await snapshotPayment(ctx, paymentId);
+    return paymentId;
   },
 });
 export const returnConsignmentItem = mutation({
@@ -307,6 +315,8 @@ export const returnConsignmentItem = mutation({
     if (item?.origin !== 'consignment' || !item.consignmentId)
       throw new Error('CONSIGNMENT_ITEM_NOT_FOUND');
     if (item.status !== 'available') throw new Error('ITEM_UNAVAILABLE');
+    const dossier = await ctx.db.get(item.consignmentId);
+    if (dossier?.flowVersion === 2) throw new Error('RETURN_SIGNATURE_REQUIRED');
     if (
       !args.operationId ||
       !validDate(args.occurredAt) ||
@@ -361,6 +371,10 @@ export const updateConsignmentTerms = mutation({
       previousCommissionRateBps: item.commissionRateBps,
       occurredAt: Date.now(),
       createdAt: Date.now(),
+    });
+    const dossier = await ctx.db.get(item.consignmentId);
+    if (dossier?.flowVersion === 2) await ctx.db.patch(dossier._id, {
+      contractRevision: (dossier.contractRevision ?? 1) + 1, contractStatus: 'awaiting_signature',
     });
     await ctx.db.patch(item._id, {
       askingPriceCents: args.askingPriceCents,

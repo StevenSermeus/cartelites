@@ -94,7 +94,7 @@ export function ReceiptSigning({
   onSigned,
   onSignedPending,
 }: {
-  kind: "purchase" | "consignment";
+  kind: "purchase" | "consignment" | "consignment_return";
   targetId: string;
   allowSigning?: boolean;
   onSigned?: (pdf: string) => void;
@@ -111,6 +111,7 @@ export function ReceiptSigning({
   const [summary, setSummary] = useState<{
     name: string;
     amount: number;
+    count: number;
   } | null>(null);
   const [documentAvailable, setDocumentAvailable] = useState(false);
   const [signedPdf, setSignedPdf] = useState<string | null>(null);
@@ -176,6 +177,7 @@ export function ReceiptSigning({
     setReference(d.snapshot.reference);
     setSummary({
       name: d.snapshot.client.name,
+      count: d.snapshot.items.length,
       amount: d.snapshot.items.reduce(
         (total, item) =>
           total + (item.purchasePriceCents ?? item.askingPriceCents ?? 0),
@@ -683,7 +685,12 @@ export function ReceiptSigning({
                         ]}
                       >
                         L’original signé sera conservé et une copie sera envoyée
-                        au client. La validation du stock reste distincte.
+                        au client.{" "}
+                        {kind === "consignment_return"
+                          ? "La signature retire les articles restitués du stock."
+                          : kind === "consignment"
+                            ? "Le contrat signé et archivé rend les articles disponibles à la vente."
+                            : "La validation du stock reste distincte."}
                       </Text>
                     </>
                   )}
@@ -739,12 +746,14 @@ export function ReceiptSigning({
                         },
                       ]}
                     >
-                      {summary
+                      {summary && kind !== "consignment_return"
                         ? new Intl.NumberFormat("fr-BE", {
                             style: "currency",
                             currency: "EUR",
                           }).format(summary.amount / 100)
-                        : "Signé"}
+                        : kind === "consignment_return" && summary
+                          ? `${summary.count} article${summary.count > 1 ? "s" : ""} restitué${summary.count > 1 ? "s" : ""}`
+                          : "Signé"}
                     </Text>
                     {!!reference && (
                       <Text

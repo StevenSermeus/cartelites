@@ -1,5 +1,6 @@
 import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
 import { Ionicons } from '@expo/vector-icons';
+import { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 export type Page =
@@ -44,14 +45,17 @@ const tabs = [
 export function MobileNavigation({
   page,
   onChange,
+  onReset,
   disabled = false,
 }: {
   page: Page;
   onChange: (page: Page) => void;
+  onReset: (page: Page) => void;
   disabled?: boolean;
 }) {
   const { colors } = useTheme();
   const s = createStyles(colors);
+  const lastPress = useRef<{ target: Page; at: number } | null>(null);
 
   return (
     <View accessibilityRole="tablist" style={s.bar}>
@@ -64,6 +68,17 @@ export function MobileNavigation({
             accessibilityLabel={title}
             accessibilityState={{ selected, disabled }}
             disabled={disabled}
+            accessibilityHint="Appuyez deux fois rapidement pour revenir au début de cet onglet."
+            onPressIn={() => {
+              const now = Date.now();
+              const previous = lastPress.current;
+              if (previous?.target === target && now - previous.at <= 500) {
+                lastPress.current = null;
+                onReset(target);
+              } else {
+                lastPress.current = { target, at: now };
+              }
+            }}
             onPress={() => onChange(target)}
             style={[s.tab, selected && s.selected]}
           >

@@ -449,7 +449,7 @@ export function PurchaseEditor({
                     Photo personnelle
                     <input
                       type="file"
-                      accept="image/jpeg,image/png"
+                      accept="image/jpeg,image/png,image/webp"
                       onChange={(e) => { const file = e.target.files?.[0]; if (file) patch(item.key, { photo: file }); e.target.value = ''; }}
                     />
                     {item.photo && <><small>{item.photo.name}</small><img className="purchase-photo-preview" src={photoUrls[item.key]} alt={`Aperçu de ${item.photo.name}`} /><button type="button" className="secondary" onClick={() => patch(item.key, { photo: null })}>Retirer la photo</button></>}

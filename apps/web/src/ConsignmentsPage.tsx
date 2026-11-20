@@ -1,3 +1,4 @@
+import { ConsignmentDocuments } from './ConsignmentDocuments';
 import { ReceiptSigning } from './ReceiptSigning';
 import { useEffect, useRef, useState } from 'react';
 import { brand } from '../../../branding/brand';
@@ -40,6 +41,10 @@ export type Consignment = {
   occurredAt: number;
   dueAt?: number;
   notes?: string;
+  flowVersion?: number;
+  contractStatus?: "awaiting_signature" | "signed";
+  contractRevision?: number;
+  contractTerms?: {version:string;text:string};
   items: ConsignmentItem[];
 };
 export type ConsignmentBalances = {
@@ -134,6 +139,9 @@ export default function ConsignmentsPage({
   const [date, setDate] = useState(today());
   const [due, setDue] = useState('');
   const [notes, setNotes] = useState('');
+  const [contractTerms, setContractTerms] = useState('');
+  const [contractVersion, setContractVersion] = useState('1');
+  const [creationStep, setCreationStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -241,6 +249,7 @@ export default function ConsignmentsPage({
   async function create() {
     setError('');
     setNotice('');
+    if (!contractTerms.trim() || !contractVersion.trim()) return setError('Complétez les conditions réellement convenues et leur version.');
     if (
       !sellerId ||
       !reference.trim() ||
@@ -275,6 +284,8 @@ export default function ConsignmentsPage({
           body: JSON.stringify({
             operationId: operationId.current,
             sellerId,
+            flowVersion: 2,
+            contractTerms: {version:contractVersion.trim(),text:contractTerms.trim()},
             reference: reference.trim(),
             occurredAt: dateValue(date),
             dueAt: due ? dateValue(due) : undefined,
@@ -312,10 +323,12 @@ export default function ConsignmentsPage({
       setRows([draft()]);
       setReference('');
       setNotes('');
+      setContractTerms('');
+      setCreationStep(0);
       setDue('');
       await refresh();
       await onChanged();
-      setNotice('Dépôt enregistré. Les articles sont disponibles dans le stock.');
+      setNotice('Dépôt enregistré. Ouvrez son dossier puis lisez et signez le contrat pour rendre les articles disponibles à la vente.');
     } catch (e) {
       setError(
         `${e instanceof Error ? e.message : String(e)}${committed.current ? ' Le dépôt est enregistré ; réessayez pour terminer les pièces jointes.' : ''}`,
@@ -336,6 +349,8 @@ export default function ConsignmentsPage({
         </p>
         <div>
           <fieldset disabled={busy || !!committed.current} className="consignment-fieldset">
+            <nav className="actions" aria-label="Étapes du dépôt">{['Déposant','Inventaire','Conditions','Vérifier'].map((label,i)=><button type="button" className={i===creationStep?'':'secondary'} onClick={()=>setCreationStep(i)} key={label}>{i+1}. {label}</button>)}</nav>
+            <div hidden={creationStep!==0}>
             <span className="purchase-step">01 · Déposant</span>
             <ClientPicker request={request}
               clients={clients}
@@ -375,6 +390,7 @@ export default function ConsignmentsPage({
                 placeholder="Accord sur les remises, restitution…"
               />
             </label>
+            </div><div hidden={creationStep!==1}>
             <div className="purchase-section-title">
               <div>
                 <span className="purchase-step">02 · Articles</span>
@@ -572,9 +588,12 @@ export default function ConsignmentsPage({
             >
               Ajouter un article
             </button>
+            </div>
+            <div hidden={creationStep!==2}><h3>Conditions convenues</h3><p>Renseignez les conditions réellement convenues : propriété, durée, versement, restitution et garde. Aucun régime TVA ni clause juridique n’est appliqué automatiquement.</p><label>Version des conditions<input value={contractVersion} onChange={e=>setContractVersion(e.target.value)}/></label><label>Conditions du contrat<textarea rows={8} maxLength={10000} value={contractTerms} onChange={e=>setContractTerms(e.target.value)}/></label><p>Commission déduite du prix effectivement vendu. Aucun frais supplémentaire ajouté par l’application. Une remise sous le prix convenu exige un nouvel accord.</p></div>
+            <div hidden={creationStep!==3}><h3>Vérifier le contrat</h3><p>{clients.find(c=>c._id===sellerId)?.name} · {reference} · {date}</p><ul>{rows.map(r=><li key={r.operationId}>{r.name} · {r.price} € · commission {r.rate} %</li>)}</ul><p style={{whiteSpace:'pre-wrap'}}>Conditions version {contractVersion} : {contractTerms}</p><p>Aucun versement attesté. Le dépôt sera à signer avant la mise en vente.</p></div>
           </fieldset>
-          <button type="button" disabled={busy} onClick={() => void create()}>
-            {committed.current ? 'Terminer les pièces jointes' : 'Enregistrer le dépôt'}
+          <button type="button" disabled={busy} onClick={() => creationStep===3 ? void create() : setCreationStep(creationStep+1)}>
+            {committed.current ? 'Terminer les pièces jointes' : creationStep===3 ? 'Préparer le contrat' : 'Continuer'}
           </button>
         </div>
       </section>
@@ -789,6 +808,7 @@ export default function ConsignmentsPage({
                 {d.reference} · {d.sellerName} ·{' '}
                 {new Date(d.occurredAt).toLocaleDateString('fr-BE')} · {d.items.length} article(s)
               </summary>
+              <p>{d.flowVersion===2 ? d.contractStatus==='signed'?'Contrat signé':'Contrat à signer — articles indisponibles à la vente':'Dossier historique'}{d.contractRevision ? ` · révision ${d.contractRevision}` : ''}</p>
               {d.notes && <p>{d.notes}</p>}
               {d.dueAt && <p>Échéance : {new Date(d.dueAt).toLocaleDateString('fr-BE')}</p>}
               <button
@@ -800,6 +820,7 @@ export default function ConsignmentsPage({
                 Télécharger le bon de dépôt non signé PDF
               </button>
               <ReceiptSigning kind="consignment" targetId={d._id} request={request} />
+              <ConsignmentDocuments deposit={d} request={request} onChanged={()=>{void refresh();void onChanged();}}/>
               {d.items.map((item) => (
                 <article key={item._id}>
                   <div>
@@ -873,25 +894,7 @@ export default function ConsignmentsPage({
                       >
                         Modifier l’accord
                       </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              `Confirmer la restitution de « ${item.name} » au déposant ?`,
-                            )
-                          )
-                            void mutate('/consignments/return', {
-                              operationId: crypto.randomUUID(),
-                              itemId: item._id,
-                              occurredAt: Date.now(),
-                            });
-                        }}
-                      >
-                        Restituer
-                      </button>
+
                     </div>
                   )}
                 </article>

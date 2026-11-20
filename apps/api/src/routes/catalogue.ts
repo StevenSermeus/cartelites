@@ -2,7 +2,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
 import { env } from '../env.js';
-import { readImage } from '../storage/images.js';
+import { readImageVariant } from '../storage/images.js';
 
 const publicCatalogueQuery = makeFunctionReference<'query'>('operations:publicCatalogue');
 
@@ -16,11 +16,11 @@ export function catalogueRoutes() {
       operation: 'cataloguePhotoObject',
       payload: { itemId: c.req.param('itemId') },
     }) as { objectKey: string; contentType: string } | null;
-    if (!photo || !['image/jpeg', 'image/png'].includes(photo.contentType))
+    if (!photo || !['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType))
       return c.json({ error: 'PHOTO_NOT_FOUND' }, 404);
-    const stored = await readImage(photo.objectKey);
+    const { stored, contentType } = await readImageVariant(photo.objectKey, photo.contentType, c.req.query('size') === 'thumbnail');
     if (!stored.ok || !stored.body) return c.json({ error: 'PHOTO_NOT_FOUND' }, 404);
-    c.header('Content-Type', photo.contentType);
+    c.header('Content-Type', contentType);
     c.header('X-Content-Type-Options', 'nosniff');
     return c.body(stored.body);
   });

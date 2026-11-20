@@ -27,6 +27,7 @@ async function itemRecord(ctx: QueryCtx, item: Doc<'items'>) {
   const photos = await ctx.db.query('attachments').withIndex('by_item', q => q.eq('itemId', item._id)).take(11);
   return { ...item, origin: item.origin ?? 'purchase', productType: item.productType ?? 'card', purchasePriceCents: item.purchasePriceCents ?? 0,
     purchaseReference: source?.reference ?? '', sellerId: source?.sellerId, sellerName: seller?.name ?? '',
+    contractPending: source && 'flowVersion' in source && source.flowVersion === 2 && source.contractStatus !== 'signed',
     sourceStatus: source && 'status' in source ? source.status : undefined, photos: photos.slice(0, 10), hasMorePhotos: photos.length > 10 };
 }
 async function saleRecord(ctx: QueryCtx, sale: Doc<'sales'>) {
@@ -108,6 +109,7 @@ export const browse = query({ args: filterArgs, handler: async (ctx, args) => {
   const words = normalize(args.search).trim().split(/\s+/).filter(Boolean);
   const items = rows.filter(row => {
     if (resource === 'stock' && !args.purchaseId && !args.consignmentId && row.origin !== 'consignment' && row.sourceStatus !== 'active') return false;
+    if (resource === 'stock' && !args.purchaseId && !args.consignmentId && row.contractPending) return false;
     if (resource === 'balances' && !row.hasDeposits) return false;
     if (args.sellerId && String(row.sellerId ?? (resource === 'sellers' ? row._id : '')) !== args.sellerId) return false;
     if (args.itemId && String(row.itemId) !== args.itemId) return false;

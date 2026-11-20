@@ -185,3 +185,27 @@ BREVO_FROM_NAME=Votre boutique
 Authentifier le domaine et vérifier l’expéditeur dans Brevo avant d’envoyer. Ces variables remplacent `RESEND_API_KEY` et `RESET_FROM_EMAIL` ; aucune bascule automatique vers Resend. Les valeurs vides sont acceptées et désactivent l’envoi. Déployer d’abord le schéma et les fonctions Convex, puis reconstruire l’API et les interfaces. `pnpm --filter @tcg-marge/api receipt:identity` synchronise aussi les générateurs PDF partagés avec le build autonome de l’API.
 
 L’envoi utilise l’API Brevo avec le PDF archivé en pièce jointe. **Accepté par Brevo** ne signifie pas **reçu par le client** : consulter les journaux Brevo pour la livraison. Si Brevo n’est pas configuré, si le quota est atteint ou si l’envoi échoue, l’original reste accessible. Le renvoi est manuel, limité à une tentative par minute et par document ; il n’y a pas de tâche automatique différée. Un résultat réseau incertain demande de vérifier Brevo avant de renvoyer pour éviter les doublons. Sans adresse e-mail, remettre le PDF par téléchargement/partage. L’adresse d’envoi est celle figée dans le document : corriger une adresse nécessite une nouvelle version signée.
+
+### Brouillons de rachat sur iPhone
+
+Plusieurs rachats peuvent rester dans **À terminer sur cet appareil**. Les cartes,
+prix, client, photos et étape sont sauvegardés automatiquement dans les documents
+privés de l'app, séparément pour chaque compte et instance. Attendre l'indication
+« Brouillons sauvegardés sur cet appareil » avant de fermer l'app. Un nouveau
+rachat conserve les précédents ; un glissement à gauche révèle la corbeille.
+La validation côté serveur retire uniquement le brouillon correspondant. Ces
+brouillons ne sont pas synchronisés entre appareils et ne remplacent pas la
+connexion nécessaire aux opérations serveur. Désinstaller l'app les supprime.
+
+### Optimisation des nouvelles photos
+
+Les clients web et iOS redimensionnent les photos à 2 000 pixels maximum avant
+l'envoi, sans agrandissement. Ils utilisent WebP à qualité 85 lorsque l'API
+l'annonce via `/api/v1/instance`, sinon JPEG. L'API vérifie le contenu réel,
+limite le décodage à 60 millions de pixels, corrige l'orientation et retire les
+métadonnées. Un fichier déjà petit, propre et plus léger peut rester dans son
+format ; un WebP déjà optimisé n'est pas recompressé. Les images animées sont
+refusées. Une miniature WebP de 480 pixels est stockée avec chaque nouvelle photo
+et servie aux listes avec `?size=thumbnail`, avec repli sur l'image existante pour
+les anciennes pièces. Les PDF et signatures ne passent pas par ce traitement.
+Les photos déjà stockées ne sont pas migrées.

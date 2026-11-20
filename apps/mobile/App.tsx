@@ -1,3 +1,5 @@
+import { useLocalPurchaseDrafts } from "./src/data/useLocalPurchaseDrafts";
+import { SwipeToDelete } from './src/components/SwipeToDelete';
 import {
   AppearanceSettings,
   useTheme,
@@ -258,15 +260,18 @@ export default function App() {
   const [error, setError] = useState("");
   const [clientSearch, setClientSearch] = useState("");
   const [purchaseClientSearch, setPurchaseClientSearch] = useState("");
-  const [clientId, setClientId] = useState("");
+  const localPurchases = useLocalPurchaseDrafts(authenticated, freshDraft, localDateValue);
+  const { clientId, date: purchaseDate, rows: purchaseDrafts, step: purchaseStep } = localPurchases.active;
+  const { setClientId, setDate: setPurchaseDate, setRows: setPurchaseDrafts, setStep: setPurchaseStep } = localPurchases;
+  const draftClientName = sellers.find(seller => seller._id === clientId)?.name;
+  useEffect(() => {
+    if (draftClientName && draftClientName !== localPurchases.active.clientName) localPurchases.setClientName(draftClientName);
+  }, [draftClientName, localPurchases.active.id, localPurchases.active.clientName]);
   const [editingClientId, setEditingClientId] = useState("");
   const [clientName, setClientName] = useState("");
   const [clientEmail, setClientEmail] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   const [clientAddress, setClientAddress] = useState("");
-  const [purchaseDate, setPurchaseDate] = useState(localDateValue());
-  const [purchaseDrafts, setPurchaseDrafts] =
-    useState<PurchaseDraft[]>(freshDraft);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [salePrices, setSalePrices] = useState<Record<string, string>>({});
   const [askingPriceEdits, setAskingPriceEdits] = useState<
@@ -322,7 +327,18 @@ export default function App() {
     setReceiptError("");
     setReceiptNotice("");
   };
-  const [purchaseStep, setPurchaseStep] = useState(0);
+  const [tabResetVersion, setTabResetVersion] = useState<Partial<Record<Page, number>>>({});
+  const resetTab = (target: Page) => {
+    setAccountDetailsOpen(false);
+    setExpandedPurchase(null);
+    setPurchaseDateEditing(false);
+    setPurchaseOperationsOpen(false);
+    setHistoryFiltersOpen(false);
+    setFocusedSale(null);
+    setTabResetVersion((current) => ({ ...current, [target]: (current[target] ?? 0) + 1 }));
+    setPage(target === "sales" ? "saleSummary" : target);
+    contentScroll.current?.scrollTo({ y: 0, animated: true });
+  };
   const clientData = usePagedData<Seller>(
     "/sellers",
     { search: clientSearch },
@@ -779,12 +795,10 @@ export default function App() {
           failedPhotos.push(row.name);
         }
       }
-      await refresh();
-      setClientId("");
+      localPurchases.remove(localPurchases.active.id);
       setPurchaseClientSearch("");
-      setPurchaseDrafts(freshDraft());
-      setPurchaseDate(localDateValue());
       setPage("history");
+      await refresh();
       const createdPurchase: Purchase = {
         _id: result.purchaseId,
         sellerId: clientId,
@@ -940,6 +954,17 @@ export default function App() {
       setReceiptSharing(false);
     }
   };
+  const removePendingPurchase = async (purchase: Purchase) => {
+    if (busy || purchase.status !== "pending") return;
+    setBusy(true);
+    try {
+      await cancelPendingPurchase(purchase._id);
+      await refresh();
+      setError(`Rachat ${purchase.reference} retiré des rachats à terminer.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Suppression impossible.");
+    } finally { setBusy(false); }
+  };
   const rejectPendingPurchase = async (purchase: Purchase) => {
     Alert.alert(
       "Annuler ce rachat ?",
@@ -949,20 +974,7 @@ export default function App() {
         {
           text: "Annuler le rachat",
           style: "destructive",
-          onPress: () => {
-            setBusy(true);
-            void cancelPendingPurchase(purchase._id)
-              .then(refresh)
-              .then(() => setError(`Rachat ${purchase.reference} annulé.`))
-              .catch((reason: unknown) =>
-                setError(
-                  reason instanceof Error
-                    ? reason.message
-                    : "Annulation impossible.",
-                ),
-              )
-              .finally(() => setBusy(false));
-          },
+          onPress: () => void removePendingPurchase(purchase),
         },
       ],
     );
@@ -1324,6 +1336,11 @@ export default function App() {
   return (
     <SafeAreaView style={styles.page} onTouchStart={markUserActivity}>
       <StatusBar style={dark ? "light" : "dark"} />
+      {(page === "purchase" || page === "history") && (
+        <Text accessibilityLiveRegion="polite" style={{ color: localPurchases.error ? colors.danger : colors.secondary, paddingHorizontal: 20, paddingVertical: 6 }}>
+          {localPurchases.error || (!localPurchases.ready ? "Chargement des brouillons…" : localPurchases.saving ? "Sauvegarde sur cet appareil…" : "Brouillons sauvegardés sur cet appareil")}
+        </Text>
+      )}
       {!!error && (
         <View accessibilityRole="alert" style={styles.errorBox}>
           <Text style={[{ color: colors.text }, styles.error]}>{error}</Text>
@@ -1638,6 +1655,7 @@ export default function App() {
             style={page === "consignments" ? undefined : { display: "none" }}
           >
             <ConsignmentScreen
+              resetVersion={tabResetVersion.consignments ?? 0}
               onFilterControlChange={setFilterControl}
               active={page === "consignments"}
               sellers={sellers}
@@ -1651,6 +1669,7 @@ export default function App() {
 
           {page === "stock" && (
             <StockScreen
+              resetVersion={tabResetVersion.stock ?? 0}
               onFilterControlChange={setFilterControl}
               revision={historyRevision}
               items={items}
@@ -1996,53 +2015,42 @@ export default function App() {
                 <>
                   <ActionButton
                     label="Nouveau rachat"
+                    disabled={busy || !localPurchases.ready}
                     onPress={() => {
-                      const begin = () => {
-                        setPurchaseDrafts(freshDraft());
-                        setClientId("");
-                        setPurchaseStep(0);
-                        setPage("purchase");
-                      };
-                      if (
-                        clientId ||
-                        purchaseDrafts.some((row) => row.name.trim())
-                      ) {
-                        Alert.alert(
-                          "Rachat en cours",
-                          "Reprendre votre saisie ou commencer un nouveau rachat ?",
-                          [
-                            { text: "Annuler", style: "cancel" },
-                            {
-                              text: "Reprendre",
-                              onPress: () => setPage("purchase"),
-                            },
-                            { text: "Nouveau", onPress: begin },
-                          ],
-                        );
-                      } else begin();
+                      localPurchases.start();
+                      setPurchaseClientSearch("");
+                      setPurchaseDateEditing(false);
+                      setPage("purchase");
                     }}
                   />
-
-                  {(clientId ||
-                    purchaseDrafts.some((row) => row.name.trim())) &&
-                    !historySearch && (
-                      <>
-                        <Text
-                          style={[{ color: colors.text }, styles.sectionTitle]}
-                        >
-                          À terminer sur cet appareil
-                        </Text>
-                        <View style={styles.group}>
-                          <MenuRow
-                            title={
-                              selectedPurchaseClient?.name || "Nouveau rachat"
-                            }
-                            subtitle="Brouillon non enregistré"
-                            onPress={() => setPage("purchase")}
-                          />
-                        </View>
-                      </>
-                    )}
+                  {localPurchases.drafts.length > 0 && (
+                    <>
+                      <Text style={[{ color: colors.text }, styles.sectionTitle]}>
+                        À terminer sur cet appareil · {localPurchases.drafts.length}
+                      </Text>
+                      <View style={styles.group}>
+                        {localPurchases.drafts.filter(draft => {
+                          const name = sellers.find(seller => seller._id === draft.clientId)?.name ?? draft.clientName ?? "Nouveau rachat";
+                          return `${name} ${draft.rows.map(row => row.name).join(" ")}`.toLocaleLowerCase().includes(historySearch.trim().toLocaleLowerCase());
+                        }).map(draft => {
+                          const name = sellers.find(seller => seller._id === draft.clientId)?.name ?? draft.clientName ?? "Nouveau rachat";
+                          const count = draft.rows.filter(row => row.included).length;
+                          return <SwipeToDelete key={draft.id} label={`Supprimer le brouillon de ${name}`} disabled={busy || !localPurchases.ready}
+                            onDelete={() => localPurchases.remove(draft.id)}>
+                            <MenuRow title={name}
+                              subtitle={`${count} carte${count > 1 ? "s" : ""} · ${draft.date} · ${["Client", "Cartes", "Vérification"][draft.step]}`}
+                              onPress={() => {
+                                if (!localPurchases.ready) return;
+                                localPurchases.resume(draft.id);
+                                setPurchaseClientSearch("");
+                                setPurchaseDateEditing(false);
+                                setPage("purchase");
+                              }} />
+                          </SwipeToDelete>;
+                        })}
+                      </View>
+                    </>
+                  )}
                   <Pagination data={purchaseHistory} />
                   {!historyBusy && !historyError && (
                     <>
@@ -2067,8 +2075,14 @@ export default function App() {
                             </Text>
                             <View style={styles.group}>
                               {rows.map((purchase) => (
-                                <Pressable
+                                <SwipeToDelete
                                   key={purchase._id}
+                                  enabled={purchase.status === "pending"}
+                                  disabled={busy}
+                                  label={`Supprimer le rachat à terminer ${purchase.reference}`}
+                                  onDelete={() => void removePendingPurchase(purchase)}
+                                >
+                                <Pressable
                                   accessibilityRole="button"
                                   accessibilityLabel={`Ouvrir le rachat ${purchase.reference} de ${purchase.sellerName}`}
                                   onPress={() => {
@@ -2159,6 +2173,7 @@ export default function App() {
                                     color={colors.placeholder}
                                   />
                                 </Pressable>
+                                </SwipeToDelete>
                               ))}
                             </View>
                           </View>
@@ -2681,7 +2696,7 @@ export default function App() {
                       onPress={() =>
                         Alert.alert(
                           "Changer d’instance ?",
-                          "Vous serez déconnecté et les saisies non enregistrées seront abandonnées.",
+                          "Vous serez déconnecté. Les brouillons de rachat sauvegardés restent associés à cette boutique et à votre compte.",
                           [
                             { text: "Annuler", style: "cancel" },
                             {
@@ -2689,8 +2704,6 @@ export default function App() {
                               style: "destructive",
                               onPress: () => {
                                 void logout().then(() => {
-                                  setPurchaseDrafts(freshDraft());
-                                  setClientId("");
                                   setPurchaseAttachments({});
                                   setSalePrices({});
                                   clearClient();
@@ -2821,6 +2834,7 @@ export default function App() {
       {page !== "purchase" && (
         <MobileNavigation
           page={page}
+          onReset={resetTab}
           onChange={(next) => setPage(next === "sales" ? "saleSummary" : next)}
           disabled={busy || accountEditing}
         />

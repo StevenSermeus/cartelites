@@ -13,7 +13,7 @@ export async function pickAttachment(allowPdf = false, preferredSource?: 'camera
   });
   if (!source) return null;
   if (source === 'file') {
-    const result = await DocumentPicker.getDocumentAsync({ type: allowPdf ? ['image/*', 'application/pdf'] : ['image/jpeg', 'image/png'], copyToCacheDirectory: true });
+    const result = await DocumentPicker.getDocumentAsync({ type: allowPdf ? ['image/*', 'application/pdf'] : ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'], copyToCacheDirectory: true });
     if (result.canceled) return null;
     const file = result.assets[0];
     return { uri: file.uri, name: file.name, mimeType: file.mimeType ?? 'application/octet-stream' };
@@ -27,7 +27,7 @@ export async function pickAttachment(allowPdf = false, preferredSource?: 'camera
       return null;
     }
   }
-  const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 0.8, allowsEditing: false };
+  const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1, allowsEditing: false };
   const result = source === 'camera' ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
   if (result.canceled || !result.assets[0]) return null;
   const photo = result.assets[0];

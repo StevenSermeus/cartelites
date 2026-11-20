@@ -40,6 +40,8 @@ export type ConsignmentReceiptInput = {
   occurredAt: number;
   dueAt?: number;
   notes?: string;
+  contractTerms?: { version: string; text: string };
+  contractRevision?: number;
   client: { name: string; email?: string; phone?: string; address?: string };
   items: {
     name: string;
@@ -194,6 +196,7 @@ export function createConsignmentReceiptPdf(
     'MONTANTS AU PRIX CONVENU - AUCUN VERSEMENT ATTESTÉ PAR CE BON.',
     'La commission est déduite du prix de vente effectif. Le versement au déposant dépend de la vente.',
     'Toute modification du prix convenu ou du taux de commission nécessite l’accord du déposant.',
+    ...(receipt.contractTerms ? [`CONDITIONS CONVENUES - VERSION ${receipt.contractTerms.version} - RÉVISION ${receipt.contractRevision ?? 1}`, receipt.contractTerms.text] : []),
     ...(receipt.notes?.trim() ? ['CONDITIONS ET NOTES', receipt.notes] : []),
   ].flatMap((line) => wrap(line, 98));
   for (let offset = 0; offset < conditions.length; offset += 8)
@@ -287,7 +290,7 @@ export function createConsignmentReceiptPdf(
       true,
       brand.colors.primary,
     );
-    draw(194, 751, 18, 'Bon de dépôt-vente', true);
+    draw(194, 751, 17, receipt.contractTerms ? 'Contrat de dépôt-vente' : 'Bon de dépôt-vente', true);
     draw(194, 732, 9, 'ARTICLES CONFIÉS EN DÉPÔT-VENTE', false, brand.colors.muted);
     commands.push(`${rgb(brand.colors.border)} RG`);
     companyLines.forEach((line, index) => {

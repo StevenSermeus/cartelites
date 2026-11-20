@@ -1,3 +1,4 @@
+import { createConsignmentDocumentPdf, type ConsignmentDocumentInput } from '../receipts/consignmentDocument.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { OpenAPIHono, z } from '@hono/zod-openapi';
 import { bodyLimit } from 'hono/body-limit';
@@ -18,7 +19,7 @@ import { sendBrevoEmail, EmailDeliveryError } from '../email/brevo.js';
 import { signedReceiptEmail } from '../email/signedReceipt.js';
 
 const target = z.object({
-  kind: z.enum(['purchase', 'consignment']),
+  kind: z.enum(['purchase', 'consignment', 'consignment_return']),
   targetId: z.string().min(1).max(100),
 });
 const signature = z.custom<Signature>(validSignature);
@@ -27,8 +28,8 @@ const signing = z
   .strict();
 type Row = {
   _id: string;
-  kind: 'purchase' | 'consignment';
-  snapshot: ReceiptPdfInput & ConsignmentReceiptInput;
+  kind: 'purchase' | 'consignment' | 'consignment_return';
+  snapshot: ReceiptPdfInput & ConsignmentReceiptInput & ConsignmentDocumentInput;
   identity: typeof receiptIdentity;
   signedAt?: number;
   companySignature?: Signature;
@@ -63,7 +64,9 @@ function render(row: Row): Uint8Array {
   return Buffer.from(
     row.kind === 'purchase'
       ? createPurchaseReceiptPdf(input, row.identity.logo, row.identity)
-      : createConsignmentReceiptPdf(input, row.identity.logo, row.identity),
+      : row.kind === 'consignment_return'
+        ? createConsignmentDocumentPdf(input, row.identity.logo, row.identity)
+        : createConsignmentReceiptPdf(input, row.identity.logo, row.identity),
     'ascii',
   );
 }
@@ -72,7 +75,7 @@ async function ensureArchive(row: Row) {
   const bytes = render(row);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const objectKey = `signed-receipts/${row._id}/${sha256}.pdf`;
-  const filename = `${row.kind === 'purchase' ? 'rachat' : 'depot'}-${row.snapshot.reference.replace(/[^a-z0-9-]/gi, '-')}-signe.pdf`;
+  const filename = `${row.kind === 'purchase' ? 'rachat' : row.kind === 'consignment_return' ? 'restitution' : 'depot'}-${row.snapshot.reference.replace(/[^a-z0-9-]/gi, '-')}-signe.pdf`;
   const stored = await requestR2('PUT', objectKey, bytes, 'application/pdf');
   if (!stored.ok) throw new Error('ARCHIVE_UNAVAILABLE');
   await call('receiptArchive', { id: row._id, objectKey, sha256, filename });

@@ -16,13 +16,13 @@ writeFileSync(
 
 // Keep the standalone API build in sync with the shared, platform-neutral PDF renderers.
 mkdirSync(new URL('../src/receipts', import.meta.url), { recursive: true });
-for (const file of ['signature', 'purchaseReceipt', 'consignmentReceipt']) {
+for (const file of ['signature', 'purchaseReceipt', 'consignmentReceipt', 'consignmentDocument']) {
   const source = readFileSync(
     new URL(`../../../packages/domain/src/${file}.ts`, import.meta.url),
     'utf8',
   );
   writeFileSync(
     new URL(`../src/receipts/${file}.ts`, import.meta.url),
-    source.replace(/from '\.\/([^']+)'/g, "from './$1.js'"),
+    source.replace(/from (['"])\.\/([^'"]+)\1/g, "from './$2.js'"),
   );
 }

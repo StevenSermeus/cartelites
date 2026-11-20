@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { SignaturePad } from './SignaturePad';
-import { validSignature, type Signature } from '../../../packages/domain/src/signature';
-import type { SignatoryProfile } from './receiptPdf';
+import { useEffect, useRef, useState } from "react";
+import { SignaturePad } from "./SignaturePad";
+import {
+  validSignature,
+  type Signature,
+} from "../../../packages/domain/src/signature";
+import type { SignatoryProfile } from "./receiptPdf";
 
 type Request = <T = unknown>(path: string, init?: RequestInit) => Promise<T>;
-type Kind = 'purchase' | 'consignment';
+type Kind = "purchase" | "consignment" | "consignment_return";
 type Draft = {
   id: string;
   consent: string;
@@ -20,36 +23,48 @@ type Signed = {
 };
 export const emailLabel = (status: string) =>
   ({
-    accepted: 'Accepté par Brevo — réception non confirmée',
-    pending: 'Pas encore envoyé',
-    sending: 'Envoi en cours',
-    not_configured: 'Brevo n’est pas configuré sur cette API',
-    no_email: 'Adresse e-mail du client manquante',
-    failed: 'E-mail non envoyé',
-    unknown: 'Résultat de l’envoi incertain — vérifier Brevo avant de renvoyer',
+    accepted: "Accepté par Brevo — réception non confirmée",
+    pending: "Pas encore envoyé",
+    sending: "Envoi en cours",
+    not_configured: "Brevo n’est pas configuré sur cette API",
+    no_email: "Adresse e-mail du client manquante",
+    failed: "E-mail non envoyé",
+    unknown: "Résultat de l’envoi incertain — vérifier Brevo avant de renvoyer",
   })[status] ?? status;
 export const deliveryErrorLabel = (code?: string) =>
   ({
     account_inactive:
-      'Le compte transactionnel Brevo n’est pas activé ou est suspendu. Demandez son activation à Brevo (contact@brevo.com).',
-    unauthorized_ip: 'L’adresse IP du serveur doit être autorisée dans Brevo.',
-    invalid_key: 'La clé API Brevo est refusée. Vérifiez la configuration du serveur.',
-    permission_denied: 'La clé Brevo doit autoriser les e-mails transactionnels (Tous).',
-    sender_invalid: 'L’expéditeur est refusé par Brevo. Vérifiez son adresse et son domaine.',
-    quota_exceeded: 'Le quota Brevo est atteint. Réessayez lorsque des crédits seront disponibles.',
-    recipient_invalid: 'Brevo refuse l’adresse du destinataire.',
+      "Le compte transactionnel Brevo n’est pas activé ou est suspendu. Demandez son activation à Brevo (contact@brevo.com).",
+    unauthorized_ip: "L’adresse IP du serveur doit être autorisée dans Brevo.",
+    invalid_key:
+      "La clé API Brevo est refusée. Vérifiez la configuration du serveur.",
+    permission_denied:
+      "La clé Brevo doit autoriser les e-mails transactionnels (Tous).",
+    sender_invalid:
+      "L’expéditeur est refusé par Brevo. Vérifiez son adresse et son domaine.",
+    quota_exceeded:
+      "Le quota Brevo est atteint. Réessayez lorsque des crédits seront disponibles.",
+    recipient_invalid: "Brevo refuse l’adresse du destinataire.",
     archive_unavailable:
-      'Le PDF archivé est temporairement inaccessible. Aucun e-mail n’a pu être préparé.',
-    provider_error: 'Brevo a refusé l’envoi. Consultez ses journaux avant de réessayer.',
-    network_error: 'Le serveur n’a pas reçu de confirmation de Brevo.',
-  })[code ?? ''] ?? '';
+      "Le PDF archivé est temporairement inaccessible. Aucun e-mail n’a pu être préparé.",
+    provider_error:
+      "Brevo a refusé l’envoi. Consultez ses journaux avant de réessayer.",
+    network_error: "Le serveur n’a pas reçu de confirmation de Brevo.",
+  })[code ?? ""] ?? "";
 function pdfUrl(base64: string) {
   return URL.createObjectURL(
-    new Blob([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], { type: 'application/pdf' }),
+    new Blob([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], {
+      type: "application/pdf",
+    }),
   );
 }
-export function parseSignaturePath(path: string): { kind: Kind; targetId: string } | null {
-  const match = /^\/admin\/signature\/(purchase|consignment)\/([a-zA-Z0-9_-]+)\/?$/.exec(path);
+export function parseSignaturePath(
+  path: string,
+): { kind: Kind; targetId: string } | null {
+  const match =
+    /^\/admin\/signature\/(purchase|consignment|consignment_return)\/([a-zA-Z0-9_-]+)\/?$/.exec(
+      path,
+    );
   return match ? { kind: match[1] as Kind, targetId: match[2] } : null;
 }
 export function ReceiptSigning({
@@ -81,10 +96,10 @@ export function ReceiptSigningPage({
 }) {
   const [busy, setBusy] = useState(false),
     lock = useRef(false);
-  const [error, setError] = useState(''),
+  const [error, setError] = useState(""),
     [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft | null>(null),
-    [url, setUrl] = useState('');
+    [url, setUrl] = useState("");
   const [company, setCompany] = useState<Signature>([]),
     [client, setClient] = useState<Signature>([]);
   const [profile, setProfile] = useState<SignatoryProfile | null>(null),
@@ -94,16 +109,22 @@ export function ReceiptSigningPage({
     [companyAccepted, setCompanyAccepted] = useState(false);
   const [signed, setSigned] = useState<Signed[]>([]),
     [completed, setCompleted] = useState<Signed | null>(null);
-  const [delivery, setDelivery] = useState<{ configured: boolean; fromEmail: string } | null>(null);
-  const back = kind === 'purchase' ? '/admin/purchases/history' : '/admin/consignments';
+  const [delivery, setDelivery] = useState<{
+    configured: boolean;
+    fromEmail: string;
+  } | null>(null);
+  const back =
+    kind === "purchase" ? "/admin/purchases/history" : "/admin/consignments";
   const refresh = async () =>
     setSigned(
-      await request<Signed[]>(`/receipts?kind=${kind}&targetId=${encodeURIComponent(targetId)}`),
+      await request<Signed[]>(
+        `/receipts?kind=${kind}&targetId=${encodeURIComponent(targetId)}`,
+      ),
     );
   useEffect(() => {
     void run(async () => {
       await refresh();
-      setDelivery(await request('/receipts/delivery-config'));
+      setDelivery(await request("/receipts/delivery-config"));
     });
   }, [kind, targetId]);
   useEffect(
@@ -116,35 +137,35 @@ export function ReceiptSigningPage({
     const before = (event: BeforeUnloadEvent) => {
       if (draft) {
         event.preventDefault();
-        event.returnValue = '';
+        event.returnValue = "";
       }
     };
-    window.addEventListener('beforeunload', before);
-    return () => window.removeEventListener('beforeunload', before);
+    window.addEventListener("beforeunload", before);
+    return () => window.removeEventListener("beforeunload", before);
   }, [draft]);
   async function run(action: () => Promise<void>) {
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
-    setError('');
+    setError("");
     try {
       await action();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Opération impossible.');
+      setError(e instanceof Error ? e.message : "Opération impossible.");
     } finally {
       lock.current = false;
       setBusy(false);
     }
   }
   async function prepare() {
-    const p = await request<SignatoryProfile>('/auth/profile');
+    const p = await request<SignatoryProfile>("/auth/profile");
     setProfile(p);
     if (!p.firstName || !p.lastName || !p.capacity)
       throw new Error(
-        'Complétez votre nom et votre qualité dans les paramètres du compte avant de signer.',
+        "Complétez votre nom et votre qualité dans les paramètres du compte avant de signer.",
       );
-    const d = await request<Draft>('/receipts/prepare', {
-      method: 'POST',
+    const d = await request<Draft>("/receipts/prepare", {
+      method: "POST",
       body: JSON.stringify({ kind, targetId }),
     });
     setDraft(d);
@@ -161,25 +182,27 @@ export function ReceiptSigningPage({
   async function sign() {
     if (!draft || !read || !accepted || !companyAccepted) return;
     if (save && profile)
-      await request('/auth/profile', {
-        method: 'PATCH',
+      await request("/auth/profile", {
+        method: "PATCH",
         body: JSON.stringify({ ...profile, signature: company }),
       });
     const result = await request<Signed>(`/receipts/${draft.id}/sign`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify({ company, client, accepted: true }),
     });
     setCompleted({ ...result, recipient: draft.snapshot.client.email });
     setDraft(null);
-    setUrl('');
+    setUrl("");
     setClient([]);
     setCompany([]);
     setStep(3);
     await refresh();
   }
   async function download(id: string) {
-    const pdf = await request<{ pdfBase64: string; filename: string }>(`/receipts/${id}/pdf`);
-    const link = document.createElement('a'),
+    const pdf = await request<{ pdfBase64: string; filename: string }>(
+      `/receipts/${id}/pdf`,
+    );
+    const link = document.createElement("a"),
       href = pdfUrl(pdf.pdfBase64);
     link.href = href;
     link.download = pdf.filename;
@@ -194,18 +217,18 @@ export function ReceiptSigningPage({
     )
       return;
     await run(async () => {
-      const result = await request<{ emailStatus: string; emailError?: string }>(
-        `/receipts/${row.id}/email`,
-        { method: 'POST' },
-      );
+      const result = await request<{
+        emailStatus: string;
+        emailError?: string;
+      }>(`/receipts/${row.id}/email`, { method: "POST" });
       await refresh();
       if (completed?.id === row.id) setCompleted({ ...completed, ...result });
     });
   }
   const cancel = () => {
-    if (window.confirm('Abandonner les signatures en cours ?')) {
+    if (window.confirm("Abandonner les signatures en cours ?")) {
       setDraft(null);
-      setUrl('');
+      setUrl("");
       setCompany([]);
       setClient([]);
       setStep(0);
@@ -217,7 +240,7 @@ export function ReceiptSigningPage({
         <div>
           <a href={back}>← Retour au dossier</a>
           <p className="signing-eyebrow">
-            {kind === 'purchase' ? 'BORDEREAU DE RACHAT' : 'BON DE DÉPÔT-VENTE'}
+            {kind === "purchase" ? "BORDEREAU DE RACHAT" : "BON DE DÉPÔT-VENTE"}
           </p>
           <h1>Signature du document</h1>
         </div>
@@ -225,39 +248,43 @@ export function ReceiptSigningPage({
           {delivery
             ? delivery.configured
               ? `Envoi par Brevo · ${delivery.fromEmail}`
-              : 'Envoi désactivé : Brevo non configuré'
-            : 'Vérification de l’envoi…'}
+              : "Envoi désactivé : Brevo non configuré"
+            : "Vérification de l’envoi…"}
         </span>
       </header>
       <ol className="signing-steps" aria-label="Étapes de signature">
-        {['Lire le document', 'Signature boutique', 'Signature client', 'Exemplaire signé'].map(
-          (name, index) => (
-            <li key={name} aria-current={step === index ? 'step' : undefined}>
-              <span>{index + 1}</span>
-              {name}
-            </li>
-          ),
-        )}
+        {[
+          "Lire le document",
+          "Signature boutique",
+          "Signature client",
+          "Exemplaire signé",
+        ].map((name, index) => (
+          <li key={name} aria-current={step === index ? "step" : undefined}>
+            <span>{index + 1}</span>
+            {name}
+          </li>
+        ))}
       </ol>
       {error && (
         <p className="signing-alert" role="alert">
           {error}
           <br />
-          Si le document a changé ou expiré, annulez et préparez une nouvelle version.
+          Si le document a changé ou expiré, annulez et préparez une nouvelle
+          version.
         </p>
       )}
       {delivery && !delivery.configured && (
         <p className="signing-alert">
-          La signature pourra être conservée, mais aucun e-mail ne partira tant que Brevo n’est pas
-          configuré. Vous pourrez télécharger l’original.
+          La signature pourra être conservée, mais aucun e-mail ne partira tant
+          que Brevo n’est pas configuré. Vous pourrez télécharger l’original.
         </p>
       )}
       {!draft && !completed && (
         <section className="signing-welcome">
           <h2>Prenez le temps de vérifier, puis de signer.</h2>
           <p>
-            Le document complet, votre signature et celle du client : une étape à la fois, dans cet
-            espace dédié.
+            Le document complet, votre signature et celle du client : une étape
+            à la fois, dans cet espace dédié.
           </p>
           <button disabled={busy} onClick={() => void run(prepare)}>
             Préparer le document à signer
@@ -269,19 +296,26 @@ export function ReceiptSigningPage({
           <div className="signing-document-summary">
             <strong>{draft.snapshot.reference}</strong>
             <span>{draft.snapshot.client.name}</span>
-            <span>Copie à : {draft.snapshot.client.email || 'aucune adresse renseignée'}</span>
+            <span>
+              Copie à :{" "}
+              {draft.snapshot.client.email || "aucune adresse renseignée"}
+            </span>
           </div>
           {step === 0 && (
             <>
               <h2>1. Vérifier le document</h2>
               <p>
-                Contrôlez les articles, les montants, les conditions et l’adresse du destinataire
-                avant de poursuivre.
+                Contrôlez les articles, les montants, les conditions et
+                l’adresse du destinataire avant de poursuivre.
               </p>
               <a href={url} target="_blank" rel="noreferrer">
                 Ouvrir le PDF dans un autre onglet
               </a>
-              <iframe className="signing-pdf" title="Document complet à vérifier" src={url} />
+              <iframe
+                className="signing-pdf"
+                title="Document complet à vérifier"
+                src={url}
+              />
               <label className="signing-consent">
                 <input
                   type="checkbox"
@@ -305,8 +339,8 @@ export function ReceiptSigningPage({
                 {profile?.firstName} {profile?.lastName} · {profile?.capacity}
               </p>
               <p>
-                Votre signature enregistrée est proposée ci-dessous. Vous pouvez la conserver ou la
-                redessiner.
+                Votre signature enregistrée est proposée ci-dessous. Vous pouvez
+                la conserver ou la redessiner.
               </p>
               <SignaturePad
                 label="Votre signature"
@@ -333,11 +367,17 @@ export function ReceiptSigningPage({
                 Je confirme signer ce document pour la boutique.
               </label>
               <div className="signing-actions">
-                <button className="secondary" disabled={busy} onClick={() => setStep(0)}>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => setStep(0)}
+                >
                   Retour au document
                 </button>
                 <button
-                  disabled={busy || !companyAccepted || !validSignature(company)}
+                  disabled={
+                    busy || !companyAccepted || !validSignature(company)
+                  }
                   onClick={() => setStep(2)}
                 >
                   Faire signer le client →
@@ -349,8 +389,8 @@ export function ReceiptSigningPage({
             <>
               <h2>3. Au client de signer</h2>
               <p>
-                {draft.snapshot.client.name}, signez dans le cadre avec le stylet, la souris ou
-                votre doigt.
+                {draft.snapshot.client.name}, signez dans le cadre avec le
+                stylet, la souris ou votre doigt.
               </p>
               <SignaturePad
                 label="Signature du client"
@@ -368,28 +408,47 @@ export function ReceiptSigningPage({
                 {draft.consent}
               </label>
               <p>
-                Un original sera conservé, puis son envoi à{' '}
+                Un original sera conservé, puis son envoi à{" "}
                 <strong>
-                  {draft.snapshot.client.email || 'aucune adresse — remise manuelle nécessaire'}
-                </strong>{' '}
-                sera tenté. La validation du stock reste distincte.
+                  {draft.snapshot.client.email ||
+                    "aucune adresse — remise manuelle nécessaire"}
+                </strong>{" "}
+                sera tenté.{" "}
+                {kind === "consignment_return"
+                  ? "La signature retire les articles restitués du stock."
+                  : kind === "consignment"
+                    ? "Le contrat signé et archivé rend les articles disponibles à la vente."
+                    : "La validation du stock reste distincte."}
               </p>
               <div className="signing-actions">
-                <button className="secondary" disabled={busy} onClick={() => setStep(1)}>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => setStep(1)}
+                >
                   Retour à ma signature
                 </button>
                 <button
                   disabled={
-                    busy || !accepted || !validSignature(client) || !validSignature(company)
+                    busy ||
+                    !accepted ||
+                    !validSignature(client) ||
+                    !validSignature(company)
                   }
                   onClick={() => void run(sign)}
                 >
-                  {busy ? 'Archivage et envoi…' : 'Signer et envoyer l’exemplaire'}
+                  {busy
+                    ? "Archivage et envoi…"
+                    : "Signer et envoyer l’exemplaire"}
                 </button>
               </div>
             </>
           )}
-          <button className="secondary signing-cancel" disabled={busy} onClick={cancel}>
+          <button
+            className="secondary signing-cancel"
+            disabled={busy}
+            onClick={cancel}
+          >
             Annuler la signature en cours
           </button>
         </section>
@@ -399,14 +458,21 @@ export function ReceiptSigningPage({
           <h2>Le document signé est conservé.</h2>
           <p>Les deux signatures sont intégrées à l’original PDF.</p>
           <div
-            className={completed.emailStatus === 'accepted' ? 'signing-delivery' : 'signing-alert'}
+            className={
+              completed.emailStatus === "accepted"
+                ? "signing-delivery"
+                : "signing-alert"
+            }
             role="status"
           >
             <strong>{emailLabel(completed.emailStatus)}</strong>
             <p>{deliveryErrorLabel(completed.emailError)}</p>
-            <p>Destinataire : {completed.recipient || 'non renseigné'}</p>
+            <p>Destinataire : {completed.recipient || "non renseigné"}</p>
           </div>
-          <button disabled={busy} onClick={() => void run(() => download(completed.id))}>
+          <button
+            disabled={busy}
+            onClick={() => void run(() => download(completed.id))}
+          >
             Télécharger le PDF signé
           </button>
           <a href={back}>Revenir au dossier</a>
@@ -419,10 +485,12 @@ export function ReceiptSigningPage({
           {signed.map((row) => (
             <article className="signing-archive" key={row.id}>
               <div>
-                <h3>{new Date(row.signedAt!).toLocaleString('fr-BE')}</h3>
-                <p>{row.recipient || 'Adresse e-mail manquante'}</p>
+                <h3>{new Date(row.signedAt!).toLocaleString("fr-BE")}</h3>
+                <p>{row.recipient || "Adresse e-mail manquante"}</p>
                 <strong>{emailLabel(row.emailStatus)}</strong>
-                {row.emailError && <p role="status">{deliveryErrorLabel(row.emailError)}</p>}
+                {row.emailError && (
+                  <p role="status">{deliveryErrorLabel(row.emailError)}</p>
+                )}
               </div>
               <div className="signing-archive-actions">
                 <button
@@ -432,14 +500,21 @@ export function ReceiptSigningPage({
                 >
                   Télécharger l’original
                 </button>
-                <button disabled={busy || !row.recipient} onClick={() => void resend(row)}>
+                <button
+                  disabled={busy || !row.recipient}
+                  onClick={() => void resend(row)}
+                >
                   Envoyer / renvoyer
                 </button>
               </div>
             </article>
           ))}
           {completed && (
-            <button className="secondary" disabled={busy} onClick={() => void run(prepare)}>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => void run(prepare)}
+            >
               Préparer une nouvelle version
             </button>
           )}
