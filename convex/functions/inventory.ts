@@ -7,6 +7,7 @@ import { stockOwner, checkReplay, integer, validDate, consume, restore } from '.
 
 export const updateProduct = mutation({
   args: {
+    tcg: productFields.tcg,
     itemId: v.id('items'),
     name: v.string(),
     description: v.string(),
@@ -42,6 +43,7 @@ export const updateProduct = mutation({
       throw new Error('PRICE_BELOW_AGREEMENT');
     await ctx.db.patch(itemId, {
       ...fields,
+      tcg: fields.tcg ?? item.tcg,
       name: fields.name.trim(),
       language: fields.language,
       condition: fields.condition,
@@ -125,6 +127,7 @@ export const receive = mutation({
         if (
           !item ||
           item.origin !== 'supplier' ||
+          (line.product.tcg !== undefined && line.product.tcg !== (item.tcg ?? 'pokemon')) ||
           item.taxRateBps !== line.product.taxRateBps ||
           item.productType !== line.product.productType ||
           item.format !== line.product.format
@@ -239,6 +242,7 @@ export const openDisplay = mutation({
       if (
         !t ||
         t.origin !== 'supplier' ||
+        (t.tcg ?? 'pokemon') !== (source.tcg ?? 'pokemon') ||
         t.format !== 'booster' ||
         t.taxRateBps !== source.taxRateBps ||
         t._id === source._id
@@ -251,6 +255,7 @@ export const openDisplay = mutation({
         !p.name.trim() ||
         p.name.length > 300 ||
         p.productType !== 'sealed' ||
+        (p.tcg !== undefined && p.tcg !== (source.tcg ?? 'pokemon')) ||
         p.format !== 'booster' ||
         p.taxRateBps !== source.taxRateBps
       )
@@ -258,6 +263,7 @@ export const openDisplay = mutation({
       integer(p.askingPriceCents);
       targetId = await ctx.db.insert('items', {
         ...p,
+        tcg: source.tcg ?? 'pokemon',
         ownerId,
         operationId: args.operationId,
         origin: 'supplier',

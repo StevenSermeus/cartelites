@@ -2,7 +2,7 @@ import { realtime } from './realtime';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 type Period = 'day' | 'month';
-type Summary = { purchaseCents: number; salesCents: number; pendingCents: number; unknownCents: number; cashCents: number; transferCents: number; gains: number; losses: number; commissions: number; consignmentSales: number; net: number; purchaseCount: number; saleCount: number; dueCents: number; regularizationCents: number };
+type Summary = { giftLossCents?: number; giftCount?: number; unknownGiftCostCount?: number; cashAfterPurchasesCents?: number; purchaseCents: number; salesCents: number; pendingCents: number; unknownCents: number; cashCents: number; transferCents: number; gains: number; losses: number; commissions: number; consignmentSales: number; net: number; purchaseCount: number; saleCount: number; dueCents: number; regularizationCents: number };
 type Day = { key: string; purchases: number; sales: number; gains: number; losses: number };
 type Breakdown = { key: string; label: string; stockCount: number; marginCents: number };
 type Data = { summary: Summary; days: Day[]; byTcg?: Breakdown[]; byOrigin?: Breakdown[] };
@@ -40,10 +40,15 @@ export default function DashboardPage({ request, onOpenConsignments }: Props) {
     {error && <p className="error">Actualisation impossible : {error} <button type="button" className="secondary" onClick={() => setRetry(v => v + 1)}>Réessayer</button></p>}
     <div className="dashboard-summary-grid" aria-label="Synthèse, tout l’historique">
       <article className="dashboard-summary-card"><span>Ventes encaissées</span><strong>{euro(s.salesCents)}</strong><small>Tout l’historique</small></article>
-      <article className="dashboard-summary-card dashboard-net"><span>Marge et commissions</span><strong>{euro(s.net)}</strong><small>Avant frais · tout l’historique</small></article>
+      <article className="dashboard-summary-card dashboard-net"><span>Résultat brut après dons</span><strong>{euro(s.net)}</strong><small>Ventes actives, coûts vendus et dons déduits · avant autres frais</small></article>
       <article className="dashboard-summary-card"><span>À encaisser</span><strong>{euro(s.pendingCents)}</strong><small>Paiements en attente</small></article>
       <article className="dashboard-summary-card"><span>À reverser</span><strong>{euro(s.dueCents)}</strong><small>Tout l’historique</small><button type="button" className="secondary" onClick={onOpenConsignments}>Voir reversements</button></article>
+      <article className="dashboard-summary-card"><span>Achats enregistrés</span><strong>{euro(s.purchaseCents)}</strong><small>Rachats + fournisseurs (coûts HT)</small></article>
+      <article className="dashboard-summary-card"><span>Pertes liées aux dons</span><strong>{euro(s.giftLossCents ?? 0)}</strong><small>{s.giftCount ?? 0} don(s) actif(s) · coût d’achat connu</small></article>
+      <article className="dashboard-summary-card"><span>Encaissements − achats</span><strong>{euro(s.cashAfterPurchasesCents ?? s.salesCents - s.purchaseCents)}</strong><small>Écart indicatif, avant reversements, TVA et frais. Achats fournisseurs saisis HT.</small></article>
     </div>
+    {!!s.unknownGiftCostCount && <p className="error" role="status">{s.unknownGiftCostCount} don(s) sans coût connu : leurs pertes ne sont pas incluses. Le résultat est incomplet.</p>}
+    <p className="dashboard-chart-note">Le résultat déduit le coût des articles vendus et donnés une seule fois. Les achats encore en stock restent un investissement. Les dons ne sont pas déduits à nouveau des encaissements : leur achat est déjà compté.</p>
     <section className="panel dashboard-panel distribution-explorer">
       <div className="distribution-explorer-heading"><div><h3>Comprendre la répartition</h3><p>Comparez le poids de chaque jeu ou activité.</p></div>
         <div className="dashboard-period" role="group" aria-label="Répartition par catégorie">
@@ -53,13 +58,13 @@ export default function DashboardPage({ request, onOpenConsignments }: Props) {
       </div>
       <div className="distribution-metric-tabs" role="group" aria-label="Indicateur de répartition">
         <button type="button" aria-pressed={metric === 'stock'} onClick={() => setMetric('stock')}>Stock disponible</button>
-        <button type="button" aria-pressed={metric === 'margin'} onClick={() => setMetric('margin')}>Marge et commissions</button>
+        <button type="button" aria-pressed={metric === 'margin'} onClick={() => setMetric('margin')}>Résultat après dons</button>
       </div>
       <BreakdownChart title={dimension === 'tcg' ? 'Par TCG' : 'Par activité'} rows={dimension === 'tcg' ? data!.byTcg : data!.byOrigin} metric={metric} />
     </section>
     <header className="dashboard-heading"><p>Évolution de l’activité <small> · période des graphiques</small></p><div className="dashboard-period" role="group" aria-label="Période des graphiques"><button type="button" className={period === 'day' ? '' : 'secondary'} aria-pressed={period === 'day'} onClick={() => setPeriod('day')}>30 jours</button><button type="button" className={period === 'month' ? '' : 'secondary'} aria-pressed={period === 'month'} onClick={() => setPeriod('month')}>12 mois</button></div></header>
-    <ActivityChart rows={rows} title="Ventes encaissées et rachats" first="sales" second="purchases" labels={['Ventes encaissées', 'Rachats']} />
-    <ActivityChart rows={rows} title="Marge et commissions" first="margin" labels={['Marge après pertes, avant frais']} />
+    <ActivityChart rows={rows} title="Ventes encaissées et achats" first="sales" second="purchases" labels={['Ventes encaissées', 'Achats enregistrés']} />
+    <ActivityChart rows={rows} title="Résultat après dons" first="margin" labels={['Résultat après pertes et dons, avant frais']} />
   </div>;
 }
 function ActivityChart({ rows, title, first, second, labels }: { rows: Row[]; title: string; first: 'sales' | 'margin'; second?: 'purchases'; labels: string[] }) {
@@ -121,7 +126,7 @@ function BreakdownChart({ title, rows, metric }: { title: string; rows?: Breakdo
     </div>
     <div hidden={metric !== 'margin'} className="dashboard-breakdown">
       <div className="distribution-chart">
-        <svg viewBox={`0 0 ${width} ${rows.length * 67 + 28}`} className="margin-distribution" role="img" aria-label={`Marge et commissions par catégorie : ${rows.map(row => `${row.label}, ${euro(row.marginCents)}, ${margin > 0 ? percent(row.marginCents / margin) : 'part non calculable'}`).join('. ')}`}>
+        <svg viewBox={`0 0 ${width} ${rows.length * 67 + 28}`} className="margin-distribution" role="img" aria-label={`Résultat après dons par catégorie : ${rows.map(row => `${row.label}, ${euro(row.marginCents)}, ${margin > 0 ? percent(row.marginCents / margin) : 'part non calculable'}`).join('. ')}`}>
           <line x1={scale(0)} x2={scale(0)} y1="27" y2={rows.length * 67} stroke="var(--line)" strokeWidth="1" />
           {rows.map((row, index) => <g key={row.key}>
             <text x="14" y={index * 67 + 19} className="distribution-category">{row.label}</text>
@@ -130,7 +135,7 @@ function BreakdownChart({ title, rows, metric }: { title: string; rows?: Breakdo
           </g>)}
           <text x={scale(0)} y={rows.length * 67 + 19} textAnchor="middle" className="distribution-value">0 €</text>
         </svg>
-        <p className="dashboard-chart-note">Marge après pertes, commissions incluses, avant frais. Tout l’historique des ventes actives, encaissées ou non.</p>
+        <p className="dashboard-chart-note">Résultat après pertes et dons au coût connu, commissions incluses, avant autres frais. Tout l’historique des ventes actives, encaissées ou non.</p>
         {margin <= 0 && <p className="dashboard-chart-note">Parts non calculables : marge totale nulle ou négative.</p>}
         {rows.some(row => row.marginCents < 0) && margin > 0 && <p className="dashboard-chart-note">Les pertes ont une part négative ; les autres contributions peuvent dépasser 100 %.</p>}
       </div>

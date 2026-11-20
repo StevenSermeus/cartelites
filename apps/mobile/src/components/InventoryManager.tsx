@@ -163,6 +163,7 @@ function timestamp(value: string) {
 }
 const money = (n: number) => (n / 100).toFixed(2) + ' €';
 type Product = {
+  tcg?: Item['tcg'];
   name: string;
   productType: 'card' | 'sealed' | 'other';
   format?: Item['format'];
@@ -253,6 +254,7 @@ export function InventoryManager({
     [reference, setReference] = useState(''),
     [date, setDate] = useState(today()),
     [lines, setLines] = useState<Line[]>([]);
+  const [tcg, setTcg] = useState<NonNullable<Item['tcg']>>('pokemon');
   const [existing, setExisting] = useState<Item | null>(null),
     [name, setName] = useState(''),
     [kind, setKind] = useState<Product['productType']>('sealed'),
@@ -352,6 +354,7 @@ export function InventoryManager({
   function pick(i: Item) {
     setExisting(i);
     setName(i.name);
+    setTcg(i.tcg ?? 'pokemon');
     setKind(i.productType ?? 'card');
     setFormat(i.format);
     setSeries(i.series ?? '');
@@ -368,6 +371,7 @@ export function InventoryManager({
   function resetProductFields() {
     setExisting(null);
     setName('');
+    setTcg('pokemon');
     setKind('sealed');
     setFormat('display');
     setSeries('');
@@ -389,6 +393,7 @@ export function InventoryManager({
     if (!name.trim()) throw new Error('Indiquez le nom du produit.');
     return {
       name: name.trim(),
+      tcg,
       productType: kind,
       ...(kind === 'sealed'
         ? { format: format ?? 'other', ...(format === 'display' ? { packSize: count(pack) } : {}) }
@@ -686,6 +691,7 @@ export function InventoryManager({
                 attempts.current.clear();
                 setQuantity('1');
                 setName('Booster · ' + item.name);
+                setTcg(item.tcg ?? 'pokemon');
                 setKind('sealed');
                 setFormat('booster');
                 setRate(String((item.taxRateBps ?? 0) / 100));
@@ -875,6 +881,12 @@ export function InventoryManager({
                                   onPress={() => setKind(k)}
                                 />
                               ))}
+                            </View>
+                            <Copy>Jeu de cartes</Copy>
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                              {(['pokemon', 'riftbound'] as const).map(game => <InventoryButton key={game}
+                                label={game === 'pokemon' ? 'Pokémon' : 'Riftbound'} secondary={tcg !== game}
+                                disabled={busy} onPress={() => setTcg(game)} />)}
                             </View>
                             <Field label="Nom du produit" value={name} onChangeText={setName} />
                             <Field label="Série" value={series} onChangeText={setSeries} />
@@ -1079,7 +1091,7 @@ export function InventoryManager({
                           }}
                         >
                           <Text style={{ color: colors.text, fontWeight: '600', fontSize: 17 }}>
-                            {l.product.name}
+                            {l.product.name} · {l.product.tcg === 'riftbound' ? 'Riftbound' : 'Pokémon'}
                           </Text>
                           <Copy>
                             {l.quantity} × {money(l.unitCostCents)} HT ·{' '}
@@ -1342,6 +1354,7 @@ export function InventoryManager({
                                     productType: 'sealed',
                                     format: 'booster',
                                     taxRateBps: item.taxRateBps ?? 0,
+                                    tcg: item.tcg ?? 'pokemon',
                                   },
                                 }),
                             quantity: count(quantity),

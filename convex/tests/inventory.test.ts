@@ -344,3 +344,37 @@ test('product editor changes catalogue fields without changing stock or acquisit
   });
   await assert.rejects(user.mutation(api.inventory.updateProduct, fields), /PRICE_BELOW_AGREEMENT/);
 });
+
+test('supplier game is saved, inherited by opened boosters and cannot be mixed on restock', async () => {
+  const { user, args, itemId: pokemonId } = await fixture();
+  const riftProduct = { ...product, tcg: 'riftbound' as const };
+  const received = await user.mutation(api.inventory.receive, { ...args, operationId: 'rift', lines: [{ product: riftProduct, quantity: 2, unitCostCents: 10000 }] });
+  const itemId = received.itemIds[0];
+  assert.equal((await user.query(api.inventory.detail, { itemId })).item.tcg, 'riftbound');
+  await assert.rejects(user.mutation(api.inventory.receive, { ...args, operationId: 'wrong-tcg', lines: [{ product: riftProduct, itemId: pokemonId, quantity: 1, unitCostCents: 10000 }] }), /PRODUCT_MISMATCH/);
+  await user.mutation(api.inventory.openDisplay, { operationId: 'rift-open', itemId, quantity: 1, packSize: 36, occurredAt: 2000, product: { ...product, name: 'Booster Riftbound', format: 'booster' } });
+  const detail = await user.query(api.inventory.detail, { itemId });
+  assert.equal((await user.query(api.inventory.detail, { itemId: detail.openings[0].targetId })).item.tcg, 'riftbound');
+  await assert.rejects(user.mutation(api.inventory.openDisplay, { operationId: 'mixed-opening', itemId: pokemonId, targetId: detail.openings[0].targetId, quantity: 1, packSize: 36, occurredAt: 2000 }), /PRODUCT_MISMATCH/);
+});
+
+test('dashboard counts gifts as losses once, keeps purchases and reverses cancelled gifts', async () => {
+  const { user, itemId } = await fixture();
+  const before = await user.query(api.readModels.dashboardSummary, {});
+  const occurredAt = Date.now();
+  const giftId = await user.mutation(api.inventory.donate, { operationId: 'dashboard-gift', itemId, quantity: 2, occurredAt, reason: 'Concours' });
+  const after = await user.query(api.readModels.dashboardSummary, {});
+  assert.equal(after.summary.purchaseCents, 100010);
+  assert.equal(after.summary.giftLossCents, 20002);
+  assert.equal(after.summary.net, before.summary.net - 20002);
+  assert.equal(after.summary.losses, before.summary.losses + 20002);
+  assert.equal(after.summary.cashAfterPurchasesCents, -100010);
+  assert.equal(after.byOrigin[0].marginCents, -20002);
+  assert.equal(after.byTcg.reduce((sum, row) => sum + row.marginCents, 0), -20002);
+  assert.equal(after.days.reduce((sum, day) => sum + day.losses, 0), 20002);
+  await user.mutation(api.inventory.reverse, { operationId: 'undo-dashboard-gift', giftId });
+  const restored = await user.query(api.readModels.dashboardSummary, {});
+  assert.equal(restored.summary.net, before.summary.net);
+  assert.equal(restored.summary.giftLossCents, 0);
+  assert.equal(restored.summary.purchaseCents, before.summary.purchaseCents);
+});

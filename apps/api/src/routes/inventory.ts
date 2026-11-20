@@ -12,6 +12,7 @@ const money = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     .min(0)
     .refine((n) => Number.isFinite(new Date(n).getTime()));
 const product = z.object({
+  tcg: z.enum(['pokemon', 'riftbound']).optional(),
   name: z.string().trim().min(1).max(300),
   productType: z.enum(['card', 'sealed', 'other']),
   format: z.enum(['display', 'booster', 'box', 'other']).optional(),
@@ -44,6 +45,7 @@ export function registerInventoryRoutes(app: OpenAPIHono<{ Variables: Variables 
       'updateProduct',
       z
         .object({
+          tcg: product.shape.tcg,
           itemId: z.string(),
           name: z.string().trim().min(1).max(300),
           description: z.string().max(3000),

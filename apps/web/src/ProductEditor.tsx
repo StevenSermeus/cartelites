@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 type Photo = { _id: string; filename: string; contentType: string };
 type Product = {
+  tcg?: 'pokemon' | 'riftbound';
   _id: string;
   name: string;
   description?: string;
@@ -158,6 +159,7 @@ export function ProductEditor({
                   method: 'POST',
                   body: JSON.stringify({
                     itemId,
+                    tcg: draft.tcg ?? 'pokemon',
                     name: draft.name,
                     description: draft.description ?? '',
                     series: draft.series ?? '',
@@ -180,6 +182,7 @@ export function ProductEditor({
           >
             <fieldset disabled={busy}>
               <div className="form-grid">
+              <label>Jeu de cartes<select value={draft.tcg ?? 'pokemon'} onChange={e => change('tcg', e.target.value)}><option value="pokemon">Pokémon</option><option value="riftbound">Riftbound</option></select></label>
                 <label>
                   Nom du produit
                   <input

@@ -5,6 +5,7 @@ export const allocation = v.object({
   costCents: v.number(),
 });
 export const productFields = {
+  tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'))),
   name: v.string(),
   productType: v.union(v.literal('card'), v.literal('sealed'), v.literal('other')),
   format: v.optional(

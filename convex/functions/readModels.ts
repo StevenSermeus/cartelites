@@ -149,7 +149,7 @@ export const record = query({ args: { resource: v.string(), id: v.string() }, ha
 export const dashboardSummary = query({ args: {}, handler: async ctx => {
   await authenticate(ctx);
   const summary = { purchaseCents: 0, salesCents: 0, pendingCents: 0, unknownCents: 0, cashCents: 0, transferCents: 0,
-    gains: 0, losses: 0, commissions: 0, consignmentSales: 0, net: 0, purchaseCount: 0, saleCount: 0, dueCents: 0, regularizationCents: 0 };
+    giftLossCents: 0, giftCount: 0, unknownGiftCostCount: 0, cashAfterPurchasesCents: 0, gains: 0, losses: 0, commissions: 0, consignmentSales: 0, net: 0, purchaseCount: 0, saleCount: 0, dueCents: 0, regularizationCents: 0 };
   const byTcg = [
     { key: 'pokemon', label: 'Pokémon', stockCount: 0, marginCents: 0 },
     { key: 'riftbound', label: 'Riftbound', stockCount: 0, marginCents: 0 },
@@ -190,6 +190,18 @@ export const dashboardSummary = query({ args: {}, handler: async ctx => {
     byOrigin[deposit ? 1 : 0].marginCents += margin;
     const day = bucket(sale.occurredAt); if (sale.paymentStatus === 'received') day.sales += sale.salePriceCents; day.gains += Math.max(0, margin); day.losses += Math.max(0, -margin);
   }
+  for await (const gift of ctx.db.query('stockGifts')) {
+    if (gift.cancelledAt !== undefined) continue;
+    summary.giftCount++;
+    if (gift.costCents === undefined) { summary.unknownGiftCostCount++; continue; }
+    summary.giftLossCents += gift.costCents;
+    summary.losses += gift.costCents;
+    bucket(gift.occurredAt).losses += gift.costCents;
+    const item = await ctx.db.get(gift.itemId);
+    tcgGroup(item).marginCents -= gift.costCents;
+    byOrigin[0].marginCents -= gift.costCents;
+  }
+  summary.cashAfterPurchasesCents = summary.salesCents - summary.purchaseCents;
   for await (const seller of ctx.db.query('sellers')) { const balance = await balanceRecord(ctx, seller); if (balance.hasDeposits) { summary.dueCents += Math.max(0, balance.balanceCents); summary.regularizationCents += Math.max(0, -balance.balanceCents); } }
   summary.net = summary.gains - summary.losses + summary.commissions;
   // Charts only need the latest year; totals above are all-time.

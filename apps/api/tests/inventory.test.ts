@@ -147,12 +147,14 @@ test('gift export reads preserve dates and cursor and require authentication', a
 
 test('product editing validates fields and refuses stock or accounting changes', async (t) => {
   const calls: string[] = [];
-  t.mock.method(ConvexHttpClient.prototype, 'mutation', async (ref) => {
+  t.mock.method(ConvexHttpClient.prototype, 'mutation', async (ref, args) => {
+    assert.equal(args.tcg, 'riftbound');
     calls.push(getFunctionName(ref));
     return { id: 'item' };
   });
   const body = {
     itemId: 'item',
+    tcg: 'riftbound',
     name: 'Display',
     description: '',
     series: '',
