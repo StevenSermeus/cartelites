@@ -108,6 +108,7 @@ export const browse = query({ args: filterArgs, handler: async (ctx, args) => {
   const rows = await Promise.all(raw.page.map(r => enrich(ctx, resource, r)));
   const words = normalize(args.search).trim().split(/\s+/).filter(Boolean);
   const items = rows.filter(row => {
+    if (resource === 'stock' && row.removedPurchaseId) return false;
     if (resource === 'stock' && !args.purchaseId && !args.consignmentId && row.origin !== 'consignment' && row.sourceStatus !== 'active') return false;
     if (resource === 'stock' && !args.purchaseId && !args.consignmentId && row.contractPending) return false;
     if (resource === 'balances' && !row.hasDeposits) return false;

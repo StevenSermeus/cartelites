@@ -15,6 +15,7 @@ import type * as consignmentOperations from "../consignmentOperations.js";
 import type * as inventory from "../inventory.js";
 import type * as inventoryValidators from "../inventoryValidators.js";
 import type * as operations from "../operations.js";
+import type * as purchaseEditing from "../purchaseEditing.js";
 import type * as readModels from "../readModels.js";
 import type * as salePayments from "../salePayments.js";
 import type * as saleTickets from "../saleTickets.js";
@@ -36,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   inventory: typeof inventory;
   inventoryValidators: typeof inventoryValidators;
   operations: typeof operations;
+  purchaseEditing: typeof purchaseEditing;
   readModels: typeof readModels;
   salePayments: typeof salePayments;
   saleTickets: typeof saleTickets;

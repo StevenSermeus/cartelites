@@ -234,3 +234,21 @@ Les fiches `items` d’origine `supplier` représentent un produit avec quantit�
 Après une vente, **Ticket de vente** prépare un instantané, génère le PDF côté API et l’archive dans R2. Les versions sont accessibles depuis chaque vente du panier ; régénérer conserve les précédentes. L’email passe par la configuration Brevo existante. Chaque tentative possède une clé distincte ; un réessai avec la même clé ne renvoie pas l’email. Un résultat réseau incertain reste signalé sans renvoi automatique. Les anciennes versions restent téléchargeables mais leur envoi est refusé si le statut/paiement de la vente a changé ; générer une version à jour. La vente reste validée même si le PDF, R2 ou Brevo échoue.
 
 Déploiement : déployer le schéma et les fonctions Convex, puis reconstruire l’API et l’app mobile. Aucun nouvel accès secret n’est nécessaire : R2, `CONVEX_AUTH_SECRET` et Brevo utilisent la configuration existante. Les nouvelles fonctions sont livrées dans le code ; les mutations et services externes sont testés en environnement simulé. Ne pas confondre build du bundle iOS et validation sur appareil. Les grands historiques de lots sont actuellement lus par fiche ; une pagination supplémentaire sera nécessaire pour les références accumulant un nombre très élevé de lots.
+
+### Modification des rachats et estimation mobile
+
+Dans l’historique mobile, **Modifier les cartes et les %** réutilise l’éditeur de
+création, dans un état séparé des brouillons locaux. Les cartes sans vente ni don
+peuvent être corrigées, ajoutées ou retirées. Les mouvements existants protègent
+les coûts historiques ; les cartes concernées sont conservées hors édition.
+Chaque sauvegarde contrôle un instantané de départ, journalise l’état précédent
+et déduplique les réessais. Les articles retirés restent conservés pour audit,
+sans être comptés dans le rachat ni exposés dans le stock.
+
+**Modifier les % en lot** applique un pourcentage aux cartes sélectionnées, avec
+aperçu du total. La valeur estimée, le total de reprise et leur différence sont
+présentés comme un gain théorique avant TVA et frais, pas comme un bénéfice
+réalisé. Le format v1 et l’emplacement des brouillons locaux ne changent pas.
+Les documents déjà signés restent des originaux immuables ; une correction du
+rachat ne réécrit pas ces archives. Déployer le schéma et `purchaseEditing` dans
+Convex ainsi que les routes API `/purchases/:purchaseId/edit` avec cette version.

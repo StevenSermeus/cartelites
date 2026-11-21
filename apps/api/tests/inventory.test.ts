@@ -187,3 +187,14 @@ test('supplier API preserves other universe and Chinese language', async (t) => 
   assert.equal(received.lines[0].product.language, 'zh');
   assert.equal((await app().request('/supplier-receipts', post({ ...body, lines: [{ ...body.lines[0], product: { ...product, language: 'invalid' } }] }))).status, 400);
 });
+
+test('purchase editing requires authentication and preserves card values and removal selection', async (t) => {
+  let received: any;
+  t.mock.method(ConvexHttpClient.prototype, 'mutation', async (ref, args) => { assert.equal(getFunctionName(ref), 'purchaseEditing:save'); received = args; return { itemIds: ['item'] }; });
+  const body = { operationId: randomUUID(), expectedDigest: 'snapshot', removedIds: ['old'], items: [{ operationId: randomUUID(), itemId: 'item', name: 'Carte', marketValueCents: 10000, discountPercent: 75 }] };
+  assert.equal((await app().request('/purchases/purchase/edit', post(body, false))).status, 401);
+  assert.equal((await app().request('/purchases/purchase/edit', post(body))).status, 200);
+  assert.equal(received.purchaseId, 'purchase'); assert.equal(received.items[0].discountPercent, 75);
+  assert.deepEqual(received.removedIds, ['old']);
+  assert.equal((await app().request('/purchases/purchase/edit', post({ ...body, items: [{ ...body.items[0], discountPercent: 110 }] }))).status, 400);
+});

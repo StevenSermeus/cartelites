@@ -98,6 +98,7 @@ import {
   updateAskingPrice,
   updateSeller,
   uploadItemAttachment,
+  uploadAttachment,
 } from "./src/data/apiRepository";
 import {
   completePurchaseItems,
@@ -266,8 +267,16 @@ export default function App() {
   const [clientSearch, setClientSearch] = useState("");
   const [purchaseClientSearch, setPurchaseClientSearch] = useState("");
   const localPurchases = useLocalPurchaseDrafts(authenticated, freshDraft, localDateValue);
-  const { clientId, date: purchaseDate, rows: purchaseDrafts, step: purchaseStep } = localPurchases.active;
-  const { setClientId, setDate: setPurchaseDate, setRows: setPurchaseDrafts, setStep: setPurchaseStep } = localPurchases;
+  const [purchaseEdit, setPurchaseEdit] = useState<{ purchase: Purchase; expectedDigest: string; originalIds: string[]; lockedCount: number } | null>(null);
+  const [editRows, setEditRows] = useState<PurchaseDraft[]>([]);
+  const [editBusy, setEditBusy] = useState(false), [editError, setEditError] = useState('');
+  const [editSaved, setEditSaved] = useState<{ itemIds: string[] } | null>(null);
+  const editAttempts = useRef(new Map<string, string>()), editUploads = useRef(new Set<string>()), editLock = useRef(false);
+  const { clientId, date: purchaseDate, step: purchaseStep } = localPurchases.active;
+  const purchaseDrafts = purchaseEdit ? editRows : localPurchases.active.rows;
+  const { setClientId, setDate: setPurchaseDate, setStep: setPurchaseStep } = localPurchases;
+  const setPurchaseDrafts: React.Dispatch<React.SetStateAction<PurchaseDraft[]>> = purchaseEdit ? setEditRows : localPurchases.setRows;
+
   const draftClientName = sellers.find(seller => seller._id === clientId)?.name;
   useEffect(() => {
     if (draftClientName && draftClientName !== localPurchases.active.clientName) localPurchases.setClientName(draftClientName);
@@ -739,6 +748,64 @@ export default function App() {
     }
   };
 
+  async function startPurchaseEdit(purchase: Purchase) {
+    if (editLock.current) return;
+    editLock.current = true; setBusy(true); setError('');
+    try {
+      const result = await request<{ purchase: Purchase; items: Item[]; lockedIds: string[]; expectedDigest: string }>(`/purchases/${purchase._id}/edit`);
+      const editable = result.items.filter(item => !result.lockedIds.includes(item._id));
+      setEditRows([...editable.map(item => ({ ...emptyDraft(), key: item._id, included: true, name: item.name, tcg: item.tcg,
+        series: item.series ?? '', identifier: item.identifier ?? '', language: item.language ?? 'fr', condition: item.condition ?? 'NM',
+        catalogueImageUrl: item.catalogueImageUrl ?? '', availableLanguages: undefined, gradingCompany: item.gradingCompany, gradingGrade: item.gradingGrade,
+        gradingCertificate: item.gradingCertificate, gradingNotes: item.gradingNotes,
+        marketValue: ((item.marketValueCents ?? item.purchasePriceCents) / 100).toFixed(2),
+        discountPercent: String(item.marketValueCents === undefined ? 100 : item.discountPercent ?? (item.marketValueCents ? item.purchasePriceCents / item.marketValueCents * 100 : 100)),
+        askingPrice: item.askingPriceCents === undefined ? '' : (item.askingPriceCents / 100).toFixed(2), askingPriceTouched: true,
+      })), emptyDraft()]);
+      setEditSaved(null); setEditError(''); editAttempts.current.clear(); editUploads.current.clear();
+      setPurchaseEdit({ purchase: result.purchase, expectedDigest: result.expectedDigest, originalIds: editable.map(i => i._id), lockedCount: result.lockedIds.length });
+    } catch (e) { setError(e instanceof Error ? e.message : 'Chargement du rachat impossible.'); }
+    finally { setBusy(false); editLock.current = false; }
+  }
+  function closePurchaseEdit() {
+    if (editLock.current) return;
+    if (editSaved) { setPurchaseEdit(null); return; }
+    Alert.alert('Fermer la modification ?', 'Les changements non enregistrés seront abandonnés. Vos brouillons de nouveaux rachats sont conservés.', [
+      { text: 'Continuer', style: 'cancel' }, { text: 'Fermer', style: 'destructive', onPress: () => setPurchaseEdit(null) },
+    ]);
+  }
+  async function savePurchaseEdit() {
+    if (!purchaseEdit || editLock.current) return;
+    editLock.current = true; setEditBusy(true); setEditError('');
+    const selected = editRows.filter(row => row.included);
+    const keyFor = (key: string) => { if (!editAttempts.current.has(key)) editAttempts.current.set(key, Crypto.randomUUID()); return editAttempts.current.get(key)!; };
+    try {
+      let result = editSaved;
+      if (!result) {
+        if (editRows.some(row => !row.included && (row.name.trim() || row.cardSearch.trim() || row.marketValue.trim()))) throw new Error('Ajoutez ou annulez la carte en cours avant d’enregistrer.');
+        const money = (value: string) => { if (!/^\d+(?:[.,]\d{1,2})?$/.test(value.trim())) throw new Error('Vérifiez les valeurs et pourcentages : deux décimales maximum.'); const n = Math.round(Number(value.replace(',', '.')) * 100); if (!Number.isSafeInteger(n)) throw new Error('Montant trop élevé.'); return n; };
+        const items = selected.map(row => {
+          const discountPercent = money(row.discountPercent) / 100;
+          if (discountPercent > 100 || !row.name.trim()) throw new Error('Vérifiez le nom et le pourcentage de chaque carte.');
+          return { itemId: purchaseEdit.originalIds.includes(row.key) ? row.key : undefined, operationId: keyFor(row.key), name: row.name, tcg: row.tcg,
+            series: row.series, identifier: row.identifier, language: row.language, condition: row.condition,
+            catalogueImageUrl: row.catalogueImageUrl || undefined, gradingCompany: row.gradingCompany, gradingGrade: row.gradingCompany ? row.gradingGrade || undefined : undefined,
+            gradingCertificate: row.gradingCertificate || undefined, gradingNotes: row.gradingNotes || undefined,
+            marketValueCents: money(row.marketValue), discountPercent, askingPriceCents: row.askingPrice.trim() ? money(row.askingPrice) : undefined };
+        });
+        const body = { expectedDigest: purchaseEdit.expectedDigest, items, removedIds: purchaseEdit.originalIds.filter(id => !selected.some(row => row.key === id)) };
+        result = await request<{ itemIds: string[] }>(`/purchases/${purchaseEdit.purchase._id}/edit`, { ...body, operationId: keyFor(JSON.stringify(body)) });
+        setEditSaved(result);
+      }
+      for (const [index, row] of selected.entries()) if (row.photo && !editUploads.current.has(row.key)) {
+        await uploadAttachment('itemId', result.itemIds[index], row.photo, keyFor('photo:' + row.key)); editUploads.current.add(row.key);
+      }
+      await refresh(); setPurchaseEdit(null); setEditRows([]); setEditSaved(null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Modification impossible.';
+      setEditError(message.includes('PURCHASE_CHANGED') ? 'Le rachat a changé depuis son ouverture. Fermez puis rouvrez la modification pour charger la dernière version.' : message.includes('PURCHASE_ITEM_LOCKED') ? 'Une carte a déjà été vendue ou donnée et ne peut plus être modifiée.' : message);
+    } finally { setEditBusy(false); editLock.current = false; }
+  }
   const submitPurchase = async () => {
     if (purchaseLock.current) return;
     if (!clientId) return setError("Sélectionnez le client dans la liste.");
@@ -2253,6 +2320,7 @@ export default function App() {
                                 : "Validé"}
                           </Text>
                         </View>
+                        {purchase.status !== "cancelled" && <ActionButton label="Modifier les cartes et les %" onPress={() => void startPurchaseEdit(purchase)} />}
                         <ActionButton
                           label="Consulter le document"
                           onPress={() => void openPurchaseReceipt(purchase)}
@@ -2821,6 +2889,24 @@ export default function App() {
   return (
     <SafeAreaView style={styles.page} onTouchStart={markUserActivity}>
       <StatusBar style={dark ? "light" : "dark"} />
+      {purchaseEdit && <Modal visible animationType="slide" onRequestClose={closePurchaseEdit}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} onTouchStart={markUserActivity}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <View style={{ padding: 16, gap: 8 }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 22 }}>Modifier le rachat</Text><Text style={{ color: colors.secondary }}>{purchaseEdit.purchase.reference}</Text></View>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 12 }}>
+              {!!editError && <Text accessibilityRole="alert" style={{ color: colors.danger }}>{editError}</Text>}
+              {purchaseEdit.lockedCount > 0 && <Text style={{ color: colors.secondary }}>{purchaseEdit.lockedCount} carte(s) avec vente ou don conservées sans modification. Les totaux ci-dessous concernent les cartes modifiables.</Text>}
+              <Text style={{ color: colors.secondary }}>Les documents déjà archivés sont conservés. Vos brouillons de nouveaux rachats restent séparés.</Text>
+              {editSaved ? <Text style={{ color: colors.text }}>Modifications enregistrées. Terminez l’envoi des photos restantes.</Text> : <View pointerEvents={editBusy ? 'none' : 'auto'}><PurchaseEditor rows={editRows} setRows={setEditRows} fresh={emptyDraft} search={searchCards} select={chooseCard} changeTcg={changeTcg} changeLanguage={changeCardLanguage} photo={(key, file) => setEditRows(rows => rows.map(row => row.key === key ? { ...row, photo: file } : row))} /></View>}
+            </ScrollView>
+            <View style={{ padding: 16, gap: 8, backgroundColor: colors.surface }}>
+              <ActionButton label={editBusy ? 'Enregistrement…' : editSaved ? 'Réessayer les photos' : 'Enregistrer le rachat'} disabled={editBusy} onPress={() => void savePurchaseEdit()} />
+              <ActionButton label="Fermer" secondary disabled={editBusy} onPress={closePurchaseEdit} />
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>}
+
       {!!error && (
         <View accessibilityRole="alert" style={styles.errorBox}>
           <Text style={[{ color: colors.text }, styles.error]}>{error}</Text>

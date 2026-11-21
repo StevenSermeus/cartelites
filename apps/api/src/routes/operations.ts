@@ -98,6 +98,18 @@ export function operationRoutes(repo: ConvexAccountRepository) {
   const app = new OpenAPIHono<{ Variables: Variables }>();
   app.use('*', authMiddleware(repo));
   registerPaginatedReads(app);
+  app.get('/purchases/:purchaseId/edit', async c => {
+    const client = new ConvexHttpClient(env.CONVEX_URL); client.setAuth(c.get('accessToken'));
+    return c.json(await client.query(makeFunctionReference<'query'>('purchaseEditing:detail'), { purchaseId: c.req.param('purchaseId') }));
+  });
+  app.post('/purchases/:purchaseId/edit', async c => {
+    const schema = z.object({ operationId: z.string().uuid(), expectedDigest: z.string().max(2000000), removedIds: z.array(z.string()).max(500), items: z.array(purchase.shape.items.element.omit({ purchasePriceCents: true, vatRegime: true, serialNumber: true }).extend({ itemId: z.string().optional(), marketValueCents: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), discountPercent: z.number().min(0).max(100) })).max(500) });
+    const input = schema.safeParse(await c.req.json());
+    if (!input.success) return c.json({ error: 'INVALID_PURCHASE' }, 400);
+    const client = new ConvexHttpClient(env.CONVEX_URL); client.setAuth(c.get('accessToken'));
+    return c.json(await client.mutation(makeFunctionReference<'mutation'>('purchaseEditing:save'), { ...input.data, purchaseId: c.req.param('purchaseId') }));
+  });
+
   registerInventoryRoutes(app);
   registerSaleTicketRoutes(app);
   registerConsignmentRoutes(app);
@@ -141,7 +153,7 @@ export function operationRoutes(repo: ConvexAccountRepository) {
       'INVALID_SALE_PAYMENT_DATE',
       'SALE_NOT_FOUND',
       'SALE_CANCELLED',
-      'INVALID_STOCK_SELECTION', 'INVALID_INVENTORY', 'PRODUCT_MISMATCH', 'OPENING_ALREADY_USED', 'GIFT_NOT_FOUND', 'OPENING_NOT_FOUND', 'TICKET_NOT_FOUND', 'INVALID_TICKET', 'TICKET_STALE', 'INVALID_ATTACHMENT',
+      'PURCHASE_CHANGED', 'PURCHASE_NOT_EDITABLE', 'PURCHASE_ITEM_LOCKED', 'PURCHASE_TOO_LARGE', 'INVALID_PURCHASE', 'INVALID_STOCK_SELECTION', 'INVALID_INVENTORY', 'PRODUCT_MISMATCH', 'OPENING_ALREADY_USED', 'GIFT_NOT_FOUND', 'OPENING_NOT_FOUND', 'TICKET_NOT_FOUND', 'INVALID_TICKET', 'TICKET_STALE', 'INVALID_ATTACHMENT',
     ];
     const code = codes.find((value) => new RegExp(`\\b${value}\\b`).test(error.message));
     if (code === 'UNAUTHENTICATED') return c.json({ error: code }, 401);

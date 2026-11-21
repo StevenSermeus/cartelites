@@ -5,6 +5,7 @@ import { v } from 'convex/values';
 import { salePaymentStatusValidator, salePaymentValidator } from './salePayments';
 
 export default defineSchema({
+  purchaseEdits: defineTable({ ownerId: v.string(), operationId: v.string(), operationDigest: v.string(), purchaseId: v.id('purchases'), before: v.any(), itemIds: v.array(v.id('items')), createdAt: v.number() }).index('by_owner_operation', ['ownerId', 'operationId']),
   accounts: defineTable({
     email: v.string(),
     passwordHash: v.string(),
@@ -62,6 +63,7 @@ export default defineSchema({
     .index('by_owner', ['ownerId'])
     .index('by_seller', ['sellerId']),
   items: defineTable({
+    removedPurchaseId: v.optional(v.id('purchases')),
     ownerId: v.string(),
     operationId: v.string(),
     purchaseId: v.optional(v.id('purchases')),
@@ -295,7 +297,7 @@ export default defineSchema({
     recipient: v.optional(v.string()), reason: v.string(), note: v.optional(v.string()),
     costCents: v.optional(v.number()), allocations: v.array(allocation), purchaseId: v.optional(v.id('purchases')),
     cancelledAt: v.optional(v.number()),
-  }).index('by_owner_operation', ['ownerId', 'operationId']).index('by_date', ['occurredAt']),
+  }).index('by_owner_operation', ['ownerId', 'operationId']).index('by_date', ['occurredAt']).index('by_item', ['itemId']),
   inventoryReversals: defineTable({
     ownerId: v.string(), operationId: v.string(), operationDigest: v.string(),
   }).index('by_owner_operation', ['ownerId', 'operationId']),

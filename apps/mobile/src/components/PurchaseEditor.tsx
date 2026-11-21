@@ -16,6 +16,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Field } from './Field';
+import { PurchaseValuation } from './PurchaseValuation';
+import { purchaseValuation } from '../data/purchaseValuation';
 import type { PurchaseDraft } from '../data/apiRepository';
 import { AttachmentPreview } from './AttachmentPreview';
 import type { Tcg } from '../../../../packages/domain/src/riftbound';
@@ -174,6 +176,7 @@ export function PurchaseEditor({
   );
   const content = (
     <View style={s.workspace}>
+      {!adding && !expanded && <PurchaseValuation rows={rows} setRows={setRows} />}
       {adding && (
         <View style={s.section}>
           <Text style={[{ color: colors.text }, s.step]}>RECHERCHE</Text>
@@ -677,8 +680,10 @@ export function PurchaseSummary({
 
   const items = rows.filter((r) => r.included),
     pending = rows.some((r) => !r.included && r.name.trim());
+  const totals = purchaseValuation(rows);
   return (
     <View style={s.summary}>
+      {totals && <Text style={{ color: colors.secondary }}>Valeur estimée : {money(totals.marketCents / 100)} · Gain théorique : {money(totals.theoreticalGainCents / 100)} avant TVA et frais</Text>}
       <View style={s.between}>
         <Text style={[{ color: colors.text }, s.muted]}>
           {items.length} carte(s) · Total du rachat
