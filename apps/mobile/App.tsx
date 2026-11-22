@@ -272,7 +272,7 @@ export default function App() {
   const [editBusy, setEditBusy] = useState(false), [editError, setEditError] = useState('');
   const [editSaved, setEditSaved] = useState<{ itemIds: string[] } | null>(null);
   const editAttempts = useRef(new Map<string, string>()), editUploads = useRef(new Set<string>()), editLock = useRef(false);
-  const { clientId, date: purchaseDate, step: purchaseStep } = localPurchases.active;
+  const { clientId, date: purchaseDate, step: purchaseStep, buyerNote = "", sellerNote = "" } = localPurchases.active;
   const purchaseDrafts = purchaseEdit ? editRows : localPurchases.active.rows;
   const { setClientId, setDate: setPurchaseDate, setStep: setPurchaseStep } = localPurchases;
   const setPurchaseDrafts: React.Dispatch<React.SetStateAction<PurchaseDraft[]>> = purchaseEdit ? setEditRows : localPurchases.setRows;
@@ -861,6 +861,7 @@ export default function App() {
         entries,
         occurredAt,
         reference,
+        { buyerNote, sellerNote },
       );
       const failedPhotos: string[] = [];
       for (const [index, row] of rows.entries()) {
@@ -876,6 +877,7 @@ export default function App() {
       setPage("history");
       await refresh();
       const createdPurchase: Purchase = {
+        buyerNote, sellerNote,
         _id: result.purchaseId,
         sellerId: clientId,
         sellerName: client.name,
@@ -1634,6 +1636,11 @@ export default function App() {
                     placeholder="AAAA-MM-JJ"
                   />
                 )}
+              </View>
+              <View style={purchaseStep === 2 ? { gap: 8 } : { display: "none" }}>
+                <Text style={{ color: colors.secondary }}>Notes et conditions facultatives, reprises sur le bordereau. Précisez les cartes et la note attendue pour un complément après gradation.</Text>
+                <Field label="Note de l’acheteur (facultative)" value={buyerNote} onChangeText={localPurchases.setBuyerNote} multiline maxLength={2000} placeholder="Ex. : complément de 100 € par carte si la note convenue est obtenue." />
+                <Field label="Note du vendeur (facultative)" value={sellerNote} onChangeText={localPurchases.setSellerNote} multiline maxLength={2000} />
               </View>
               <View
                 style={purchaseStep === 1 ? undefined : { display: "none" }}

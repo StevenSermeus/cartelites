@@ -1,6 +1,8 @@
 import type { PurchaseDraft } from './apiRepository';
 
 export type LocalPurchaseDraft = {
+  buyerNote?: string;
+  sellerNote?: string;
   id: string;
   clientId: string;
   clientName?: string;
@@ -11,7 +13,7 @@ export type LocalPurchaseDraft = {
 };
 export type LocalPurchaseState = { activeId: string; drafts: LocalPurchaseDraft[] };
 export function hasPurchaseContent(draft: LocalPurchaseDraft) {
-  return !!draft.clientId || draft.rows.some(row => !!(row.name.trim() || row.cardSearch.trim() || row.photo || row.marketValue.trim()));
+  return !!draft.buyerNote?.trim() || !!draft.sellerNote?.trim() || !!draft.clientId || draft.rows.some(row => !!(row.name.trim() || row.cardSearch.trim() || row.photo || row.marketValue.trim()));
 }
 export function purchaseSnapshot(state: LocalPurchaseState) {
   return {
@@ -22,7 +24,7 @@ export function purchaseSnapshot(state: LocalPurchaseState) {
     })),
   };
 }
-export function updateLocalPurchase<K extends 'clientId' | 'clientName' | 'date' | 'step' | 'rows'>(
+export function updateLocalPurchase<K extends 'clientId' | 'clientName' | 'date' | 'step' | 'rows' | 'buyerNote' | 'sellerNote'>(
   state: LocalPurchaseState, key: K,
   value: LocalPurchaseDraft[K] | ((previous: LocalPurchaseDraft[K]) => LocalPurchaseDraft[K]),
 ): LocalPurchaseState {

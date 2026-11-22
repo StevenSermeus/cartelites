@@ -88,7 +88,7 @@ export function useLocalPurchaseDrafts(authenticated: boolean, freshRows: () => 
     });
   }, [state, ready, storage]);
   const active = state.drafts.find(draft => draft.id === state.activeId) ?? state.drafts[0];
-  function set<K extends 'clientId' | 'clientName' | 'date' | 'step' | 'rows'>(key: K, value: LocalPurchaseDraft[K] | ((previous: LocalPurchaseDraft[K]) => LocalPurchaseDraft[K])) {
+  function set<K extends 'clientId' | 'clientName' | 'date' | 'step' | 'rows' | 'buyerNote' | 'sellerNote'>(key: K, value: LocalPurchaseDraft[K] | ((previous: LocalPurchaseDraft[K]) => LocalPurchaseDraft[K])) {
     setState(previous => updateLocalPurchase(previous, key, value));
   }
   const start = () => { const draft = blank(); setState(previous => ({ activeId: draft.id, drafts: [...previous.drafts.filter(hasPurchaseContent), draft] })); };
@@ -100,6 +100,8 @@ export function useLocalPurchaseDrafts(authenticated: boolean, freshRows: () => 
   return { active, drafts: state.drafts.filter(hasPurchaseContent), ready, error, saving, start, remove,
     resume: (id: string) => setState(previous => ({ ...previous, activeId: id })),
     setClientId: (value: Parameters<typeof set<'clientId'>>[1]) => set('clientId', value),
+    setBuyerNote: (value: string) => set('buyerNote', value),
+    setSellerNote: (value: string) => set('sellerNote', value),
     setClientName: (value: string) => set('clientName', value),
     setDate: (value: Parameters<typeof set<'date'>>[1]) => set('date', value),
     setStep: (value: Parameters<typeof set<'step'>>[1]) => set('step', value),

@@ -70,7 +70,7 @@ async function snapshot(
   return clean({
     reference: row.reference,
     occurredAt: row.occurredAt,
-    ...('status' in row ? { status: row.status } : { notes: row.notes, dueAt: row.dueAt, contractTerms: row.contractTerms, contractRevision: row.contractRevision }),
+    ...('status' in row ? { status: row.status, buyerNote: row.buyerNote, sellerNote: row.sellerNote } : { notes: row.notes, dueAt: row.dueAt, contractTerms: row.contractTerms, contractRevision: row.contractRevision }),
     client: {
       name: client.name,
       email: client.email,

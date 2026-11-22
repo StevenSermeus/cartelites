@@ -58,3 +58,23 @@ test('a description larger than the final-page space may use a full card page', 
   assert.ok(result[0].includes('Description détaillée.'));
   assert.ok(result[1].includes('VENDEUR · CLIENT'));
 });
+
+test('optional agreement notes appear before signatures without changing the total', () => {
+  const result = pages({ ...receipt(2), buyerNote: 'Complément de 100 € par carte si PSA 10.\nCartes : 1 et 2.', sellerNote: 'Accord du vendeur.' });
+  const text = result.join('\n');
+  assert.ok(text.includes('Complément de 100 EUR par carte si PSA 10.'));
+  assert.ok(text.includes('Cartes : 1 et 2.'));
+  assert.ok(text.includes('Accord du vendeur.'));
+  assert.ok(text.includes('Total payé : 16.00 EUR'));
+  assert.ok(text.indexOf('Accord du vendeur.') < text.indexOf('DÉCLARATION DU VENDEUR'));
+  assert.ok(!pages(receipt(2)).join('\n').includes("NOTE DE L'ACHETEUR"));
+});
+
+test('long multiline notes paginate without losing text or signatures', () => {
+  const note = Array.from({ length: 100 }, (_, i) => `Condition ${i + 1}`).join('\n');
+  const result = pages({ ...receipt(10), buyerNote: note, sellerNote: 'Dernière condition.' });
+  const text = result.join('\n');
+  for (let i = 1; i <= 100; i++) assert.ok(text.includes(`Condition ${i}\n`));
+  assert.ok(text.includes('Dernière condition.'));
+  assert.ok(result.at(-1)?.includes('VENDEUR · CLIENT'));
+});

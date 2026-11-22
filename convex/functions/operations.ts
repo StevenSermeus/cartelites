@@ -103,6 +103,8 @@ export const updateSeller = mutation({
 
 export const createPurchase = mutation({
   args: {
+    buyerNote: v.optional(v.string()),
+    sellerNote: v.optional(v.string()),
     operationId: v.string(),
     sellerId: v.id('sellers'),
     occurredAt: v.number(),
@@ -190,7 +192,10 @@ export const createPurchase = mutation({
       new Set(args.items.map((i) => i.operationId)).size !== args.items.length
     )
       throw new Error('INVALID_ITEM');
+    if ([args.buyerNote, args.sellerNote].some(note => (note?.length ?? 0) > 2000)) throw new Error('INVALID_PURCHASE_NOTE');
     const purchaseId = await ctx.db.insert('purchases', {
+      buyerNote: args.buyerNote?.trim() || undefined,
+      sellerNote: args.sellerNote?.trim() || undefined,
       ownerId,
       operationId: args.operationId,
       operationDigest,

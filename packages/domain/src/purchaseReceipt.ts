@@ -5,6 +5,8 @@ import type {
 } from './consignmentReceipt';
 import { signaturePdf, type ReceiptSignatures } from './signature';
 export type ReceiptPdfInput = {
+  buyerNote?: string;
+  sellerNote?: string;
   signatory?: SignatoryProfile;
   signatures?: ReceiptSignatures;
   reference: string;
@@ -31,6 +33,7 @@ export type ReceiptPdfInput = {
 const plain = (value: string) =>
   value
     .normalize('NFC')
+    .replace(/€/g, 'EUR')
     .replace(/[’‘]/g, "'")
     .replace(/[–—]/g, '-')
     .replace(/[^\x20-\x7E\xA0-\xFF]/g, '?');
@@ -148,7 +151,20 @@ export function createPurchaseReceiptPdf(
     groups[groups.length - 1].push(item);
     usedHeight += height;
   }
-  if (usedHeight > finalPageHeight) groups.push([]);
+  const pageNotes: { text: string; bold: boolean }[][] = groups.map(() => []);
+  for (const [title, note] of [['NOTE DE L’ACHETEUR', receipt.buyerNote], ['NOTE DU VENDEUR', receipt.sellerNote]]) {
+    if (!note?.trim()) continue;
+    const lines = note.trim().split(/\r?\n/).flatMap(line => wrap(line, 85).length ? wrap(line, 85) : ['']);
+    const rows = [{ text: title!, bold: true }, ...lines.map(text => ({ text, bold: false })), { text: '', bold: false }];
+    for (const [index, row] of rows.entries()) {
+      if (usedHeight + (index === 0 ? 28 : 14) > availableHeight) {
+        groups.push([]); pageNotes.push([]); usedHeight = 0;
+      }
+      pageNotes[groups.length - 1].push(row);
+      usedHeight += 14;
+    }
+  }
+  if (usedHeight > finalPageHeight) { groups.push([]); pageNotes.push([]); }
   const pageIds = groups.map((_, index) => 6 + index * 2);
   const objects: string[] = [
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -231,6 +247,10 @@ export function createPurchaseReceiptPdf(
       draw(430, y, 8, `${item.discountPercent}%`);
       draw(490, y, 8, money(item.purchasePriceCents));
       y -= itemHeight(item);
+    }
+    for (const row of pageNotes[pageIndex]) {
+      draw(48, y, 9, row.text, row.bold);
+      y -= 14;
     }
     if (pageIndex === groups.length - 1) {
       const total = receipt.items.reduce((sum, item) => sum + item.purchasePriceCents, 0);

@@ -180,6 +180,8 @@ const parseCardSearch = (term: string) => {
   return { localId: undefined, denominator: undefined, name: term };
 };
 type Purchase = {
+  buyerNote?: string;
+  sellerNote?: string;
   _id: string;
   sellerId: string;
   reference: string;
@@ -793,6 +795,8 @@ function App() {
     ]),
     [purchaseReference, setPurchaseReference] = useState(''),
     [attachmentsByPurchase, setAttachmentsByPurchase] = useState<Record<string, Attachment[]>>({}),
+    [buyerNote, setBuyerNote] = useState(''),
+    [sellerNote, setSellerNote] = useState(''),
     [purchaseDate, setPurchaseDate] = useState(localDateInputValue()),
     [salePrices, setSalePrices] = useState<Record<string, string>>({}),
     [saleDates, setSaleDates] = useState<Record<string, string>>({}),
@@ -1340,6 +1344,7 @@ function App() {
         body: JSON.stringify({
           operationId: crypto.randomUUID(),
           sellerId: clientId,
+          buyerNote, sellerNote,
           occurredAt,
           reference,
           items,
@@ -1356,6 +1361,7 @@ function App() {
       }
       let receiptFailure = '';
       if (downloadReceipt) await downloadPurchaseReceipt({
+        buyerNote, sellerNote,
         reference,
         occurredAt,
         status: 'pending',
@@ -1385,6 +1391,8 @@ function App() {
       });
       setSelectedClient('');
       setPurchaseReference('');
+      setBuyerNote('');
+      setSellerNote('');
       setPurchaseDate(localDateInputValue());
       setPurchaseItems([
         {
@@ -1525,6 +1533,7 @@ function App() {
     }
     await downloadPurchaseReceipt({
       reference: purchase.reference,
+      buyerNote: purchase.buyerNote, sellerNote: purchase.sellerNote,
       occurredAt,
       status: purchase.status as 'pending' | 'active' | 'cancelled',
       client,
@@ -2549,6 +2558,11 @@ function App() {
                   onChange={(event) => setPurchaseDate(event.target.value)}
                 />
               </label>
+            </div>
+            <p>Notes et conditions facultatives, reprises sur le bordereau. Pour un complément après gradation, précisez les cartes concernées et la note attendue.</p>
+            <div className="form-grid">
+              <label>Note de l’acheteur (facultative)<textarea rows={4} maxLength={2000} value={buyerNote} onChange={event => setBuyerNote(event.target.value)} placeholder="Ex. : complément de 100 € par carte si la note convenue est obtenue." /></label>
+              <label>Note du vendeur (facultative)<textarea rows={4} maxLength={2000} value={sellerNote} onChange={event => setSellerNote(event.target.value)} /></label>
             </div>
             <PurchaseEditor
               rows={purchaseItems}

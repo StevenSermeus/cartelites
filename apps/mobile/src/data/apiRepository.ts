@@ -98,6 +98,8 @@ export type PurchaseItem = {
   photos?: Attachment[];
 };
 export type Purchase = {
+  buyerNote?: string;
+  sellerNote?: string;
   _id: string;
   sellerId: string;
   reference: string;
@@ -272,8 +274,10 @@ export function createPurchase(
   }[],
   date: number,
   reference: string,
+  notes: { buyerNote?: string; sellerNote?: string } = {},
 ) {
   return request<{ purchaseId: string; itemIds: string[] }>('/purchases', {
+    ...notes,
     operationId: Crypto.randomUUID(),
     sellerId,
     occurredAt: date,

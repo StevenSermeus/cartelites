@@ -20,6 +20,8 @@ async function fixture() {
     sellerId,
     occurredAt: 1000,
     reference: 'R-1',
+    buyerNote: '  Complément de 100 € si PSA 10.  ',
+    sellerNote: 'Accord vendeur.',
     items: [0, 1].map((i) => ({
       operationId: `card-${i}`,
       name: `Carte ${i}`,
@@ -35,6 +37,8 @@ async function fixture() {
 test('editing adds/removes/revalues cards atomically and retry preserves identities and audit', async () => {
   const { t, user, purchaseId, itemIds } = await fixture();
   const detail = await user.query(api.purchaseEditing.detail, { purchaseId });
+  assert.equal(detail.purchase.buyerNote, 'Complément de 100 € si PSA 10.');
+  assert.equal(detail.purchase.sellerNote, 'Accord vendeur.');
   const args = {
     purchaseId,
     operationId: 'edit',

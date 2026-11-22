@@ -50,6 +50,8 @@ export default defineSchema({
     .index('by_owner', ['ownerId'])
     .index('by_owner_operation', ['ownerId', 'operationId']),
   purchases: defineTable({
+    buyerNote: v.optional(v.string()),
+    sellerNote: v.optional(v.string()),
     ownerId: v.string(),
     operationId: v.string(),
     operationDigest: v.string(),

@@ -18,6 +18,8 @@ const seller = z.object({
   address: z.string().optional(),
 });
 const purchase = z.object({
+  buyerNote: z.string().max(2000).optional(),
+  sellerNote: z.string().max(2000).optional(),
   operationId: z.string().uuid(),
   sellerId: z.string().min(1),
   occurredAt: z.number().int(),

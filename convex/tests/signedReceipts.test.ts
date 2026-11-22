@@ -43,6 +43,8 @@ async function fixture() {
       ownerId,
       sellerId,
       reference: 'ACHAT-1',
+      buyerNote: 'Complément de 100 € si PSA 10.',
+      sellerNote: 'Accord vendeur.',
       occurredAt: 1,
       status: 'pending',
       operationId: 'purchase',
@@ -132,6 +134,8 @@ test('signed versions are immutable, retries are idempotent and email attempts a
   await t.run((ctx) => ctx.db.patch(sellerId, { email: 'changed@example.com' }));
   const saved = await t.query(internal.signedReceipts.get, { ownerId, id: draft.id });
   assert.equal(saved.snapshot.client.email, 'client@example.com');
+  assert.equal(saved.snapshot.buyerNote, 'Complément de 100 € si PSA 10.');
+  assert.equal(saved.snapshot.sellerNote, 'Accord vendeur.');
   await t.mutation(internal.signedReceipts.archive, {
     id: draft.id,
     objectKey: 'private/pdf',
