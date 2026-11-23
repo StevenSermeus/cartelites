@@ -162,7 +162,3 @@
 .product-workspace-dialog p[role="status"] {
   margin: 0;
 }
-.product-detail-dialog[role="dialog"] {
-  width: min(960px, calc(100vw - 32px));
-  max-width: 960px;
-}

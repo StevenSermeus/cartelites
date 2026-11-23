@@ -1,3 +1,4 @@
+import { RequestFailure } from './lib/submittedAttempt';
 import { SeriesInput } from './SeriesInput';
 import './product-workspace.css';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from './components/ui/dialog';
@@ -53,6 +54,7 @@ function PendingPhoto({ file }: { file: File }) {
 
 export function ProductEditor({
   itemId,
+  focusPriceVisibility = false,
   apiBase,
   request,
   upload,
@@ -60,6 +62,7 @@ export function ProductEditor({
   onClose,
 }: {
   itemId: string;
+  focusPriceVisibility?: boolean;
   apiBase: string;
   request: <T = unknown>(path: string, init?: RequestInit) => Promise<T>;
   upload: (itemId: string, file: File, operationId?: string) => Promise<void>;
@@ -82,6 +85,7 @@ export function ProductEditor({
   const [gradingBusy, setGradingBusy] = useState(false);
   const [priceError, setPriceError] = useState('');
   const priceErrorId = useId();
+  const priceInput = useRef<HTMLInputElement>(null);
   const errorSummary = useRef<HTMLDivElement>(null);
   useEffect(() => { if (error) errorSummary.current?.focus(); }, [error]);
   const photos = (details?.photos ?? []).filter((p) => p.contentType.startsWith('image/'));
@@ -144,7 +148,10 @@ export function ProductEditor({
     try {
       await action();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Enregistrement impossible.');
+      if (e instanceof RequestFailure && ['INVALID_PRICE', 'PRICE_BELOW_AGREEMENT'].includes(e.code ?? '')) {
+        setPriceError(e.message);
+        requestAnimationFrame(() => priceInput.current?.focus());
+      } else setError(e instanceof Error ? e.message : 'Enregistrement impossible.');
     } finally {
       lock.current = false;
       setBusy(false);
@@ -243,7 +250,7 @@ export function ProductEditor({
                   ? 'Saisissez un prix valide avec deux décimales au maximum.'
                   : !Number.isSafeInteger(askingPriceCents) ? 'Prix trop élevé.' : '';
                 setPriceError(invalidPrice);
-                if (invalidPrice) { setError(invalidPrice); requestAnimationFrame(() => errorSummary.current?.focus()); return; }
+                if (invalidPrice) { setError(''); requestAnimationFrame(() => priceInput.current?.focus()); return; }
                 void run(async () => {
                   await request('/stock/product', {
                     method: 'POST',
@@ -305,6 +312,7 @@ export function ProductEditor({
                     <Input
                       required
                       inputMode="decimal"
+                      ref={priceInput}
                       aria-invalid={!!priceError}
                       aria-describedby={priceError ? priceErrorId : undefined}
                       value={price}
@@ -316,6 +324,18 @@ export function ProductEditor({
                     />
                     {priceError && <span id={priceErrorId} className="error">{priceError}</span>}
                   </label>
+                <label className="product-check">
+                  <Input autoFocus={focusPriceVisibility} type="checkbox" checked={draft.priceVisible ?? true} onChange={(e) => change('priceVisible', e.target.checked)} />{' '}
+                  Afficher le prix dans le catalogue public
+                </label>
+                <label className="product-check">
+                  <Input
+                    type="checkbox"
+                    checked={draft.hiddenFromCatalogue ?? false}
+                    onChange={(e) => change('hiddenFromCatalogue', e.target.checked)}
+                  />{' '}
+                  Masquer du catalogue public
+                </label>
                   <label>
                     Série
                     <SeriesInput tcg={draft.tcg} value={draft.series ?? ''} onChange={value => change('series', value)} />
@@ -437,18 +457,6 @@ export function ProductEditor({
                     }}
                   />
                 </div>
-                <label className="product-check">
-                  <Input type="checkbox" checked={draft.priceVisible ?? true} onChange={(e) => change('priceVisible', e.target.checked)} />{' '}
-                  Afficher le prix sur le catalogue public
-                </label>
-                <label className="product-check">
-                  <Input
-                    type="checkbox"
-                    checked={draft.hiddenFromCatalogue ?? false}
-                    onChange={(e) => change('hiddenFromCatalogue', e.target.checked)}
-                  />{' '}
-                  Masquer du catalogue public
-                </label>
                 <Button disabled={busy || gradingBusy || !dirty} type="submit">
                   Enregistrer la fiche
                 </Button>

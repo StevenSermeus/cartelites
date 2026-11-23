@@ -805,6 +805,7 @@ function AccountWorkspace({accountId,onIdentity,onAccountMismatch,sessionError,o
     return <div className="basket-quantity" role="group" aria-label={`Quantité de ${item.name}`}><Button type="button" variant="secondary" aria-label={`Retirer une unité de ${item.name}`} disabled={!quantity} onClick={()=>changeSaleQuantity(item,quantity-1)}>−</Button><span aria-live="polite">{quantity?`✓ ${quantity}`:'0'}</span><Button type="button" aria-label={`Ajouter une unité de ${item.name}`} disabled={quantity>=(item.origin==='supplier'?(item.quantity??0):1)} onClick={()=>changeSaleQuantity(item,quantity+1)}>+</Button></div>;
   }
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editPriceVisibility, setEditPriceVisibility] = useState(false);
   useEffect(() => {
     const events = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
     for (const event of events) window.addEventListener(event, markWebActivity, { passive: true });
@@ -1718,8 +1719,8 @@ function AccountWorkspace({accountId,onIdentity,onAccountMismatch,sessionError,o
     const item = stockRead.items.find(item => item._id === itemId);
     const raw = askingPriceDrafts[itemId] ?? (item?.askingPriceCents === undefined ? '' : String(item.askingPriceCents / 100));
     const amount = raw.trim() ? Number(raw.replace(',', '.')) : NaN;
-    if (!Number.isFinite(amount) || amount < 0)
-      return setError('Saisissez un prix de vente valide.');
+    if (!/^\d+(?:[.,]\d{1,2})?$/.test(raw.trim()) || !Number.isSafeInteger(Math.round(amount * 100)))
+      return 'Saisissez un prix de vente valide.';
     setLoading(true);
     try {
       await request('/stock/asking-price', {
@@ -1728,7 +1729,7 @@ function AccountWorkspace({accountId,onIdentity,onAccountMismatch,sessionError,o
       });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Modification du prix impossible.');
+      return e instanceof Error ? e.message : 'Modification du prix impossible.';
     } finally {
       setLoading(false);
     }
@@ -2137,10 +2138,10 @@ function AccountWorkspace({accountId,onIdentity,onAccountMismatch,sessionError,o
             onAddPageToBasket={()=>{for(const item of visibleItems) if(!selectedItemIds.includes(item._id)) changeSaleQuantity(item,1);}}
             onClearBasket={()=>{setSelectedItemIds([]);setSaleQuantities({});}} onOpenBasket={()=>navigateAdminPage('saleSummary')}
             priceDrafts={askingPriceDrafts} onPriceDraftChange={(item,value)=>setAskingPriceDrafts(v=>({...v,[item._id]:value}))}
-            onSaveAskingPrice={item=>void saveAskingPrice(item._id)} onEditProduct={item=>setEditingProductId(item._id)}
+            onSaveAskingPrice={item=>saveAskingPrice(item._id)} onEditProduct={(item, focusPriceVisibility)=>{setEditPriceVisibility(!!focusPriceVisibility);setEditingProductId(item._id);}}
             onOpenConsignments={()=>navigateAdminPage('consignments')} onAddStock={()=>setAddStockOpen(true)} pagination={stockRead}
           /></fieldset>}
-          {editingProductId && <ProductEditor key={editingProductId} itemId={editingProductId} apiBase={API} request={request} upload={uploadItemAttachment} onClose={() => setEditingProductId(null)} onChanged={async () => { stockRead.reload(); await load(); }} />}
+          {editingProductId && <ProductEditor focusPriceVisibility={editPriceVisibility} key={editingProductId} itemId={editingProductId} apiBase={API} request={request} upload={uploadItemAttachment} onClose={() => setEditingProductId(null)} onChanged={async () => { stockRead.reload(); await load(); }} />}
           {['sales','saleSummary'].includes(adminPage) && <fieldset disabled={saleSubmission!=='idle'} style={{border:0,padding:0,margin:0,minWidth:0}}><SalesWorkspace mode={adminPage==='sales'?'selection':'review'} items={visibleItems}
             basketItems={selectedItemIds.flatMap(id=>{const item=items.find(x=>x._id===id);return item?[item]:[];})}
             basketQuantities={Object.fromEntries(selectedItemIds.map(id=>[id,saleQuantities[id]??1]))} lineTotals={salePrices} totalCents={selectedSaleTotalCents} apiBase={API}

@@ -1,5 +1,5 @@
 import { SeriesFilter, useSeriesOptions } from './SeriesInput';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   FiArrowRight,
   FiCheck,
@@ -34,6 +34,7 @@ export type StockWorkspaceItem = {
   quantity?: number;
   status: string;
   hiddenFromCatalogue?: boolean;
+  priceVisible?: boolean;
   description?: string;
   origin?: 'purchase' | 'consignment' | 'supplier';
   productType?: 'card' | 'sealed' | 'other';
@@ -92,8 +93,8 @@ export type StockWorkspaceProps<T extends StockWorkspaceItem = StockWorkspaceIte
   onOpenBasket: () => void;
   priceDrafts: Readonly<Record<string, string>>;
   onPriceDraftChange: (item: T, value: string) => void;
-  onSaveAskingPrice: (item: T) => void;
-  onEditProduct: (item: T) => void;
+  onSaveAskingPrice: (item: T) => Promise<string | undefined>;
+  onEditProduct: (item: T, focusPriceVisibility?: boolean) => void;
   onOpenConsignments: () => void;
   onAddStock: () => void;
   pagination: {
@@ -215,6 +216,11 @@ export function StockWorkspace<T extends StockWorkspaceItem>(props: StockWorkspa
     [inspected, setInspected] = useState<T | null>(null);
   const trigger = useRef<HTMLElement | null>(null);
   const detail = inspected ? (items.find((item) => item._id === inspected._id) ?? inspected) : null;
+  const [priceError, setPriceError] = useState('');
+  const [priceNotice, setPriceNotice] = useState('');
+  const priceErrorId = useId();
+  const priceInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { setPriceError(''); setPriceNotice(''); }, [detail?._id]);
   const selection = new Set(props.visibilitySelection);
   const selectedOnPage = items.filter((item) => selection.has(item._id)).length;
   const advancedCount =
@@ -426,7 +432,7 @@ export function StockWorkspace<T extends StockWorkspaceItem>(props: StockWorkspa
           </Button>
         </div>
       </div>
-      {props.error && (
+      {props.error && !detail && (
         <div className="sw-message sw-error" role="alert">
           <span>{props.error}</span>
           <Button type="button" variant="secondary" onClick={props.pagination.reload}>
@@ -754,6 +760,8 @@ export function StockWorkspace<T extends StockWorkspaceItem>(props: StockWorkspa
                   .join(' · ') || 'Article sans référence'}
               </DialogDescription>
             </div>
+            {props.error && <p className="sw-message sw-error" role="alert">{props.error}</p>}
+            {props.notice && <p className="sw-message" role="status">{props.notice}</p>}
             <ProductGallery key={detail._id} item={detail} apiBase={props.apiBase} />
             <div className="sw-detail-primary">
               <strong>
@@ -790,6 +798,17 @@ export function StockWorkspace<T extends StockWorkspaceItem>(props: StockWorkspa
                 {detail.hiddenFromCatalogue ? 'Publier au catalogue' : 'Masquer du catalogue'}
               </Button>
             </div>
+            <section className="sw-detail-section">
+              <h3>Prix dans le catalogue public</h3>
+              <p>{detail.priceVisible === false ? 'Prix masqué aux visiteurs.' : 'Prix affiché aux visiteurs.'} Le prix reste visible dans votre stock.</p>
+              <Button type="button" variant="outline" onClick={() => {
+                setInspected(null);
+                props.onEditProduct(detail, true);
+              }}>
+                <FiEyeOff aria-hidden="true" />
+                Modifier la visibilité du prix
+              </Button>
+            </section>
             {detail.description && (
               <section className="sw-detail-section">
                 <h3>Description</h3>
@@ -897,13 +916,19 @@ export function StockWorkspace<T extends StockWorkspaceItem>(props: StockWorkspa
             <section className="sw-detail-section">
               <h3>Prix demandé</h3>
               <p>
-                Ce prix est proposé au catalogue. Le prix final de vente se vérifie dans le panier.
+                Le prix final de vente se vérifie dans le panier. Son affichage public dépend du réglage de visibilité du prix.
               </p>
               <form
                 className="sw-price-form"
-                onSubmit={(event) => {
+                onSubmit={async (event) => {
                   event.preventDefault();
-                  props.onSaveAskingPrice(detail);
+                  setPriceError('');
+                  setPriceNotice('');
+                  const error = await props.onSaveAskingPrice(detail);
+                  if (error) {
+                    setPriceError(error);
+                    requestAnimationFrame(() => priceInput.current?.focus());
+                  } else setPriceNotice('Prix enregistré.');
                 }}
               >
                 <label>
@@ -912,14 +937,23 @@ export function StockWorkspace<T extends StockWorkspaceItem>(props: StockWorkspa
                     inputMode="decimal"
                     required
                     aria-label={`Prix demandé pour ${detail.name}`}
+                    ref={priceInput}
+                    aria-invalid={!!priceError}
+                    aria-describedby={priceError ? priceErrorId : undefined}
                     value={
                       props.priceDrafts[detail._id] ??
                       (detail.askingPriceCents === undefined
                         ? ''
                         : (detail.askingPriceCents / 100).toFixed(2))
                     }
-                    onChange={(event) => props.onPriceDraftChange(detail, event.target.value)}
+                    onChange={(event) => {
+                      setPriceError('');
+                      setPriceNotice('');
+                      props.onPriceDraftChange(detail, event.target.value);
+                    }}
                   />
+                  {priceError && <span id={priceErrorId} className="sw-message sw-error" role="alert">{priceError}</span>}
+                  {priceNotice && <span role="status">{priceNotice}</span>}
                 </label>
                 <Button type="submit" disabled={busy}>
                   Enregistrer
@@ -944,11 +978,7 @@ export function StockWorkspace<T extends StockWorkspaceItem>(props: StockWorkspa
                 </ul>
               </section>
             )}
-            {props.error && (
-              <p className="sw-message sw-error" role="alert">
-                {props.error}
-              </p>
-            )}
+
           </DialogContent>
         </Dialog>
       )}
