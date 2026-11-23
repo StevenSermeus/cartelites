@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useId, useRef } from 'react';
 import type { Signature } from '../../../packages/domain/src/signature';
 export function SignaturePad({
   value,
@@ -11,6 +11,7 @@ export function SignaturePad({
   label: string;
   disabled?: boolean;
 }) {
+  const assistanceId = useId();
   const drawing = useRef<Signature | null>(null);
   const point = (e: React.PointerEvent<SVGSVGElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -24,6 +25,7 @@ export function SignaturePad({
       <p>{label}</p>
       <svg
         aria-label={label}
+        aria-describedby={disabled ? undefined : assistanceId}
         role="img"
         viewBox="0 0 600 200"
         style={{
@@ -32,8 +34,8 @@ export function SignaturePad({
           aspectRatio: '3 / 1',
           height: 'auto',
           display: 'block',
-          background: 'white',
-          border: '1px solid #75695c',
+          background: 'var(--card)',
+          border: '1px solid var(--input)',
           borderRadius: 8,
           touchAction: 'none',
           cursor: disabled ? 'default' : 'crosshair',
@@ -72,13 +74,19 @@ export function SignaturePad({
             key={i}
             points={s.map((p) => `${p[0] * 600},${p[1] * 200}`).join(' ')}
             fill="none"
-            stroke="#14213d"
+            stroke="var(--card-foreground)"
             strokeWidth="3"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
         ))}
       </svg>
+      {!disabled && (
+        <p id={assistanceId} className="muted">
+          Si vous ne pouvez pas tracer votre signature sur cet écran, demandez
+          l’assistance de la boutique avant de continuer.
+        </p>
+      )}
       <button
         type="button"
         className="secondary"

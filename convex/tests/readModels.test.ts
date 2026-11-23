@@ -1,3 +1,4 @@
+import { authenticated } from './helpers/session';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { convexTest } from 'convex-test';
@@ -11,7 +12,7 @@ const browse = makeFunctionReference<'query'>('readModels:browse');
 const record = makeFunctionReference<'query'>('readModels:record');
 const dashboard = makeFunctionReference<'query'>('readModels:dashboardSummary');
 test('bounded client reads authenticate, continue without duplicates and search legacy records', async () => {
-  const t = convexTest(schema, modules), user = t.withIdentity({ subject: 'staff' });
+  const t = convexTest(schema, modules), user = (await authenticated(t, 'staff'));
   await assert.rejects(t.query(browse, { resource: 'sellers', size: 2 }), /UNAUTHENTICATED/);
   await t.run(async ctx => {
     for (let i = 0; i < 7; i++) await ctx.db.insert('sellers', { name: i === 0 ? 'Élodie Martin' : `Client ${i}`, email: `client${i}@example.test`, phone: `047000000${i}`, ownerId: 'another-staff', operationId: String(i), operationDigest: '', createdAt: i });
@@ -36,7 +37,7 @@ test('bounded client reads authenticate, continue without duplicates and search 
   assert.equal(await user.query(record, { resource: 'stock', id: seen[0] }), null);
 });
 test('full-scope aggregates preserve pending collections, legacy deposits and negative balances', async () => {
-  const t = convexTest(schema, modules), user = t.withIdentity({ subject: 'staff' });
+  const t = convexTest(schema, modules), user = (await authenticated(t, 'staff'));
   const sellerId = await t.run(async ctx => {
     const sellerId = await ctx.db.insert('sellers', { name: 'Déposant', ownerId: 'staff', operationId: 'seller', operationDigest: '', createdAt: 1 });
     const consignmentId = await ctx.db.insert('consignments', { sellerId, reference: 'D1', ownerId: 'staff', operationId: 'deposit', operationDigest: '', occurredAt: Date.now(), createdAt: 1 });
@@ -54,7 +55,7 @@ test('full-scope aggregates preserve pending collections, legacy deposits and ne
 });
 
 test('dashboard distributions reconcile games, origins and received sales', async () => {
-  const t = convexTest(schema, modules), user = t.withIdentity({ subject: 'staff' });
+  const t = convexTest(schema, modules), user = (await authenticated(t, 'staff'));
   await t.run(async ctx => {
     const sellerId = await ctx.db.insert('sellers', { name: 'Source', ownerId: 'staff', operationId: 's', operationDigest: '', createdAt: 1 });
     const purchaseId = await ctx.db.insert('purchases', { sellerId, reference: 'P1', ownerId: 'staff', operationId: 'p', operationDigest: '', occurredAt: Date.now(), createdAt: 1, status: 'active' });
@@ -82,7 +83,7 @@ test('dashboard distributions reconcile games, origins and received sales', asyn
 });
 
 test('stock product filters include legacy cards, exclude other types and bind pagination cursors', async () => {
-  const t = convexTest(schema, modules), user = t.withIdentity({ subject: 'staff' });
+  const t = convexTest(schema, modules), user = (await authenticated(t, 'staff'));
   await t.run(async ctx => {
     const sellerId = await ctx.db.insert('sellers', {name:'Client',ownerId:'staff',operationId:'s',operationDigest:'',createdAt:1});
     const purchaseId = await ctx.db.insert('purchases', {sellerId,reference:'P',ownerId:'staff',operationId:'p',operationDigest:'',occurredAt:1,createdAt:1,status:'active'});

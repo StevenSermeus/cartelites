@@ -1,3 +1,4 @@
+import { shopTimezone } from './shopFormat';
 import { useEffect, useRef, useState } from "react";
 import { SignaturePad } from "./SignaturePad";
 import {
@@ -16,6 +17,7 @@ type Draft = {
 };
 type Signed = {
   id: string;
+  version?: number;
   signedAt?: number;
   emailStatus: string;
   emailError?: string;
@@ -114,7 +116,7 @@ export function ReceiptSigningPage({
     fromEmail: string;
   } | null>(null);
   const back =
-    kind === "purchase" ? "/admin/purchases/history" : "/admin/consignments";
+    kind === "purchase" ? "/admin/purchase-history" : "/admin/consignments";
   const refresh = async () =>
     setSigned(
       await request<Signed[]>(
@@ -485,7 +487,7 @@ export function ReceiptSigningPage({
           {signed.map((row) => (
             <article className="signing-archive" key={row.id}>
               <div>
-                <h3>{new Date(row.signedAt!).toLocaleString("fr-BE")}</h3>
+                <h3>{row.version ? `Version ${row.version} · ` : ''}{new Date(row.signedAt!).toLocaleString('fr-BE', {timeZone:shopTimezone})}</h3>
                 <p>{row.recipient || "Adresse e-mail manquante"}</p>
                 <strong>{emailLabel(row.emailStatus)}</strong>
                 {row.emailError && (

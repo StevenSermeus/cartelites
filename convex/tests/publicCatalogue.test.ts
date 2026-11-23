@@ -1,3 +1,4 @@
+import { authenticated } from './helpers/session';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { convexTest } from 'convex-test';
@@ -47,7 +48,7 @@ test('public catalogue filters before pagination and reports matching total', as
 
 test('mixed purchase persists each TCG and convention filters before pagination with legacy Pokémon default', async () => {
   const t = convexTest(schema, modules);
-  const user = t.withIdentity({ subject: 'owner' });
+  const user = (await authenticated(t, 'owner'));
   const sellerId = await user.mutation(api.operations.createSeller, { operationId: 'seller-mixed', name: 'Seller' });
   const purchase = await user.mutation(api.operations.createPurchase, {
     operationId: 'mixed', sellerId, occurredAt: 1, reference: 'MIX',
@@ -79,7 +80,7 @@ test('mixed purchase persists each TCG and convention filters before pagination 
 test('Convention photos respect visibility and source status on every read without exposing private metadata', async () => {
   const { internal } = await import('../functions/_generated/api');
   const t = convexTest(schema, modules);
-  const user = t.withIdentity({ subject: 'owner' });
+  const user = (await authenticated(t, 'owner'));
   const sellerId = await user.mutation(api.operations.createSeller, { operationId: 'photo-seller', name: 'Seller' });
   const purchase = await user.mutation(api.operations.createPurchase, {
     operationId: 'photo-purchase', sellerId, occurredAt: 1, reference: 'PHOTO',
@@ -88,17 +89,17 @@ test('Convention photos respect visibility and source status on every read witho
   const itemId = purchase.itemIds[0];
   const resolve = () => t.query(internal.operations.cataloguePhotoObject, { itemId });
   await user.mutation(api.operations.createAttachment, {
-    itemId, objectKey: 'attachments/owner/document', filename: 'receipt.pdf', contentType: 'application/pdf', size: 10,
+    itemId, objectKey: `attachments/${user.accountId}/document`, filename: 'receipt.pdf', contentType: 'application/pdf', size: 10,
   });
   await user.mutation(api.operations.createAttachment, {
-    itemId, purchaseId: purchase.purchaseId, objectKey: 'cards/owner/receipt', filename: 'receipt.png', contentType: 'image/png', size: 10,
+    itemId, purchaseId: purchase.purchaseId, objectKey: `cards/${user.accountId}/receipt`, filename: 'receipt.png', contentType: 'image/png', size: 10,
   });
   await t.run(ctx => ctx.db.patch(purchase.purchaseId, { status: 'active' }));
   assert.equal(await resolve(), null, 'PDF and purchase receipts stay private');
   await user.mutation(api.operations.createAttachment, {
-    itemId, objectKey: 'owner/legacy-photo', filename: 'card.png', contentType: 'image/png', size: 10,
+    itemId, objectKey: `${user.accountId}/legacy-photo`, filename: 'card.png', contentType: 'image/png', size: 10,
   });
-  assert.deepEqual(await resolve(), { objectKey: 'owner/legacy-photo', contentType: 'image/png' });
+  assert.deepEqual(await resolve(), { objectKey: `${user.accountId}/legacy-photo`, contentType: 'image/png' });
   const page = await t.query(api.operations.publicCatalogue, {
     paginationOpts: { numItems: 12, cursor: null }, search: '', gradingStatus: 'all', gradingCompany: '', gradingGrade: '',
   });
@@ -119,17 +120,46 @@ test('Convention photos respect visibility and source status on every read witho
 
 test('attachment prefixes enforce owner and purpose while accepting legacy keys', async () => {
   const t = convexTest(schema, modules);
-  const user = t.withIdentity({ subject: 'owner' });
+  const user = (await authenticated(t, 'owner'));
   const sellerId = await user.mutation(api.operations.createSeller, { operationId: 'prefix-seller', name: 'Seller' });
   const purchase = await user.mutation(api.operations.createPurchase, {
     operationId: 'prefix-purchase', sellerId, occurredAt: 1, reference: 'PREFIX',
     items: [{ operationId: 'prefix-item', name: 'Card', purchasePriceCents: 100, vatRegime: 'margin' }],
   });
   const base = { itemId: purchase.itemIds[0], filename: 'card.png', contentType: 'image/png', size: 10 };
-  await user.mutation(api.operations.createAttachment, { ...base, objectKey: 'cards/owner/new-photo' });
-  await user.mutation(api.operations.createAttachment, { ...base, objectKey: 'owner/old-photo' });
-  for (const objectKey of ['cards/another-owner/photo', 'attachments/owner/photo', 'cards/owner/../photo', 'cards/owner/']) {
+  await user.mutation(api.operations.createAttachment, { ...base, objectKey: `cards/${user.accountId}/new-photo` });
+  await user.mutation(api.operations.createAttachment, { ...base, objectKey: `${user.accountId}/old-photo` });
+  for (const objectKey of ['cards/another-owner/photo', `attachments/${user.accountId}/photo`, `cards/${user.accountId}/../photo`, `cards/${user.accountId}/`]) {
     await assert.rejects(user.mutation(api.operations.createAttachment, { ...base, objectKey }), /INVALID_ATTACHMENT/);
   }
-  await assert.rejects(user.mutation(api.operations.createAttachment, { ...base, objectKey: 'cards/owner/pdf', contentType: 'application/pdf' }), /INVALID_ATTACHMENT/);
+  await assert.rejects(user.mutation(api.operations.createAttachment, { ...base, objectKey: `cards/${user.accountId}/pdf`, contentType: 'application/pdf' }), /INVALID_ATTACHMENT/);
+});
+
+test('Convention sorting is global before page slicing and preserves public projection',async()=>{
+ const t=convexTest(schema,modules),user=(await authenticated(t, 'employee'));
+ const sellerId=await user.mutation(api.operations.createSeller,{operationId:'sort-contact',name:'Private supplier'});
+ const purchase=await user.mutation(api.operations.createPurchase,{operationId:'sort-purchase',sellerId,occurredAt:1,reference:'PRIVATE',items:[{name:'Zoro',price:900},{name:'Évoli',price:300},{name:'Abra',price:600}].map((row,i)=>({operationId:`sort-${i}`,name:row.name,purchasePriceCents:10,askingPriceCents:row.price,vatRegime:'margin' as const}))});
+ await t.run(ctx=>ctx.db.patch(purchase.purchaseId,{status:'active'}));
+ const base={search:'',gradingStatus:'all',gradingCompany:'',gradingGrade:'',paginationOpts:{numItems:1,cursor:null}};
+ const first=await t.query(api.operations.publicCatalogue,{...base,sort:'price-asc'});
+ assert.equal(first.page[0].name,'Évoli');
+ const second=await t.query(api.operations.publicCatalogue,{...base,sort:'price-asc',paginationOpts:{numItems:1,cursor:first.continueCursor}});
+ assert.equal(second.page[0].name,'Abra');
+ assert.equal((await t.query(api.operations.publicCatalogue,{...base,sort:'price-desc'})).page[0].name,'Zoro');
+ assert.equal((await t.query(api.operations.publicCatalogue,{...base,sort:'name'})).page[0].name,'Abra');
+ assert.equal('purchasePriceCents' in first.page[0],false);assert.equal('sellerId' in first.page[0],false);
+});
+
+test('public catalogue facets span pages and filters without exposing hidden grading labels',async()=>{
+ const t=convexTest(schema,modules),user=(await authenticated(t, 'employee'));
+ const sellerId=await user.mutation(api.operations.createSeller,{operationId:'facets-contact',name:'Private supplier'});
+ const purchase=await user.mutation(api.operations.createPurchase,{operationId:'facets-purchase',sellerId,occurredAt:1,reference:'PRIVATE',items:['Visible FR','Visible EN','Hidden'].map((name,i)=>({operationId:`facets-${i}`,name,purchasePriceCents:10,askingPriceCents:100,vatRegime:'margin' as const}))});
+ await t.run(async ctx=>{await ctx.db.patch(purchase.purchaseId,{status:'active'});await ctx.db.patch(purchase.itemIds[0],{language:'fr',gradingCompany:'PSA',quantity:3});await ctx.db.patch(purchase.itemIds[1],{language:'en',gradingCompany:'CGC'});await ctx.db.patch(purchase.itemIds[2],{language:'ja',gradingCompany:'PRIVATE',hiddenFromCatalogue:true});});
+ const base={search:'',gradingStatus:'all',gradingCompany:'',gradingGrade:'',paginationOpts:{numItems:1,cursor:null}};
+ const page=await t.query(api.operations.publicCatalogue,{...base,language:'fr'});
+ assert.equal(page.page.length,1);assert.equal(page.page[0].name,'Visible FR');assert.equal(page.page[0].quantity,3);
+ assert.deepEqual(page.gradingCompanies,['CGC','PSA']);assert.deepEqual(page.languages,['en','fr']);
+ const empty=await t.query(api.operations.publicCatalogue,{...base,search:'no-match',gradingCompany:'CGC'});
+ assert.equal(empty.page.length,0);assert.deepEqual(empty.gradingCompanies,['CGC','PSA']);assert.deepEqual(empty.languages,['en','fr']);
+ assert.equal(JSON.stringify(page).includes('PRIVATE'),false);
 });

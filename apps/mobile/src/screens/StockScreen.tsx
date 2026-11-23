@@ -1,5 +1,15 @@
+import {useStockSeries, type SeriesTcg} from '../data/useStockSeries';
+import {seriesKey} from '../../../../packages/domain/src/seriesFilter';
+import {BasketQuantityControl} from '../components/BasketQuantityControl';
+import {basketMaximum} from '../data/basketQuantity';
+import {useGradingCompanies} from '../data/useGradingCompanies';
+import {formatCost} from '../data/inventoryCosts';
+import {MotionModal as Modal} from '../components/MotionModal';
+import {MarketPricePanel} from '../components/MarketPricePanel';
+import { shopCurrency } from '../theme/shopFormatting';
 import { realtime } from '../data/realtime';
 import { InventoryManager } from '../components/InventoryManager';
+import { StockTraceability } from '../components/StockTraceability';
 import { useTheme, type ThemeColors } from "../theme/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
 import * as Crypto from "expo-crypto";
@@ -14,7 +24,6 @@ import {
   Switch,
   KeyboardAvoidingView,
   Platform,
-  Modal,
   ScrollView,
   Pressable,
   StyleSheet,
@@ -28,6 +37,7 @@ import {
   type Item,
   type Seller,
   updateStockVisibility,
+  request,
 } from "../data/apiRepository";
 
 const normalize = (value: string) =>
@@ -76,7 +86,7 @@ function GradingBadge({
   const { colors, dark } = useTheme();
   const styles = createStyles(colors);
 
-  const label = companyLabels[company];
+  const label = companyLabels[company] ?? company;
   const companyStyle =
     company === "PSA"
       ? styles.gradingBadgePSA
@@ -90,7 +100,7 @@ function GradingBadge({
       style={[styles.gradingBadge, companyStyle]}
       accessibilityLabel={`${label}, gradée ${grade || "note non renseignée"}${certificate ? `, certificat ${certificate}` : ""}`}
     >
-      <View style={company === "CCC" ? styles.cccLogoPlate : undefined}>
+      {gradingLogos[company] ? <View style={company === "CCC" ? styles.cccLogoPlate : undefined}>
         <Image
           accessibilityLabel={label}
           source={{ uri: gradingLogos[company] }}
@@ -100,7 +110,7 @@ function GradingBadge({
           ]}
           resizeMode="contain"
         />
-      </View>
+      </View> : <Text style={{color: colors.text}}>{label}</Text>}
       <View style={styles.gradingScore}>
         <Text style={[{ color: colors.text }, styles.gradingCaption]}>
           GRADÉE
@@ -122,6 +132,8 @@ export function StockScreen({
   items,
   sellers,
   selectedIds,
+  quantities = {},
+  onChangeQuantity,
   salePrices,
   onChangeSalePrice,
   askingPriceEdits,
@@ -143,6 +155,8 @@ export function StockScreen({
   items: Item[];
   sellers: Seller[];
   selectedIds: string[];
+  quantities?: Record<string, string>;
+  onChangeQuantity?: (item: Item, delta: 1|-1) => void;
   salePrices: Record<string, string>;
   onChangeSalePrice: (itemId: string, value: string) => void;
   askingPriceEdits: Record<string, string>;
@@ -242,12 +256,25 @@ export function StockScreen({
   const [gradingStatus, setGradingStatus] = useState<
     "all" | "graded" | "ungraded"
   >("all");
+  const {companies:gradingRecords,error:gradingError,loading:gradingLoading,reload:reloadGrading}=useGradingCompanies();
   const [gradingCompany, setGradingCompany] = useState<"all" | GradingCompany>(
     "all",
   );
   const [gradingText, setGradingText] = useState("");
+  const [tcg, setTcg] = useState<SeriesTcg>('all');
+  const [series, setSeries] = useState('');
+  const [seriesOpen, setSeriesOpen] = useState(false);
+  const [seriesSearch, setSeriesSearch] = useState('');
+  const seriesData = useStockSeries(tcg, false, resetVersion);
+  useEffect(() => { setSeriesOpen(false); setSeriesSearch(''); }, [resetVersion]);
+  const changeTcg = (value: SeriesTcg) => {
+    if (value === tcg) return;
+    setTcg(value); setSeries(''); setSeriesSearch(''); setSeriesOpen(false);
+  };
 
   const filterCount =
+    Number(tcg !== 'all') +
+    Number(Boolean(series)) +
     Number(productType !== "all") +
     Number(origin !== "all") +
     Number(visibility !== "all") +
@@ -267,6 +294,8 @@ export function StockScreen({
     "/stock",
     {
       search,
+      tcg,
+      series,
       visibility,
       origin,
       productType,
@@ -282,6 +311,8 @@ export function StockScreen({
   const pageItems = data.items;
   const filterKey = JSON.stringify([
     search,
+    tcg,
+    series,
     productType,
     gradingStatus,
     gradingCompany,
@@ -409,6 +440,25 @@ export function StockScreen({
                 />
               </View>
               <View style={styles.filterFormGroup}>
+                <View style={{padding: 12, gap: 8}}>
+                  <Text style={styles.filterFormLabel}>Jeu de cartes</Text>
+                  <View style={styles.filterRow}>
+                    {([['all', 'Tous'], ['pokemon', 'Pokémon'], ['riftbound', 'Riftbound'], ['other', 'Autres']] as const).map(([value, label]) => <Pressable key={value} accessibilityRole="radio" accessibilityState={{checked: tcg === value}} onPress={() => changeTcg(value)} style={[styles.filterChip, tcg === value && styles.filterChipActive]}><Text style={[styles.filterText, tcg === value && styles.filterTextActive]}>{label}</Text></Pressable>)}
+                  </View>
+                </View>
+                <Pressable accessibilityRole="button" accessibilityState={{expanded: seriesOpen}} onPress={() => setSeriesOpen(value => !value)} style={styles.filterFormRow}>
+                  <Text style={styles.filterFormLabel}>Série / extension</Text>
+                  <Text style={[styles.filterFormValue, {flex: 1, textAlign: 'right'}]}>{series || 'Toutes'} ›</Text>
+                </Pressable>
+                {seriesOpen && <View style={{padding: 12}}>
+                  <TextInput accessibilityLabel="Rechercher une série" placeholder="Rechercher une série" value={seriesSearch} onChangeText={setSeriesSearch} style={styles.filterFormInput} placeholderTextColor={colors.placeholder} keyboardAppearance={dark ? 'dark' : 'light'} />
+                  <Pressable accessibilityRole="radio" accessibilityState={{checked: !series}} onPress={() => {setSeries(''); setSeriesOpen(false);}} style={styles.inlineAction}><Text style={styles.inlineActionText}>Toutes les séries</Text></Pressable>
+                  {seriesData.loading && <Text style={styles.details}>Chargement des séries…</Text>}
+                  {!!seriesData.error && <><Text accessibilityRole="alert" style={{color: colors.danger}}>{seriesData.error}</Text><Pressable accessibilityRole="button" onPress={seriesData.reload} style={styles.inlineAction}><Text style={styles.inlineActionText}>Réessayer les séries</Text></Pressable></>}
+                  {!seriesData.loading && !seriesData.error && !seriesData.series.length && <Text style={styles.details}>Aucune série disponible pour ce jeu.</Text>}
+                  {!seriesData.loading && !seriesData.error && !!seriesData.series.length && !seriesData.series.some(label => seriesKey(label).includes(seriesKey(seriesSearch))) && <Text style={styles.details}>Aucune série correspondante.</Text>}
+                  {seriesData.series.filter(label => seriesKey(label).includes(seriesKey(seriesSearch))).map(label => <Pressable key={label} accessibilityRole="radio" accessibilityState={{checked: label === series}} onPress={() => {setSeries(label); setSeriesOpen(false);}} style={styles.inlineAction}><Text style={styles.inlineActionText}>{label === series ? '✓ ' : ''}{label}</Text></Pressable>)}
+                </View>}
                 {filterChoice(
                   "Type",
                   productType,
@@ -451,15 +501,15 @@ export function StockScreen({
                   ] as const,
                   setGradingStatus,
                 )}
+                {!!gradingError&&<Text accessibilityRole="alert" style={{color:colors.danger}}>{gradingError}</Text>}
+                {!!gradingError&&<Pressable accessibilityRole="button" disabled={gradingLoading} onPress={()=>void reloadGrading()} style={{minHeight:44,justifyContent:'center'}}><Text style={{color:colors.accent}}>Réessayer les sociétés</Text></Pressable>}
                 {filterChoice(
                   "Société",
                   gradingCompany,
                   [
                     ["all", "Toutes"],
-                    ["PSA", "PSA"],
-                    ["CollectAura", "CollectAura"],
-                    ["PCA", "PCA"],
-                    ["CCC", "CCC"],
+                    ...(gradingCompany!=='all'&&!gradingRecords.some(row=>row.name===gradingCompany&&!row.archivedAt)?[[gradingCompany,`${gradingCompany} (ancienne valeur)`] as const]:[]),
+                    ...gradingRecords.filter(row => !row.archivedAt).map(row => [row.name, row.name] as const),
                   ] as const,
                   setGradingCompany,
                 )}
@@ -479,6 +529,10 @@ export function StockScreen({
                 accessibilityRole="button"
                 style={styles.inlineAction}
                 onPress={() => {
+                  setTcg('all');
+                  setSeries('');
+                  setSeriesSearch('');
+                  setSeriesOpen(false);
                   setVisibility("all");
                   setOrigin("all");
                   setProductType("all");
@@ -506,7 +560,7 @@ export function StockScreen({
           </SafeAreaView>
         </KeyboardAvoidingView>
       </Modal>
-      {!focusedItem && (
+      {(
         <>
           <InventoryManager onChanged={async () => { await onRefresh(); data.reload(); }} />
           <View style={styles.filterRow}>
@@ -656,9 +710,9 @@ export function StockScreen({
           )}
         </>
       )}
-      <View style={!focusedItem && pageItems.length ? styles.group : undefined}>
-        {(focusedItem ? [focusedItem] : pageItems).map((item) => {
-          if (!focusedItem)
+      <View style={pageItems.length ? styles.group : undefined}>
+        {[...pageItems.map(item=>({item,detail:false})),...(focusedItem?[{item:focusedItem,detail:true}]:[])].map(({item,detail}) => {
+          if (!detail)
             return (
               <Pressable
                 key={item._id}
@@ -673,7 +727,7 @@ export function StockScreen({
                     setFocusedItem(item);
                   }
                 }}
-                style={styles.compactRow}
+                style={[styles.compactRow, selectedIds.includes(item._id) && {backgroundColor: colors.accentSoft}]}
               >
                 {visibilityToolsOpen && (
                   <Text
@@ -707,17 +761,17 @@ export function StockScreen({
                       ? "—"
                       : (item.askingPriceCents / 100).toLocaleString("fr-BE", {
                           style: "currency",
-                          currency: "EUR",
+                          currency: shopCurrency(),
                         })}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.placeholder} />
+                {onChangeQuantity && !visibilityToolsOpen ? <BasketQuantityControl name={item.name} selected={selectedIds.includes(item._id)} value={quantities[item._id]} maximum={basketMaximum(item.origin,item.quantity)} onChange={delta=>onChangeQuantity(item,delta)}/> : <Ionicons name="chevron-forward" size={18} color={colors.placeholder} />}
               </Pressable>
             );
           const selected = selectedIds.includes(item._id);
           return (
             <Modal
-              key={item._id}
+              key={`detail:${item._id}`}
               visible
               animationType="slide"
               presentationStyle="fullScreen"
@@ -846,7 +900,7 @@ export function StockScreen({
                         <Text
                           style={[{ color: colors.text }, styles.formLabel]}
                         >
-                          Prix de vente (€)
+                          Prix de vente ({shopCurrency()})
                         </Text>
                         <TextInput
                           accessibilityLabel={`Prix de vente demandé pour ${item.name}`}
@@ -947,14 +1001,14 @@ export function StockScreen({
                           "Client"}{" "}
                         {item.origin === "consignment"
                           ? ` · Commission ${(item.commissionRateBps ?? 3000) / 100} % · Vente `
-                          : item.origin === "supplier" ? " · Coûts et factures dans les lots · Vente " : ` · Rachat ${(item.purchasePriceCents / 100).toFixed(2)} € · Vente `}
+                          : item.origin === "supplier" ? " · Coûts et factures dans les lots · Vente " : ` · Rachat ${formatCost(item.purchasePriceCents)} · Vente `}
                         {item.askingPriceCents === undefined
                           ? "Prix non défini"
                           : (item.askingPriceCents / 100).toLocaleString(
                               "fr-BE",
                               {
                                 style: "currency",
-                                currency: "EUR",
+                                currency: shopCurrency(),
                               },
                             )}
                       </Text>
@@ -966,17 +1020,19 @@ export function StockScreen({
                               item.askingPriceCents ??
                               0) / 100
                           ).toFixed(2)}{" "}
-                          €. Les modifications de l’accord se font dans Dépôts.
+                          {shopCurrency()}. Les modifications de l’accord se font dans Dépôts.
                         </Text>
                       )}
                       {item.marketValueCents !== undefined && (
                         <Text style={[{ color: colors.text }, styles.details]}>
                           Valeur actuelle{" "}
-                          {(item.marketValueCents / 100).toFixed(2)} € · reprise
+                          {(item.marketValueCents / 100).toFixed(2)} {shopCurrency()} · reprise
                           à {item.discountPercent ?? 0}%
                         </Text>
                       )}
                     </View>
+                    <StockTraceability item={item} revision={`${revision}:${item.revision??0}:${item.quantity??''}`} />
+                    <MarketPricePanel name={item.name} identifier={item.identifier} series={item.series} language={item.language} gradingCompany={item.gradingCompany} gradingGrade={item.gradingGrade} />
                   </ScrollView>
                   <View style={styles.footer}>
                     <Pressable
@@ -1018,8 +1074,8 @@ export function StockScreen({
           );
         })}
       </View>
-      {!focusedItem && pagination()}
-      {!focusedItem && !data.loading && !data.error && !filtered.length && (
+      {pagination()}
+      {!data.loading && !data.error && !filtered.length && (
         <Text style={[{ color: colors.text }, styles.hint]}>
           Aucun article disponible trouvé.
         </Text>

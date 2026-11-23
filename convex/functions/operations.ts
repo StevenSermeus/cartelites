@@ -1,8 +1,12 @@
+import { itemTcg, matchesSeries, seriesOptions, type SeriesItem } from '../../packages/domain/src/seriesFilter';
+export {salePaymentHistory} from './paymentHistory';
+import {mutation} from './itemActivity';
+import {shopDay} from './shopCalendar';
 import { consume, restore, integer } from './stockLedger';
 import { paginationOptsValidator } from 'convex/server';
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
-import { type MutationCtx, type QueryCtx, internalQuery, mutation, query } from './_generated/server';
+import { type MutationCtx, type QueryCtx, internalQuery, query } from './_generated/server';
 import { splitConsignmentPrice } from './consignmentOperations';
 import {
   allocateSalePayments,
@@ -21,16 +25,7 @@ export {
   updateConsignmentTerms,
 } from './consignmentOperations';
 
-async function requireOwner(ctx: {
-  auth: { getUserIdentity(): Promise<{ subject: string; scope?: unknown } | null> };
-}): Promise<string> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error('UNAUTHENTICATED');
-  if (identity.scope === 'realtime:read') throw new Error('READ_ONLY_TOKEN');
-  // A Convex deployment represents one company. ownerId records who created a row,
-  // while authenticated users in this deployment share the company's business data.
-  return identity.subject;
-}
+import { requireLiveSession as requireOwner } from './sessionGuard';
 
 const digest = (value: unknown) => JSON.stringify(value);
 function replay<T extends { operationDigest: string }>(
@@ -118,6 +113,7 @@ export const createPurchase = mutation({
         identifier: v.optional(v.string()),
         serialNumber: v.optional(v.string()),
         catalogueImageUrl: v.optional(v.string()),
+        catalogueCardId:v.optional(v.string()),catalogueSetId:v.optional(v.string()),
         language: v.optional(v.union(v.literal('fr'), v.literal('en'), v.literal('ja'), v.literal('zh'))),
         condition: v.optional(
           v.union(
@@ -131,7 +127,7 @@ export const createPurchase = mutation({
           ),
         ),
         gradingCompany: v.optional(
-          v.union(v.literal('PSA'), v.literal('CollectAura'), v.literal('PCA'), v.literal('CCC')),
+          v.string(),
         ),
         gradingGrade: v.optional(v.string()),
         gradingCertificate: v.optional(v.string()),
@@ -261,7 +257,7 @@ export const updatePurchaseDate = mutation({
     const purchase = await ctx.db.get(args.purchaseId);
     if (!purchase) throw new Error('PURCHASE_NOT_FOUND');
     if (!Number.isSafeInteger(args.occurredAt)) throw new Error('INVALID_PURCHASE_DATE');
-    const nextDay = new Date(args.occurredAt).toISOString().slice(0, 10);
+    const nextDay = shopDay(args.occurredAt);
     const items = await ctx.db
       .query('items')
       .withIndex('by_purchase', (q) => q.eq('purchaseId', args.purchaseId))
@@ -272,7 +268,7 @@ export const updatePurchaseDate = mutation({
         .withIndex('by_item_status', (q) => q.eq('itemId', item._id).eq('status', 'active'))
         .collect();
       if (
-        activeSales.some((sale) => new Date(sale.occurredAt).toISOString().slice(0, 10) < nextDay)
+        activeSales.some((sale) => shopDay(sale.occurredAt) < nextDay)
       )
         throw new Error('PURCHASE_DATE_AFTER_SALE');
     }
@@ -329,8 +325,8 @@ async function createSaleTransaction(ctx: MutationCtx, args: SaleInput) {
   )
     throw new Error('INVALID_SALE_DATE');
   validateSalePayment(args.salePriceCents, args.occurredAt, args.paymentStatus, args.payment);
-  const saleDay = new Date(args.occurredAt).toISOString().slice(0, 10);
-  const purchaseDay = new Date(item.purchaseOccurredAt).toISOString().slice(0, 10);
+  const saleDay = shopDay(args.occurredAt);
+  const purchaseDay = shopDay(item.purchaseOccurredAt);
   if (
     !Number.isFinite(args.occurredAt) ||
     (args.occurredAt < item.purchaseOccurredAt && saleDay < purchaseDay)
@@ -513,7 +509,7 @@ export const updateAskingPrice = mutation({
     if (!item || item.status !== 'available') throw new Error('ITEM_NOT_FOUND');
     if (item.origin === 'consignment' && askingPriceCents < (item.agreedPriceCents ?? 0))
       throw new Error('PRICE_BELOW_AGREEMENT');
-    await ctx.db.patch(itemId, { askingPriceCents });
+    await ctx.db.patch(itemId, { askingPriceCents,revision:(item.revision??0)+1 });
     return itemId;
   },
 });
@@ -522,35 +518,31 @@ export const cancelSale = mutation({
   args: { operationId: v.string(), saleId: v.id('sales') },
   handler: async (ctx, args) => {
     const ownerId = await requireOwner(ctx);
+    if (!args.operationId.trim() || args.operationId.length > 200) throw new Error('INVALID_OPERATION_KEY');
     const operationDigest = digest(args);
-    const prior = await ctx.db
-      .query('sales')
-      .withIndex('by_owner_cancel_operation', (q) =>
-        q.eq('ownerId', ownerId).eq('cancelOperationId', args.operationId),
-      )
-      .unique();
-    if (prior) {
-      if (prior.cancelDigest !== operationDigest) throw new Error('IDEMPOTENCY_KEY_REUSED');
-      return prior._id;
-    }
-    const sale = await ctx.db.get(args.saleId);
+    const prior = replay(await ctx.db.query('saleCancellations')
+      .withIndex('by_owner_operation', q => q.eq('ownerId', ownerId).eq('operationId', args.operationId)).unique(), operationDigest);
+    if (prior) return prior.saleId;
+    // Preserve keys recorded by the earlier schema. Promote them lazily without altering their acknowledgement.
+    const historical = await ctx.db.query('sales')
+      .withIndex('by_owner_cancel_operation', q => q.eq('ownerId', ownerId).eq('cancelOperationId', args.operationId)).unique();
+    if (historical && historical.cancelDigest !== operationDigest) throw new Error('IDEMPOTENCY_KEY_REUSED');
+    const sale = historical ?? await ctx.db.get(args.saleId);
     if (!sale) throw new Error('SALE_NOT_FOUND');
-    if (sale.status === 'cancelled') {
+    if (!historical && sale.status !== 'cancelled') {
+      const item = await ctx.db.get(sale.itemId);
+      if (!item || (item.origin !== 'supplier' && item.status !== 'sold')) throw new Error('ITEM_STATE_INVALID');
       await ctx.db.patch(sale._id, {
-        cancelOperationId: args.operationId,
-        cancelDigest: operationDigest,
+        status: 'cancelled',
+        cancelOperationId: sale.cancelOperationId ?? args.operationId,
+        cancelDigest: sale.cancelDigest ?? operationDigest,
       });
-      return sale._id;
+      if (item.origin === 'supplier') await restore(ctx, item._id, sale.allocations ?? []);
+      else await ctx.db.patch(item._id, { status: 'available' });
     }
-    const item = await ctx.db.get(sale.itemId);
-    if (!item || (item.origin !== 'supplier' && item.status !== 'sold')) throw new Error('ITEM_STATE_INVALID');
-    await ctx.db.patch(sale._id, {
-      status: 'cancelled',
-      cancelOperationId: args.operationId,
-      cancelDigest: operationDigest,
-    });
-    if (item.origin === 'supplier') await restore(ctx, item._id, sale.allocations ?? []);
-    else await ctx.db.patch(item._id, { status: 'available' });
+    // Every accepted request retains its own binding, including no-op repeats by another colleague.
+    // A second request must never replace the first key or become reusable for another sale.
+    await ctx.db.insert('saleCancellations', { ownerId, ...args, operationDigest, createdAt: Date.now(), applied: !historical && sale.status !== 'cancelled' });
     return sale._id;
   },
 });
@@ -588,7 +580,7 @@ export const setStockVisibility = mutation({
     let updatedCount = 0;
     for (const item of items) {
       if (item && (item.hiddenFromCatalogue ?? false) !== args.hidden) {
-        await ctx.db.patch(item._id, { hiddenFromCatalogue: args.hidden });
+        await ctx.db.patch(item._id, { hiddenFromCatalogue: args.hidden,revision:(item.revision??0)+1 });
         updatedCount++;
       }
     }
@@ -642,7 +634,7 @@ export const stock = query({
 });
 
 async function catalogueEligible(ctx: QueryCtx, item: Doc<'items'>): Promise<boolean> {
-  if (item.status !== 'available' || item.hiddenFromCatalogue || item.askingPriceCents === undefined) return false;
+  if (item.removedPurchaseId || (item.quantity ?? 1) <= 0 || item.status !== 'available' || item.hiddenFromCatalogue || item.askingPriceCents === undefined) return false;
   if (item.consignmentId) { const d = await ctx.db.get(item.consignmentId); return !!d && (d.flowVersion !== 2 || d.contractStatus === 'signed'); }
   if (item.origin === 'supplier') return (item.quantity ?? 0) > 0;
   const purchase = item.purchaseId ? await ctx.db.get(item.purchaseId) : null;
@@ -652,52 +644,88 @@ async function catalogueEligible(ctx: QueryCtx, item: Doc<'items'>): Promise<boo
 async function cataloguePhoto(ctx: QueryCtx, itemId: Id<'items'>) {
   const photos = await ctx.db.query('attachments').withIndex('by_item', q => q.eq('itemId', itemId)).collect();
   const product = await ctx.db.get(itemId);
-  return photos.find(photo => photo._id === product?.coverPhotoId && photo.contentType.startsWith('image/')) ?? photos.find(photo => !photo.purchaseId && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType)) ?? null;
+  const publicPhotos = photos.filter(photo => !photo.purchaseId && !photo.supplierReceiptId && !photo.giftId && ['image/jpeg', 'image/png', 'image/webp'].includes(photo.contentType));
+  return publicPhotos.find(photo => photo._id === product?.coverPhotoId) ?? publicPhotos[0] ?? null;
 }
 
 // Only the service-authenticated action can resolve private object keys.
 export const cataloguePhotoObject = internalQuery({
-  args: { itemId: v.string() },
-  handler: async (ctx, { itemId }) => {
+  args: { itemId: v.string(), photoId: v.optional(v.string()) },
+  handler: async (ctx, { itemId, photoId }) => {
     const id = ctx.db.normalizeId('items', itemId);
     const item = id ? await ctx.db.get(id) : null;
     if (!item || !await catalogueEligible(ctx, item)) return null;
-    const photo = await cataloguePhoto(ctx, item._id);
+    const attachmentId = photoId ? ctx.db.normalizeId('attachments', photoId) : null;
+    const photo = photoId ? (attachmentId ? await ctx.db.get(attachmentId) : null) : await cataloguePhoto(ctx, item._id);
+    if (photo && (photo.itemId !== item._id || photo.purchaseId || photo.supplierReceiptId || photo.giftId || !['image/jpeg','image/png','image/webp'].includes(photo.contentType))) return null;
     return photo ? { objectKey: photo.objectKey, contentType: photo.contentType } : null;
   },
 });
 
+export const publicProduct = query({
+  args: { itemId: v.string() },
+  handler: async (ctx, {itemId}) => {
+    const id = ctx.db.normalizeId('items', itemId), item = id ? await ctx.db.get(id) : null;
+    if (!item || !await catalogueEligible(ctx,item)) return null;
+    const photos = (await ctx.db.query('attachments').withIndex('by_item',q=>q.eq('itemId',item._id)).collect())
+      .filter(p=>!p.purchaseId && !p.supplierReceiptId && !p.giftId && ['image/jpeg','image/png','image/webp'].includes(p.contentType))
+      .sort((a,b)=>Number(b._id===item.coverPhotoId)-Number(a._id===item.coverPhotoId));
+    return {id:item._id, name:item.name, productType:item.productType ?? 'card', description:item.description ?? '',
+      series:item.series, identifier:item.identifier, language:item.language, condition:item.condition,
+      gradingCompany:item.gradingCompany, gradingGrade:item.gradingGrade, gradingCertificate:item.gradingCertificate,
+      publicAttributes:item.publicAttributes,variant:item.variant,...(item.priceVisible===false?{}:{salePriceCents:item.askingPriceCents}), quantity:item.quantity ?? 1, catalogueImageUrl:item.catalogueImageUrl,
+      coverPhotoId:photos[0]?._id, photos:photos.map(p=>({id:p._id}))};
+  }
+});
+
 export const publicCatalogue = query({
   args: {
+    language: v.optional(v.string()),
     tcg: v.optional(v.union(v.literal('pokemon'), v.literal('riftbound'), v.literal('other'), v.literal('all'))),
     paginationOpts: paginationOptsValidator,
+    series: v.optional(v.string()),
     search: v.string(),
     minPrice: v.optional(v.number()),
     maxPrice: v.optional(v.number()),
     gradingStatus: v.string(),
     gradingCompany: v.string(),
     gradingGrade: v.string(),
+    sort: v.optional(v.union(v.literal('recent'),v.literal('name'),v.literal('price-asc'),v.literal('price-desc'))),
   },
   handler: async (ctx, args) => {
     // Apply every catalogue filter before slicing the result set. Paginating the
     // raw inventory first leaves sparse pages and incorrect next/previous state.
+    const size=args.paginationOpts.numItems;
+    if(!Number.isInteger(size)||size<1||size>48||args.search.length>200||(args.series?.length??0)>300||(args.language?.length??0)>20||args.gradingCompany.length>100||args.gradingGrade.length>100||!['all','graded','ungraded'].includes(args.gradingStatus)||[args.minPrice,args.maxPrice].some(value=>value!==undefined&&(!Number.isSafeInteger(value)||value<0))||(args.minPrice!==undefined&&args.maxPrice!==undefined&&args.minPrice>args.maxPrice))throw new Error('INVALID_CATALOGUE_QUERY');
+    if(args.paginationOpts.cursor!==null&&(!/^\d+$/.test(args.paginationOpts.cursor)||!Number.isSafeInteger(Number(args.paginationOpts.cursor))))throw new Error('INVALID_CURSOR');
     const items = await ctx.db
       .query('items')
       .withIndex('by_status', (q) => q.eq('status', 'available'))
       .collect();
+    if (args.sort) items.sort((a,b)=>{
+      const order=args.sort==='name'?a.name.localeCompare(b.name,'fr',{numeric:true,sensitivity:'base'}):args.sort==='price-asc'?((a.priceVisible===false?Number.MAX_SAFE_INTEGER:a.askingPriceCents??0)-(b.priceVisible===false?Number.MAX_SAFE_INTEGER:b.askingPriceCents??0)):args.sort==='price-desc'?((b.priceVisible===false?-1:b.askingPriceCents??0)-(a.priceVisible===false?-1:a.askingPriceCents??0)):b._creationTime-a._creationTime;
+      return order||a._id.localeCompare(b._id);
+    });
+    const gradingCompanies = new Set<string>(), languages = new Set<string>();
+    const seriesCandidates: SeriesItem[] = [];
     const rows = await Promise.all(
       items.map(async (item) => {
         if (!await catalogueEligible(ctx, item) || item.askingPriceCents === undefined) return null;
+        seriesCandidates.push(item);
         const isCard = !item.productType || item.productType === 'card';
+        const language = item.language ?? (isCard ? 'fr' : undefined);
+        if (item.gradingCompany) gradingCompanies.add(item.gradingCompany);
+        if (language) languages.add(language);
+        if (!matchesSeries(item, args.series)) return null;
+        if (args.language && args.language !== language) return null;
         const tcg = item.tcg ?? (isCard ? 'pokemon' : undefined);
-        if (args.tcg && args.tcg !== 'all' && tcg !== args.tcg) return null;
+        if (args.tcg && args.tcg !== 'all' && itemTcg(item) !== args.tcg) return null;
         const search = args.search.trim().toLocaleLowerCase();
         const text = [
           item.name,
           item.series,
           item.identifier,
           item.description,
-          item.gradingNotes,
           item.gradingCompany,
           item.gradingGrade,
         ]
@@ -705,8 +733,8 @@ export const publicCatalogue = query({
           .toLocaleLowerCase();
         const graded = Boolean(item.gradingCompany);
         if (search && !text.includes(search)) return null;
-        if (args.minPrice !== undefined && item.askingPriceCents < args.minPrice) return null;
-        if (args.maxPrice !== undefined && item.askingPriceCents > args.maxPrice) return null;
+        if (item.priceVisible !== false && args.minPrice !== undefined && item.askingPriceCents < args.minPrice) return null;
+        if (item.priceVisible !== false && args.maxPrice !== undefined && item.askingPriceCents > args.maxPrice) return null;
         if (
           (args.gradingStatus === 'graded' && !graded) ||
           (args.gradingStatus === 'ungraded' && graded)
@@ -724,6 +752,7 @@ export const publicCatalogue = query({
           id: item._id,
           productType: item.productType ?? 'card',
           description: item.description,
+          publicAttributes:item.publicAttributes,variant:item.variant,
           tcg,
           name: item.name,
           series: item.series ?? '',
@@ -734,10 +763,10 @@ export const publicCatalogue = query({
             item.condition ?? (!item.productType || item.productType === 'card' ? 'NM' : undefined),
           gradingCompany: item.gradingCompany,
           gradingGrade: item.gradingGrade,
-          gradingNotes: item.gradingNotes,
           catalogueImageUrl: item.catalogueImageUrl,
           hasPhoto: Boolean(await cataloguePhoto(ctx, item._id)),
-          salePriceCents: item.askingPriceCents,
+          ...(item.priceVisible===false?{}:{salePriceCents:item.askingPriceCents}),
+          quantity: item.quantity ?? 1,
         };
       }),
     );
@@ -749,6 +778,9 @@ export const publicCatalogue = query({
     return {
       page,
       totalCount: filtered.length,
+      series: seriesOptions(seriesCandidates, args.tcg),
+      gradingCompanies: [...gradingCompanies].sort((a,b)=>a.localeCompare(b,'fr')),
+      languages: [...languages].sort(),
       continueCursor: String(nextOffset),
       isDone: nextOffset >= filtered.length,
     };
@@ -954,6 +986,7 @@ export const purchaseHistoryPage = query({
   args: {
     page: v.number(),
     size: v.number(),
+    series: v.optional(v.string()),
     search: v.string(),
     status: v.union(
       v.literal('all'),

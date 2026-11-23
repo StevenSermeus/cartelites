@@ -1,7 +1,8 @@
 import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
-import { useState } from 'react';
+import { useEffect,useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { type AuthMode, authenticate, getApiBaseUrl, requestPasswordReset } from '../auth/session';
+import { type AuthMode, authenticate, getApiBaseUrl, requestPasswordReset,instanceFetch } from '../auth/session';
+import {loadAuthAvailability} from '../data/authAvailability';
 import { Field } from '../components/Field';
 
 export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
@@ -14,7 +15,15 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [resetRequested, setResetRequested] = useState(false);
+  const [signupEnabled,setSignupEnabled]=useState(false),[availabilityLoading,setAvailabilityLoading]=useState(true),[availabilityError,setAvailabilityError]=useState(''),[availabilityRetry,setAvailabilityRetry]=useState(0);
+  const instance=getApiBaseUrl();
+  useEffect(()=>{
+    let current=true;setSignupEnabled(false);setAvailabilityLoading(true);setAvailabilityError('');setMode('login');
+    void loadAuthAvailability(()=>instanceFetch('/auth/status',{},false)).then(enabled=>{if(current)setSignupEnabled(enabled);}).catch(reason=>{if(current)setAvailabilityError(reason instanceof Error?reason.message:'Vérification des inscriptions impossible.');}).finally(()=>{if(current)setAvailabilityLoading(false);});
+    return ()=>{current=false;};
+  },[instance,availabilityRetry]);
   const submit = async () => {
+    if(mode==='register'&&!signupEnabled){setError('Les inscriptions ne sont pas ouvertes sur cette instance.');return;}
     setBusy(true);
     setError('');
     try {
@@ -49,7 +58,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
       </Text>
       {!getApiBaseUrl() && (
         <Text accessibilityRole="alert" style={[{ color: colors.text }, styles.error]}>
-          Configurez EXPO_PUBLIC_API_URL pour activer la connexion.
+          Sélectionnez une instance pour activer la connexion.
         </Text>
       )}
       <Field
@@ -94,7 +103,10 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
           <Text style={[{ color: colors.text }, styles.switchText]}>Mot de passe oublié ?</Text>
         </Pressable>
       ) : null}
-      <Pressable
+      {availabilityLoading&&<Text accessibilityLiveRegion="polite" style={styles.note}>Vérification des inscriptions…</Text>}
+      {!!availabilityError&&<View style={{gap:8}}><Text accessibilityRole="alert" style={styles.error}>{availabilityError}</Text><Pressable accessibilityRole="button" onPress={()=>setAvailabilityRetry(value=>value+1)} style={{minHeight:44,justifyContent:'center'}}><Text style={styles.switchText}>Réessayer la vérification des inscriptions</Text></Pressable></View>}
+      {!availabilityLoading&&!availabilityError&&!signupEnabled&&<Text style={styles.note}>Les inscriptions sont fermées. Utilisez un compte existant.</Text>}
+      {signupEnabled&&<Pressable
         accessibilityRole="button"
         disabled={busy}
         onPress={() => {
@@ -106,7 +118,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
         <Text style={[{ color: colors.text }, styles.switchText]}>
           {mode === 'login' ? 'Créer un compte' : 'J’ai déjà un compte'}
         </Text>
-      </Pressable>
+      </Pressable>}
     </View>
   );
 }

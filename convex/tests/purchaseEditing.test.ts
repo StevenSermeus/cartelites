@@ -1,16 +1,19 @@
+import { authenticated } from './helpers/session';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { convexTest } from 'convex-test';
 import schema from '../functions/schema';
+import { makeFunctionReference } from 'convex/server';
 import { api } from '../functions/_generated/api';
 const modules = {
+  './functions/inventory.ts': () => import('../functions/inventory'),
   './functions/purchaseEditing.ts': () => import('../functions/purchaseEditing'),
   './functions/operations.ts': () => import('../functions/operations'),
   './functions/_generated/server.js': () => import('../functions/_generated/server.js'),
 };
 async function fixture() {
   const t = convexTest(schema, modules),
-    user = t.withIdentity({ subject: 'employee' });
+    user = (await authenticated(t, 'employee'));
   const sellerId = await user.mutation(api.operations.createSeller, {
     operationId: 'seller',
     name: 'Client',
@@ -76,8 +79,7 @@ test('editing adds/removes/revalues cards atomically and retry preserves identit
   );
   await assert.rejects(t.mutation(api.purchaseEditing.save, args), /UNAUTHENTICATED/);
   await assert.rejects(
-    t
-      .withIdentity({ subject: 'employee', scope: 'realtime:read' })
+    (await authenticated(t, 'employee', 'realtime:read'))
       .mutation(api.purchaseEditing.save, args),
     /READ_ONLY_TOKEN/,
   );
@@ -121,4 +123,30 @@ test('sold cards and concurrent sales cannot be changed, invalid input rolls bac
     user.mutation(api.purchaseEditing.save, { ...args, expectedDigest: latest.expectedDigest }),
     /PURCHASE_ITEM_LOCKED/,
   );
+});
+
+test('metadata corrections preserve historical acquisition cents until valuation actually changes',async()=>{
+ const {t,user,purchaseId,itemIds}=await fixture();
+ await t.run(ctx=>ctx.db.patch(itemIds[0],{purchasePriceCents:701,marketValueCents:1000,discountPercent:70}));
+ let detail=await user.query(api.purchaseEditing.detail,{purchaseId});
+ const line={itemId:itemIds[0],operationId:'metadata-line',name:'Corrected name',marketValueCents:1000,discountPercent:70};
+ await user.mutation(api.purchaseEditing.save,{operationId:'metadata',purchaseId,expectedDigest:detail.expectedDigest,items:[line],removedIds:[]});
+ assert.equal((await t.run(ctx=>ctx.db.get(itemIds[0])))!.purchasePriceCents,701);
+ detail=await user.query(api.purchaseEditing.detail,{purchaseId});
+ await user.mutation(api.purchaseEditing.save,{operationId:'valuation',purchaseId,expectedDigest:detail.expectedDigest,items:[{...line,marketValueCents:2000}],removedIds:[]});
+ assert.equal((await t.run(ctx=>ctx.db.get(itemIds[0])))!.purchasePriceCents,1400);
+});
+
+test('product editor loaded before purchase correction cannot overwrite corrected fields',async()=>{
+ const {t,user,purchaseId,itemIds}=await fixture();
+ const before=await user.query(api.purchaseEditing.detail,{purchaseId});
+ await user.mutation(api.purchaseEditing.save,{operationId:'name-fix',purchaseId,expectedDigest:before.expectedDigest,removedIds:[],items:[{itemId:itemIds[0],operationId:'line',name:'Corrected',marketValueCents:10000,discountPercent:80}]});
+ assert.equal((await t.run(ctx=>ctx.db.get(itemIds[0])))?.revision,1);
+ const stale={itemId:itemIds[0],expectedRevision:0,name:'Before',description:'',series:'',identifier:'',askingPriceCents:1000,hiddenFromCatalogue:false,gradingGrade:'',gradingCertificate:''};
+ await assert.rejects(user.mutation(makeFunctionReference<'mutation'>('inventory:updateProduct'),stale),/REVISION_CONFLICT/);
+ await user.mutation(api.operations.updateAskingPrice,{itemId:itemIds[0],askingPriceCents:1100});
+ await assert.rejects(user.mutation(makeFunctionReference<'mutation'>('inventory:updateProduct'),{...stale,expectedRevision:1}),/REVISION_CONFLICT/);
+ await user.mutation(api.operations.setStockVisibility,{operationId:'hide',itemIds:[itemIds[0]],hidden:true});
+ await assert.rejects(user.mutation(makeFunctionReference<'mutation'>('inventory:updateProduct'),{...stale,expectedRevision:2}),/REVISION_CONFLICT/);
+ assert.equal((await t.run(ctx=>ctx.db.get(itemIds[0])))?.name,'Corrected');
 });

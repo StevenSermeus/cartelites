@@ -1,9 +1,12 @@
 import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { useRef } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 export type Page =
+  | 'purchaseDetail'
+  | 'saleDetail'
+  | 'activity'
   | 'clients'
   | 'consignments'
   | 'purchase'
@@ -16,6 +19,9 @@ export type Page =
   | 'salesHistory'
   | 'account';
 export const pageHeaders: Record<Page, [string, string]> = {
+  purchaseDetail: ['Dossier de rachat', 'Contact, cartes et documents.'],
+  saleDetail: ['Détail de la vente', 'Règlements, documents et corrections.'],
+  activity: ['Activité', 'Achats, ventes et mouvements de stock.'],
   stock: ['Stock', 'Vos cartes, collections et articles disponibles.'],
   sales: ['Vente', 'Ajoutez les articles au panier.'],
   saleSummary: ['Vente', 'Panier en cours'],
@@ -29,17 +35,18 @@ export const pageHeaders: Record<Page, [string, string]> = {
   account: ['Plus', 'Clients, compte et préférences.'],
 };
 export function activeTab(page: Page): Page {
-  if (['sales', 'saleSummary', 'salePayment', 'saleComplete', 'salesHistory'].includes(page))
+  if (['sales', 'saleSummary', 'salePayment', 'saleComplete'].includes(page))
     return 'sales';
-  if (['history', 'purchase'].includes(page)) return 'history';
-  if (['account', 'clients'].includes(page)) return 'account';
+  if (['history', 'purchase', 'purchaseDetail'].includes(page)) return 'history';
+  if (['salesHistory', 'saleDetail'].includes(page)) return 'activity';
+  if (['account', 'clients', 'consignments'].includes(page)) return 'account';
   return page;
 }
 const tabs = [
-  ['stock', 'Stock', 'albums-outline'],
-  ['sales', 'Vendre', 'cart-outline'],
   ['history', 'Rachats', 'receipt-outline'],
-  ['consignments', 'Dépôts', 'cube-outline'],
+  ['sales', 'Vendre', 'cart-outline'],
+  ['stock', 'Stock', 'albums-outline'],
+  ['activity', 'Activité', 'time-outline'],
   ['account', 'Plus', 'ellipsis-horizontal'],
 ] as const;
 export function MobileNavigation({
@@ -47,25 +54,29 @@ export function MobileNavigation({
   onChange,
   onReset,
   disabled = false,
+  basketCount = 0,
+  onHeightChange,
 }: {
   page: Page;
   onChange: (page: Page) => void;
   onReset: (page: Page) => void;
   disabled?: boolean;
+  basketCount?: number;
+  onHeightChange?: (height:number)=>void;
 }) {
   const { colors } = useTheme();
   const s = createStyles(colors);
   const lastPress = useRef<{ target: Page; at: number } | null>(null);
 
   return (
-    <View accessibilityRole="tablist" style={s.bar}>
+    <View accessibilityRole="tablist" style={s.bar} onLayout={event=>onHeightChange?.(event.nativeEvent.layout.height)}>
       {tabs.map(([target, title, icon]) => {
         const selected = activeTab(page) === target;
         return (
           <Pressable
             key={target}
             accessibilityRole="tab"
-            accessibilityLabel={title}
+            accessibilityLabel={target === 'sales' ? `${title}, ${basketCount} article(s) au panier` : title}
             accessibilityState={{ selected, disabled }}
             disabled={disabled}
             accessibilityHint="Appuyez deux fois rapidement pour revenir au début de cet onglet."
@@ -82,8 +93,10 @@ export function MobileNavigation({
             onPress={() => onChange(target)}
             style={[s.tab, selected && s.selected]}
           >
-            <Ionicons name={icon} size={23} color={selected ? colors.accent : colors.secondary} />
-            <Text style={[{ color: colors.text }, [s.label, selected && s.activeLabel]]}>
+            <View><Ionicons name={icon} size={23} color={selected ? colors.accent : colors.secondary} />
+              {target==='sales'&&basketCount>0&&<View accessible={false} style={{position:'absolute',left:16,top:-6,minWidth:18,paddingHorizontal:3,borderRadius:9,backgroundColor:colors.accent}}><Text maxFontSizeMultiplier={1.3} style={{fontSize:10,color:colors.onAccent,textAlign:'center'}}>{basketCount>99?'99+':basketCount}</Text></View>}
+            </View>
+            <Text numberOfLines={1} maxFontSizeMultiplier={1.4} style={[{ color: colors.text }, [s.label, selected && s.activeLabel]]}>
               {title}
             </Text>
           </Pressable>
@@ -101,13 +114,14 @@ export function MobileHeader({
   title?: string;
   subtitle?: string;
 }) {
-  const { colors } = useTheme();
+  const { colors, shopName, shopLogo } = useTheme();
   const s = createStyles(colors);
 
   return (
     <View style={s.header}>
-      <View style={s.nav}>
-        <Text style={[{ color: colors.text }, s.brand]}>Espace vendeur</Text>
+      <View style={[s.nav, { flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 10 }]}>
+        {!!shopLogo && <Image source={{uri: shopLogo}} accessibilityLabel={shopName} style={{width: 36, height: 36}} resizeMode="contain" />}
+        <Text style={[{ color: colors.text }, s.brand]}>{shopName || "Espace vendeur"}</Text>
       </View>
       <Text accessibilityRole="header" style={[{ color: colors.text }, s.title]}>
         {title ?? pageHeaders[page][0]}

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const schema = z.object({
+  DATA_MODEL: z.enum(['legacy', 'canonical']).default('legacy'),
   PORT: z.coerce.number().int().positive().default(3001),
   CONVEX_URL: z.string().url(),
   CONVEX_AUTH_SECRET: z.string().min(32),

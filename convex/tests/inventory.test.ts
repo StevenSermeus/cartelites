@@ -1,3 +1,4 @@
+import { authenticated } from './helpers/session';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { convexTest } from 'convex-test';
@@ -20,7 +21,7 @@ const product = {
 };
 async function fixture() {
   const t = convexTest(schema, modules),
-    user = t.withIdentity({ subject: 'employee' });
+    user = (await authenticated(t, 'employee'));
   const args = {
     operationId: 'receive',
     supplier: 'Distribution',
@@ -155,7 +156,7 @@ test('donations have provenance and exact costs, reversal idempotent, no sales',
 });
 test('read-only tokens cannot mutate or access service-only ticket archive functions', async () => {
   const { t, itemId } = await fixture();
-  const ro = t.withIdentity({ subject: 'employee', scope: 'realtime:read' });
+  const ro = (await authenticated(t, 'employee', 'realtime:read'));
   await assert.rejects(
     () =>
       ro.mutation(api.inventory.donate, {
@@ -208,6 +209,7 @@ test('ticket freezes sale names, generations preserve status, email claim preven
     recipient: 'a@example.test',
   });
   assert.equal(first.send, true);
+  await t.mutation(internal.saleTickets.emailResult, {id:first.id,status:'unknown'});
   assert.equal(
     (
       await t.mutation(internal.saleTickets.claimEmail, {
@@ -219,6 +221,9 @@ test('ticket freezes sale names, generations preserve status, email claim preven
     false,
   );
   await user.mutation(api.operations.cancelSale, { operationId: 'cancel', saleId: ids[0] });
+  const unknownReplay=await t.mutation(internal.saleTickets.claimEmail,{ticketId:ticket,operationId:'email',recipient:'a@example.test'});
+  assert.equal(unknownReplay.send,false);
+  assert.equal(unknownReplay.status,'unknown');
   await assert.rejects(
     () =>
       t.mutation(internal.saleTickets.claimEmail, {
@@ -228,6 +233,7 @@ test('ticket freezes sale names, generations preserve status, email claim preven
       }),
     /TICKET_STALE/,
   );
+  assert.equal((await t.run(ctx=>ctx.db.query('ticketEmails').collect())).length,1);
   const newer = await user.mutation(api.saleTickets.prepare, {
     operationId: 'ticket-new',
     saleIds: ids,
@@ -326,8 +332,7 @@ test('product editor changes catalogue fields without changing stock or acquisit
   assert.deepEqual(after.lots, before.lots);
   await assert.rejects(t.mutation(api.inventory.updateProduct, fields), /UNAUTHENTICATED/);
   await assert.rejects(
-    t
-      .withIdentity({ subject: 'employee', scope: 'realtime:read' })
+    (await authenticated(t, 'employee', 'realtime:read'))
       .mutation(api.inventory.updateProduct, fields),
     /READ_ONLY_TOKEN/,
   );
@@ -392,4 +397,35 @@ test('other universe and Chinese products persist and remain filterable in the c
   const opened = await user.query(api.inventory.detail, { itemId });
   const child = await user.query(api.inventory.detail, { itemId: opened.openings[0].targetId });
   assert.equal(child.item.tcg, 'other'); assert.equal(child.item.language, 'zh');
+});
+
+test('hidden public prices roundtrip and never leak through detail, filters or sorting',async()=>{
+ const {t,user,itemId}=await fixture();
+
+ await t.run(async ctx=>{const original=await ctx.db.get(itemId);const {_id,_creationTime,...fields}=original!;await ctx.db.insert('items',{...fields,operationId:'visible-sort-peer',name:'Visible peer',askingPriceCents:500,hiddenFromCatalogue:false});});
+ const update={itemId,name:'Hidden offer',description:'',series:'',identifier:'',askingPriceCents:12345,hiddenFromCatalogue:false,gradingGrade:'',gradingCertificate:''};
+ const base={search:'',gradingStatus:'all',gradingCompany:'',gradingGrade:'',paginationOpts:{numItems:48,cursor:null}};
+ await user.mutation(api.inventory.updateProduct,update);
+ assert.equal((await t.query(api.operations.publicProduct,{itemId})).salePriceCents,12345);
+ await user.mutation(api.inventory.updateProduct,{...update,priceVisible:false});
+ const staff=await (user.query(api.inventory.detail,{itemId})).then(r=>r.item);
+ assert.equal(staff.priceVisible,false);assert.equal(staff.askingPriceCents,12345);
+ for(const field of ['salePriceCents','askingPriceCents','purchasePriceCents'])assert.equal(Object.hasOwn(await t.query(api.operations.publicProduct,{itemId}),field),false);
+ // An older client omitting the flag must preserve the hidden state.
+ await user.mutation(api.inventory.updateProduct,update);
+ assert.equal(Object.hasOwn(await t.query(api.operations.publicProduct,{itemId}),'salePriceCents'),false);
+ for(const sort of ['price-asc','price-desc']) {
+  const sorted=await t.query(api.operations.publicCatalogue,{...base,sort});
+  assert.equal(sorted.page.length,2);assert.equal(sorted.page.at(-1)!.id,itemId);
+  const before=await t.query(api.operations.publicCatalogue,{...base,sort,minPrice:1,maxPrice:2});
+  assert.ok(before.page.some((r:any)=>r.id===itemId));
+  assert.equal(Object.hasOwn(before.page.find((r:any)=>r.id===itemId),'salePriceCents'),false);
+  await user.mutation(api.inventory.updateProduct,{...update,askingPriceCents:999999});
+  const after=await t.query(api.operations.publicCatalogue,{...base,sort,minPrice:1,maxPrice:2});
+  assert.deepEqual(after,before);
+  assert.deepEqual(await t.query(api.operations.publicCatalogue,{...base,sort}),sorted);
+ }
+ await user.mutation(api.inventory.updateProduct,{...update,priceVisible:true});
+ assert.equal((await t.query(api.operations.publicProduct,{itemId})).salePriceCents,12345);
+ assert.equal((await (user.query(api.inventory.detail,{itemId})).then(r=>r.item)).priceVisible,true);
 });

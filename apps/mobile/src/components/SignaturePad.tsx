@@ -1,7 +1,7 @@
+import {MotionModal as Modal} from './MotionModal';
 import { useTheme } from "../theme/ThemeProvider";
 import { useMemo, useRef, useState } from "react";
 import {
-  Modal,
   Pressable,
   Text,
   View,
@@ -262,6 +262,12 @@ export function SignaturePad({
       )}
       {!!value.length &&
         action("Effacer la signature", () => onChange([]), disabled)}
+      {!disabled && (
+        <Text style={{ color: colors.secondary, fontSize: 13 }}>
+          Si vous ne pouvez pas tracer votre signature sur cet écran, demandez
+          l’assistance de la boutique avant de continuer.
+        </Text>
+      )}
       <Modal
         visible={open}
         animationType="slide"

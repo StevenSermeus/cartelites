@@ -5,7 +5,8 @@ export function parsePriceInput(value: string): number | null {
 }
 
 /** Supplier goods: acquisition cost is HT; the displayed selling price is TTC. */
-export function productProfit(cost: number, price: number, rate: number, quantity: number) {
+export function productProfit(cost: number | null | undefined, price: number, rate: number, quantity: number) {
+  if(cost==null)return null;
   if (
     ![cost, price, rate, quantity].every(Number.isSafeInteger) ||
     cost < 0 ||
@@ -34,7 +35,8 @@ export function productProfit(cost: number, price: number, rate: number, quantit
 }
 
 /** Round upwards so the suggested TTC price meets the requested margin on HT revenue. */
-export function priceForMargin(cost: number, rate: number, marginPercent: number): number | null {
+export function priceForMargin(cost: number | null | undefined, rate: number, marginPercent: number): number | null {
+  if(cost==null)return null;
   if (
     ![cost, rate, marginPercent].every(Number.isSafeInteger) ||
     cost < 0 ||

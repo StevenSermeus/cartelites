@@ -1,19 +1,9 @@
+import { itemTcg, matchesSeries, seriesOptions, type SeriesItem } from '../../packages/domain/src/seriesFilter';
 import { v } from 'convex/values';
 import { query, type QueryCtx } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 
-async function authenticate(ctx: QueryCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error('UNAUTHENTICATED');
-  if (identity.scope === 'realtime:read') {
-    const id = ctx.db.normalizeId('accounts', identity.subject);
-    const account = id ? await ctx.db.get(id) : null;
-    if (!account || (account.sessionVersion ?? 0) !== identity.sv || typeof identity.sessionJti !== 'string') throw new Error('INVALID_SESSION');
-    // These database reads also invalidate live subscriptions on logout/password reset.
-    const revoked = await ctx.db.query('revokedSessions').withIndex('by_jti', q => q.eq('jti', identity.sessionJti as string)).unique();
-    if (revoked) throw new Error('INVALID_SESSION');
-  }
-}
+import { requireLiveSession as authenticate } from './sessionGuard';
 const normalize = (value: unknown) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr');
 const tables = { sellers: 'sellers', stock: 'items', sales: 'sales', purchases: 'purchases', consignments: 'consignments', balances: 'sellers', conflicts: 'saleConflicts', payments: 'consignmentPayments', attachments: 'attachments', events: 'consignmentEvents' } as const;
 type Resource = keyof typeof tables;
@@ -78,12 +68,13 @@ const filterArgs = {
   purchaseId: v.optional(v.string()), consignmentId: v.optional(v.string()), itemId: v.optional(v.string()),
   from: v.optional(v.number()), to: v.optional(v.number()), paymentStatus: v.optional(v.string()),
   productType: v.optional(v.union(v.literal('all'), v.literal('card'), v.literal('sealed'), v.literal('other'))),
+  tcg: v.optional(v.union(v.literal('all'), v.literal('pokemon'), v.literal('riftbound'), v.literal('other'))), series: v.optional(v.string()),
   gradingStatus: v.optional(v.string()), gradingCompany: v.optional(v.string()), gradingText: v.optional(v.string()),
 };
 export const browse = query({ args: filterArgs, handler: async (ctx, args) => {
   await authenticate(ctx);
   const resource = resourceOf(args.resource), size = args.size ?? 25;
-  if (!Number.isInteger(size) || size < 1 || size > 50 || (args.search?.length ?? 0) > 200 || (args.from !== undefined && args.to !== undefined && args.from > args.to)) throw new Error('INVALID_PAGINATION');
+  if (!Number.isInteger(size) || size < 1 || size > 50 || (args.search?.length ?? 0) > 200 || (args.series?.length ?? 0) > 300 || (args.from !== undefined && args.to !== undefined && args.from > args.to)) throw new Error('INVALID_PAGINATION');
   const { cursor, ...criteria } = args;
   const signature = JSON.stringify(criteria);
   let continuation: string | null = null;
@@ -111,6 +102,7 @@ export const browse = query({ args: filterArgs, handler: async (ctx, args) => {
     if (resource === 'stock' && row.removedPurchaseId) return false;
     if (resource === 'stock' && !args.purchaseId && !args.consignmentId && row.origin !== 'consignment' && row.sourceStatus !== 'active') return false;
     if (resource === 'stock' && !args.purchaseId && !args.consignmentId && row.contractPending) return false;
+    if (resource === 'stock' && ((args.tcg && args.tcg !== 'all' && itemTcg(row as SeriesItem) !== args.tcg) || !matchesSeries(row as SeriesItem, args.series))) return false;
     if (resource === 'balances' && !row.hasDeposits) return false;
     if (args.sellerId && String(row.sellerId ?? (resource === 'sellers' ? row._id : '')) !== args.sellerId) return false;
     if (args.itemId && String(row.itemId) !== args.itemId) return false;
@@ -132,6 +124,7 @@ export const browse = query({ args: filterArgs, handler: async (ctx, args) => {
       } else if (row.status !== status) return false;
     }
     const date = Number(row.occurredAt ?? row.purchaseOccurredAt ?? row.createdAt);
+    if((args.from!==undefined||args.to!==undefined)&&!Number.isFinite(date))return false;
     if (args.from !== undefined && date < args.from || args.to !== undefined && date > args.to) return false;
     const haystack = normalize([row._id, row.name, row.email, row.phone, row.address, row.reference, row.sellerName, row.itemName, row.series, row.identifier, row.gradingCertificate, row.purchaseReference].join(' '));
     return words.every(word => haystack.includes(word));
@@ -208,4 +201,23 @@ export const dashboardSummary = query({ args: {}, handler: async ctx => {
   // Charts only need the latest year; totals above are all-time.
   const since = Date.now() - 366 * 86400000;
   return { summary, byTcg, byOrigin, days: [...days.values()].filter(day => Date.parse(day.key) >= since).sort((a, b) => a.key.localeCompare(b.key)) };
+} });
+
+export const stockSeries = query({ args: { tcg: v.optional(v.string()), includeUnavailable: v.optional(v.boolean()) }, handler: async (ctx, args) => {
+  await authenticate(ctx);
+  if (args.tcg && !['all', 'pokemon', 'riftbound', 'other'].includes(args.tcg)) throw new Error('INVALID_FILTER');
+  if (args.includeUnavailable) return seriesOptions(await ctx.db.query('items').collect(), args.tcg);
+  const sources = new Map<string, Doc<'purchases'> | Doc<'consignments'> | null>();
+  const rows: SeriesItem[] = [];
+  for await (const item of ctx.db.query('items').withIndex('by_status', q => q.eq('status', 'available'))) {
+    if (item.removedPurchaseId || (item.quantity ?? 1) <= 0) continue;
+    const id = item.consignmentId ?? item.purchaseId;
+    if (id && !sources.has(id)) sources.set(id, await ctx.db.get(id));
+    const source = id ? sources.get(id) : null;
+    if (item.consignmentId) {
+      if (!source || ('flowVersion' in source && source.flowVersion === 2 && source.contractStatus !== 'signed')) continue;
+    } else if (item.origin !== 'supplier' && (!source || !('status' in source) || source.status !== 'active')) continue;
+    rows.push(item);
+  }
+  return seriesOptions(rows, args.tcg);
 } });

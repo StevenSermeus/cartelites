@@ -1,3 +1,4 @@
+import { authenticated } from './helpers/session';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { convexTest } from 'convex-test';
@@ -18,7 +19,7 @@ const catalogue = {
 };
 async function fixture() {
   const t = convexTest(schema, modules);
-  const user = t.withIdentity({ subject: 'employee' });
+  const user = (await authenticated(t, 'employee'));
   const sellerId = await user.mutation(api.operations.createSeller, {
     operationId: 'seller',
     name: 'Client',
@@ -158,7 +159,7 @@ test('visibility requires authentication and a bounded unique selection', async 
       /INVALID_STOCK_SELECTION/,
     );
   // Authenticated colleagues share the company's stock, as for other operations.
-  await t.withIdentity({ subject: 'colleague' }).mutation(api.operations.setStockVisibility, input);
+  await (await authenticated(t, 'colleague')).mutation(api.operations.setStockVisibility, input);
   assert.equal(
     (await user.query(api.operations.stock, {})).find((item) => item._id === ids[0])
       ?.hiddenFromCatalogue,

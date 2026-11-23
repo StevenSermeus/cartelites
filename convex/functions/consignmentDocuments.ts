@@ -1,3 +1,4 @@
+import {shopDay} from './shopCalendar';
 import { v } from "convex/values";
 import {
   mutation,
@@ -8,12 +9,7 @@ import {
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 
-async function owner(ctx: Pick<QueryCtx, "auth">) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("UNAUTHENTICATED");
-  if (identity.scope === "realtime:read") throw new Error("READ_ONLY_TOKEN");
-  return identity.subject;
-}
+import { requireLiveSession as owner } from './sessionGuard';
 const clean = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const money = (value: number) => `${(value / 100).toFixed(2)} EUR`;
 export async function financialSnapshot(
@@ -252,8 +248,8 @@ export const prepareReturn = mutation({
     if (
       !Number.isSafeInteger(args.occurredAt) ||
       !Number.isFinite(new Date(args.occurredAt).getTime()) ||
-      new Date(args.occurredAt).toISOString().slice(0, 10) <
-        new Date(dossier.occurredAt).toISOString().slice(0, 10)
+      shopDay(args.occurredAt) <
+        shopDay(dossier.occurredAt)
     )
       throw new Error("INVALID_RETURN_DATE");
     for (const id of args.itemIds) {

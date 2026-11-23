@@ -20,7 +20,7 @@ export function purchaseSnapshot(state: LocalPurchaseState) {
     activeId: state.activeId,
     drafts: state.drafts.filter(hasPurchaseContent).map(draft => ({
       ...draft,
-      rows: draft.rows.map(row => ({ ...row, searching: false, cardResults: [] })),
+      rows: draft.rows.map(row => ({ ...row, searching: false, cardResults: [], searchPage: undefined, searchHasMore: false, searchMessage: undefined })),
     })),
   };
 }

@@ -44,14 +44,15 @@ export const setSignupEnabled = internalMutation({
 });
 
 export const createAccount = internalMutation({
-  args: { email: v.string(), passwordHash: v.string() },
-  handler: async (ctx, { email, passwordHash }) => {
+  args: { email: v.string(), passwordHash: v.string(), registrationPolicy: v.optional(v.union(v.literal('open'),v.literal('closed'))) },
+  handler: async (ctx, { email, passwordHash, registrationPolicy }) => {
+    if (registrationPolicy === 'closed') throw new Error('SIGNUP_DISABLED');
     const firstAccount = await ctx.db.query('accounts').first();
     const signupSetting = await ctx.db
       .query('applicationSettings')
       .withIndex('by_key', (q) => q.eq('key', 'signupEnabled'))
       .unique();
-    if (firstAccount && signupSetting?.enabled === false) throw new Error('SIGNUP_DISABLED');
+    if (registrationPolicy === undefined && firstAccount && signupSetting?.enabled === false) throw new Error('SIGNUP_DISABLED');
     const existing = await ctx.db
       .query('accounts')
       .withIndex('by_email', (q) => q.eq('email', email))
@@ -105,19 +106,20 @@ export const revokeSession = internalMutation({
       .withIndex('by_jti', (q) => q.eq('jti', jti))
       .unique();
     if (!existing) await ctx.db.insert('revokedSessions', { jti, expiresAt });
+    else if (expiresAt > existing.expiresAt) await ctx.db.patch(existing._id, { expiresAt });
   },
 });
 
 export const sessionIsValid = internalQuery({
   args: { id: v.id('accounts'), jti: v.string(), sessionVersion: v.number(), now: v.number() },
-  handler: async (ctx, { id, jti, sessionVersion, now }) => {
+  handler: async (ctx, { id, jti, sessionVersion }) => {
     const account = await ctx.db.get(id);
     if (!account || (account.sessionVersion ?? 0) !== sessionVersion) return false;
     const revoked = await ctx.db
       .query('revokedSessions')
       .withIndex('by_jti', (q) => q.eq('jti', jti))
       .unique();
-    return !revoked || revoked.expiresAt <= now;
+    return !revoked;
   },
 });
 

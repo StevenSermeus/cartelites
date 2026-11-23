@@ -1,65 +1,95 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Appearance, Pressable, Text, View, useColorScheme } from 'react-native';
+import { setShopFormatting } from './shopFormatting';
+import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from 'react';
+import { AccessibilityInfo, Appearance, Pressable, Text, View, useColorScheme } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { resolveTheme, type ThemeTokens } from '../../../../packages/domain/src/shopTheme';
+import { instanceFetch, getApiBaseUrl } from '../auth/session';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
-export const lightColors = {
-  background: '#f2f2f7',
-  surface: '#ffffff',
-  raised: '#f7f7fa',
-  text: '#19191c',
-  secondary: '#6b6b73',
-  placeholder: '#8e8e93',
-  border: '#e7e7ec',
-  accent: '#815216',
-  onAccent: '#ffffff',
-  accentSoft: '#f8ecd6',
-  danger: '#a12e25',
-  dangerSoft: '#fff0ee',
-  success: '#247349',
-  successSoft: '#edf4f0',
-  warning: '#805600',
-  warningSoft: '#fff4d8',
-  info: '#324e60',
-  infoSoft: '#e8f1f6',
-  shadow: '#000000',
-  overlay: 'rgba(0,0,0,0.45)',
-  signature: '#14213d',
+export type ThemeColors = {
+  background: string; surface: string; raised: string; text: string; secondary: string;
+  placeholder: string; border: string; accent: string; onAccent: string; accentSoft: string;
+  danger: string; dangerSoft: string; success: string; successSoft: string; warning: string;
+  warningSoft: string; info: string; infoSoft: string; shadow: string; overlay: string; signature: string;
+  primary: string; onPrimary: string; secondaryFill: string; onSecondary: string;
 };
-export type ThemeColors = typeof lightColors;
-export const darkColors: ThemeColors = {
-  background: '#171719',
-  surface: '#252527',
-  raised: '#29292e',
-  text: '#f6f6f8',
-  secondary: '#adadb5',
-  placeholder: '#92929d',
-  border: '#39393c',
-  accent: '#efbd53',
-  onAccent: '#19191c',
-  accentSoft: '#42341e',
-  danger: '#ff8a80',
-  dangerSoft: '#3b2224',
-  success: '#82d4a5',
-  successSoft: '#20352a',
-  warning: '#f3cb72',
-  warningSoft: '#352e1f',
-  info: '#a4c9e0',
-  infoSoft: '#25333e',
-  shadow: '#000000',
-  overlay: 'rgba(0,0,0,0.65)',
-  signature: '#f6f6f8',
-};
+function mapTheme(t: ThemeTokens): ThemeColors {
+  return {background: t.background, surface: t.card, raised: t.muted, text: t.foreground,
+    secondary: t.mutedForeground, placeholder: t.mutedForeground, border: t.border,
+    accent: t.accent, onAccent: t.accentForeground, accentSoft: t.selected,
+    danger: t.destructive, dangerSoft: t.muted, success: t.success, successSoft: t.muted,
+    warning: t.warning, warningSoft: t.muted, info: t.actionTint, infoSoft: t.selected,
+    shadow: '#000000', overlay: 'rgba(0,0,0,0.55)', signature: t.foreground,
+    primary: t.primary, onPrimary: t.primaryForeground, secondaryFill: t.secondary, onSecondary: t.secondaryForeground};
+}
+export const lightColors = mapTheme(resolveTheme({}, 'light'));
+export const darkColors = mapTheme(resolveTheme({}, 'dark'));
+const neutralColors = (dark: boolean): ThemeColors => ({ ... (dark ? darkColors : lightColors),
+  background: dark ? '#181818' : '#f5f5f5', surface: dark ? '#242424' : '#ffffff',
+  raised: dark ? '#303030' : '#eeeeee', text: dark ? '#ffffff' : '#181818',
+  accent: dark ? '#eeeeee' : '#333333', onAccent: dark ? '#181818' : '#ffffff',
+  accentSoft: dark ? '#333333' : '#eeeeee', primary: dark ? '#eeeeee' : '#333333',
+  onPrimary: dark ? '#181818' : '#ffffff', border: dark ? '#555555' : '#cccccc' });
+type ShopBranding = {name: string; currency: string; timezone: string; logo: string; logoDark?: string; appearance: ThemePreference; light: ThemeTokens; dark: ThemeTokens};
 const key = 'cartelites.theme-preference';
 const ThemeContext = createContext<{
   colors: ThemeColors;
+  shopName: string;
+  shopLogo: string;
+  currency: string;
+  timezone: string;
+  brandingReady: boolean;
+  brandingError: string;
+  loadBranding: () => Promise<void>;
+  clearBranding: () => void;
   dark: boolean;
+  reduceMotion: boolean;
   preference: ThemePreference;
   saving: boolean;
   setPreference: (value: ThemePreference) => Promise<void>;
 } | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const system = useColorScheme();
+  // Until the accessibility preference is known, avoid introducing movement.
+  const [reduceMotion,setReduceMotion]=useState(true);
+  useEffect(()=>{
+    let active=true,changed=false;
+    const listener=AccessibilityInfo.addEventListener('reduceMotionChanged',value=>{changed=true;setReduceMotion(value);});
+    void AccessibilityInfo.isReduceMotionEnabled().then(value=>{if(active&&!changed)setReduceMotion(value);}).catch(()=>undefined);
+    return ()=>{active=false;listener.remove();};
+  },[]);
+  const [branding, setBranding] = useState<ShopBranding | null>(null);
+  const [brandingError, setBrandingError] = useState('');
+  const brandingRequest = useRef(0);
+  const cache = useRef(new Map<string, ShopBranding>());
+  const clearBranding = () => { setShopFormatting(null); brandingRequest.current++; setBranding(null); setBrandingError(''); };
+  const loadBranding = async () => {
+    const revision = ++brandingRequest.current;
+    const instance = getApiBaseUrl();
+    setShopFormatting(null); setBranding(null); setBrandingError('');
+    if (!instance) return;
+    try {
+      const response = await instanceFetch('/public/shop-config');
+      if (!response.ok) throw new Error('Configuration de la boutique indisponible.');
+      const data = await response.json();
+      if (data?.version !== 1 || typeof data.branding?.name !== 'string' || !data.branding?.theme?.light || !data.branding?.theme?.dark) throw new Error('Configuration de boutique incompatible.');
+      const appearance = data.branding.theme.appearance;
+      if (!['system', 'light', 'dark'].includes(appearance) || typeof data.branding.logo !== 'string') throw new Error('Identité visuelle de boutique invalide.');
+      const logoUrl = (path: string) => { const url = new URL(path, instance); if (!['https:', 'http:'].includes(url.protocol)) throw new Error('URL de logo invalide.'); return url.toString(); };
+      if (typeof data.currency !== 'string' || typeof data.timezone !== 'string') throw new Error('Devise ou fuseau horaire manquant.');
+      new Intl.NumberFormat('fr-BE', {style: 'currency', currency: data.currency});
+      new Intl.DateTimeFormat('fr-BE', {timeZone: data.timezone});
+      const value: ShopBranding = {currency: data.currency, timezone: data.timezone, name: data.branding.name, logo: logoUrl(data.branding.logo), logoDark: data.branding.logoDark ? logoUrl(data.branding.logoDark) : undefined, appearance, light: resolveTheme(data.branding.theme.light, 'light'), dark: resolveTheme(data.branding.theme.dark, 'dark')};
+      if (revision !== brandingRequest.current || instance !== getApiBaseUrl()) return;
+      cache.current.set(instance, value); setShopFormatting(value); setBranding(value);
+    } catch (reason) {
+      if (revision !== brandingRequest.current || instance !== getApiBaseUrl()) return;
+      // Only reuse a previously validated configuration for this exact instance.
+      const previous = cache.current.get(instance);
+      if (previous) { setShopFormatting(previous); setBranding(previous); }
+      else setBrandingError(reason instanceof Error ? reason.message : 'Chargement de la boutique impossible.');
+    }
+  };
   const [preference, setValue] = useState<ThemePreference>('system');
   const [saving, setSaving] = useState(true);
   useEffect(() => {
@@ -77,10 +107,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       mounted = false;
     };
   }, []);
-  const dark = preference === 'dark' || (preference === 'system' && system === 'dark');
+  const effectivePreference = preference === 'system' ? branding?.appearance ?? 'system' : preference;
+  const dark = effectivePreference === 'dark' || (effectivePreference === 'system' && system === 'dark');
   useEffect(() => {
-    Appearance.setColorScheme(preference === 'system' ? 'unspecified' : preference);
-  }, [preference]);
+    Appearance.setColorScheme(effectivePreference === 'system' ? 'unspecified' : effectivePreference);
+  }, [effectivePreference]);
   async function setPreference(value: ThemePreference) {
     setSaving(true);
     try {
@@ -92,7 +123,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }
   return (
     <ThemeContext.Provider
-      value={{ colors: dark ? darkColors : lightColors, dark, preference, saving, setPreference }}
+      value={{ colors: branding ? mapTheme(dark ? branding.dark : branding.light) : neutralColors(dark), currency: branding?.currency ?? "EUR", timezone: branding?.timezone ?? "Europe/Brussels", shopName: branding?.name ?? "", shopLogo: branding ? (dark ? branding.logoDark ?? branding.logo : branding.logo) : "", brandingReady: !!branding, brandingError, loadBranding, clearBranding, dark, reduceMotion, preference, saving, setPreference }}
     >
       {children}
     </ThemeContext.Provider>

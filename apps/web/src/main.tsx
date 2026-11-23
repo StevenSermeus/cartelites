@@ -1,6 +1,30 @@
+import { SeriesFilter } from './SeriesInput';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog';
+import { SalesHistoryWorkspace, SaleConflictsWorkspace } from './TransactionHistory';
+import { PurchaseHistoryWorkspace } from './PurchaseHistoryWorkspace';
+import { SaleTickets } from './SaleTickets';
+import { SalesWorkspace } from './SalesWorkspace';
+import { ContactsWorkspace } from './ContactsWorkspace';
+import { StockWorkspace } from './StockWorkspace';
+import { WorkspaceChrome, type WorkspacePage } from './WorkspaceChrome';
+import { AuthenticationPanel } from './AuthenticationPanel';
+import DocumentsPage from './DocumentsPage';
+import { shopDateInput,shopDateTimestamp } from './shopFormat';
+import { currencySymbol, shopCurrency, shopTimezone } from './shopFormat';
+import { RequestGenerations } from './lib/operationAttempt';
+import { SubmittedAttempt, PendingPurchasePhotos, RequestFailure, type SubmissionState } from './lib/submittedAttempt';
+import {parseAuthStatus,type AuthStatus} from './lib/authStatus';
+import { AccountSession, AccountRecoveryVault, hasRetainedAccountWork, type ScopedRequestInit } from './lib/accountScope';
+import { submissionSummary, formatSubmissionSummary } from './lib/submissionSummary';
+import { InventoryOperations } from './InventoryOperations';
+import { GradingCompanies, useGradingCompanies } from './GradingCompanies';
+import { PublicProductDetail } from './PublicProductDetail';
+import { Button } from './components/ui/button';
+import { Input } from './components/ui/input';
+import { searchTcgdex } from '../../../packages/domain/src/tcgdexSearch';
 import { ProductEditor } from './ProductEditor';
 import { optimizeUploadImage } from './optimizeImage';
-import BuybackPage, { PublicNavigation } from './BuybackPage';
+import BuybackPage, { PublicNavigation, ShopPage } from './BuybackPage';
 import { ReceiptSigning, ReceiptSigningPage, parseSignaturePath } from './ReceiptSigning';
 import { FiArchive, FiDownload, FiGrid, FiList, FiPackage, FiSettings, FiShoppingBag, FiShoppingCart, FiUsers, FiExternalLink } from 'react-icons/fi';
 import { ConventionPhoto } from './ConventionPhoto';
@@ -14,13 +38,16 @@ import ConsignmentsPage, { type Consignment, type ConsignmentBalances, money } f
 import { PurchaseEditor } from './PurchaseEditor';
 import { searchRiftbound, type Tcg } from '../../../packages/domain/src/riftbound';
 import { TcgChoices } from './TcgChoices';
+import {moneyCell,moneyDifference,allocatedSaleCost,stockValuation} from './lib/financialValues';
+import {readExportPages,exportBalances,exportDate} from './lib/exportPages';
 import { loadReceiptLogo } from './receiptLogo';
 import { LegalPage, legalPages, SiteFooter, type LegalPath } from './LegalPages';
-import { brand, BrandIdentity } from './brand';
+import { brand, BrandIdentity, AppearanceControl } from './brand';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPurchaseReceiptPdf, type SignatoryProfile } from './receiptPdf';
 import './style.css';
+import './workspace.css';
 
 const DashboardPage = lazy(() => import('./DashboardPage'));
 const SettingsPage = lazy(() => import('./SettingsPage'));
@@ -28,6 +55,7 @@ const SettingsPage = lazy(() => import('./SettingsPage'));
 type Item = {
   quantity?: number;
   hiddenFromCatalogue?: boolean;
+  priceVisible?: boolean;
   description?: string;
   origin?: 'purchase' | 'consignment' | 'supplier';
   productType?: 'card' | 'sealed' | 'other';
@@ -42,13 +70,13 @@ type Item = {
   catalogueImageUrl?: string;
   language?: 'fr' | 'en' | 'ja' | 'zh';
   condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
-  gradingCompany?: 'PSA' | 'CollectAura' | 'PCA' | 'CCC';
+  gradingCompany?: string;
   gradingGrade?: string;
   gradingCertificate?: string;
   gradingNotes?: string;
   marketValueCents?: number;
   discountPercent?: number;
-  purchasePriceCents: number;
+  purchasePriceCents: number|null;
   askingPriceCents?: number;
   photos?: { _id: string; filename: string }[];
   purchaseOccurredAt: number;
@@ -63,7 +91,7 @@ function consignmentSplitLabel(item: Item, value?: string) {
   const commission = Math.round(price * (item.commissionRateBps ?? 3000) / 10000);
   return `Commission : ${money(commission)} · Au déposant : ${money(price - commission)}${price < (item.agreedPriceCents ?? item.askingPriceCents ?? 0) ? ' · Prix inférieur à l’accord : autorisation requise' : ''}`;
 }
-type GradingCompany = 'PSA' | 'CollectAura' | 'PCA' | 'CCC';
+type GradingCompany = string;
 const gradingLogos: Record<GradingCompany, string> = {
   PSA: 'https://cdn.shopify.com/s/files/1/0618/5998/7608/files/psa-logo-2.png?v=1768810462',
   CollectAura: 'https://status.collectaura.com/collectaura-logo.png',
@@ -86,7 +114,7 @@ function GradingBadge({
       className={`grading-badge grading-badge--${company.toLowerCase()}`}
       aria-label={`${label}, note ${grade || 'non renseignée'}${certificate ? `, certificat ${certificate}` : ''}`}
     >
-      <img className="grading-badge-logo" src={gradingLogos[company]} alt={label} loading="lazy" />
+      {gradingLogos[company] ? <img className="grading-badge-logo" src={gradingLogos[company]} alt={label} loading="lazy" /> : <span>{label}</span>}
       <span className="grading-badge-grade">
         <small>GRADÉE</small>
         <strong>{grade || 'Note —'}</strong>
@@ -110,16 +138,19 @@ export type PurchaseDraft = {
   photo: File | null;
   language?: 'fr' | 'en' | 'ja' | 'zh';
   condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
-  gradingCompany?: 'PSA' | 'CollectAura' | 'PCA' | 'CCC';
+  gradingCompany?: string;
   gradingGrade?: string;
   gradingCertificate?: string;
   gradingNotes?: string;
   catalogueImageUrl?: string;
   catalogueCardId?: string;
+  catalogueSetId?:string;
   availableLanguages?: CatalogLanguage[];
   cardSearch?: string;
   cardResults?: CatalogCard[];
   searching?: boolean;
+  providerPage?: number;
+  providerHasMore?: boolean;
 };
 type CatalogLanguage = 'fr' | 'en' | 'ja' | 'zh';
 export type CatalogCard = {
@@ -128,6 +159,7 @@ export type CatalogCard = {
   name: string;
   image?: string;
   setName?: string;
+  setId?:string;
   language: CatalogLanguage;
   availableLanguages?: CatalogLanguage[];
 };
@@ -136,12 +168,7 @@ const cardLanguages = [
   { id: 'en', name: 'Anglais' },
   { id: 'ja', name: 'Japonais' },
 ] as const;
-const gradingCompanies = [
-  { id: 'PSA', name: 'PSA' },
-  { id: 'CollectAura', name: 'Collect Aura' },
-  { id: 'PCA', name: 'PCA' },
-  { id: 'CCC', name: 'CCC Grading' },
-] as const;
+
 const cardConditions = [
   { id: 'M', name: 'Mint (M)' },
   { id: 'NM', name: 'Near Mint (NM)' },
@@ -179,7 +206,7 @@ const parseCardSearch = (term: string) => {
     return { localId: term, denominator: undefined, name: '' };
   return { localId: undefined, denominator: undefined, name: term };
 };
-type Purchase = {
+export type Purchase = {
   buyerNote?: string;
   sellerNote?: string;
   _id: string;
@@ -190,7 +217,9 @@ type Purchase = {
   status: string;
   items: Item[];
 };
-type Sale = {
+export type Sale = {
+  quantity?:number;
+  costCents?:number|null;
   catalogueImageUrl?: string;
   photos?: { _id: string; filename: string; contentType?: string }[];
   paymentStatus?: 'pending' | 'received';
@@ -217,7 +246,7 @@ type Sale = {
   salePriceCents: number;
   purchaseReference: string;
   purchaseOccurredAt: number;
-  purchasePriceCents: number;
+  purchasePriceCents: number|null;
   sellerName: string;
   vatRegime: 'margin' | 'other';
   customerName?: string;
@@ -231,22 +260,10 @@ type SaleConflict = {
   salePriceCents: number;
 };
 type Attachment = { _id: string; filename: string; contentType: string; size: number };
-type AdminPage =
-  | 'purchaseHistory'
-  | 'dashboard'
-  | 'clients'
-  | 'purchases'
-  | 'stock'
-  | 'sales'
-  | 'saleSummary'
-  | 'salesHistory'
-  | 'saleConflicts'
-  | 'settings'
-  | 'consignments'
-  | 'consignmentNew'
-  | 'consignmentPayouts'
-  | 'exports';
+type AdminPage = WorkspacePage;
 const adminPagePaths: Record<AdminPage, string> = {
+  documents: '/admin/documents',
+  inventoryOperations: '/admin/inventory-operations',
   dashboard: '/admin/dashboard',
   clients: '/admin/clients',
   purchases: '/admin/purchases',
@@ -266,20 +283,11 @@ function adminPageFromPath(path: string): AdminPage {
   const entry = Object.entries(adminPagePaths).find(([, route]) => route === path);
   return (entry?.[0] as AdminPage | undefined) ?? 'dashboard';
 }
-function localDateInputValue(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-function dateAtCurrentLocalTime(value: string, timeSource = new Date()) {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(
-    year,
-    month - 1,
-    day,
-    timeSource.getHours(),
-    timeSource.getMinutes(),
-    timeSource.getSeconds(),
-    timeSource.getMilliseconds(),
-  ).getTime();
+function localDateInputValue(date=new Date()){return shopDateInput(date);}
+function dateAtCurrentLocalTime(value:string,timeSource=new Date()){
+ const parts=new Intl.DateTimeFormat('en-GB',{timeZone:shopTimezone,hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(timeSource);
+ const get=(type:string)=>Number(parts.find(p=>p.type===type)!.value);
+ return shopDateTimestamp(value,shopTimezone,get('hour'),get('minute'),get('second'))+timeSource.getMilliseconds();
 }
 let csrfToken: string | undefined;
 let lastUserActivity = -Infinity;
@@ -288,39 +296,45 @@ function sessionActivityHeaders(): Record<string, string> {
   return document.visibilityState === 'visible' && Date.now() - lastUserActivity < 60_000
     ? { 'X-Session-Activity': '1' } : {};
 }
-async function request<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+async function rawRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   for (const [key, value] of Object.entries(sessionActivityHeaders())) headers.set(key, value);
   headers.set('Content-Type', 'application/json');
   if (csrfToken && init.method && init.method !== 'GET') headers.set('X-CSRF-Token', csrfToken);
-  const r = await fetch(`${API}${path}`, { ...init, headers, credentials: 'include' });
+  const {assertAccountScope,...transportInit}=init as ScopedRequestInit;
+  assertAccountScope?.();
+  const r = await fetch(`${API}${path}`, { ...transportInit, headers, credentials: 'include' });
+  assertAccountScope?.();
   csrfToken = r.headers.get('X-CSRF-Token') ?? csrfToken;
   if (!r.ok) {
     const payload = (await r.json().catch(() => ({}))) as { error?: string };
-    if (payload.error === 'SALE_NOT_FOUND') throw new Error('Cette vente est introuvable. Actualisez l’historique.');
+    const failure=(message:string)=>new RequestFailure(message,r.status,payload.error);
+    if (payload.error === 'AUTH_SERVICE_UNAVAILABLE') throw failure('Le service de connexion est momentanément indisponible. Réessayez dans un instant.');
+    if (payload.error === 'SALE_NOT_FOUND') throw failure('Cette vente est introuvable. Actualisez l’historique.');
     if (r.status === 404)
-      throw new Error(
+      throw failure(
         `Route API introuvable (${API}${path}). Vérifiez que l’API tourne sur le port 3001 et que VITE_API_URL pointe vers son adresse.`,
       );
-    if (['PRICE_BELOW_AGREEMENT', 'SALE_BELOW_AGREED_PRICE', 'PRICE_BELOW_AGREED', 'CONSINGMENT_PRICE_TOO_LOW', 'CONSIGNMENT_PRICE_BELOW_AGREED', 'BELOW_AGREED_PRICE'].includes(payload.error ?? '')) throw new Error('Le prix est inférieur à l’accord du déposant. Modifiez l’accord dans Dépôts-ventes après son autorisation.');
-    if (payload.error === 'INVALID_SALE_PAYMENT') throw new Error('Vérifiez les montants : espèces et virement doivent couvrir exactement le total de la vente.');
-    if (payload.error === 'INVALID_SALE_PAYMENT_DATE') throw new Error('La réception du paiement ne peut pas précéder le jour de la vente.');
-    if (payload.error === 'SALE_CANCELLED') throw new Error('Cette vente a été annulée. Son encaissement ne peut plus être modifié.');
-    if (payload.error === 'INVALID_PAYMENT_DATE') throw new Error('Le solde est insuffisant à cette date ou l’encaissement n’a pas encore été reçu.');
-    if (payload.error === 'PAYMENT_EXCEEDS_BALANCE') throw new Error('Le versement dépasse le solde dû au déposant. Actualisez les données.');
-    if (payload.error === 'AUTHORIZATION_REQUIRED') throw new Error('Indiquez l’autorisation du déposant pour modifier cet accord.');
-    if (payload.error === 'INVALID_STOCK_SELECTION') throw new Error('Sélectionnez entre 1 et 500 articles distincts du stock.');
-    if (payload.error === 'ITEM_UNAVAILABLE') throw new Error('Cet article n’est plus disponible. Actualisez les données.');
+    if (['PRICE_BELOW_AGREEMENT', 'SALE_BELOW_AGREED_PRICE', 'PRICE_BELOW_AGREED', 'CONSINGMENT_PRICE_TOO_LOW', 'CONSIGNMENT_PRICE_BELOW_AGREED', 'BELOW_AGREED_PRICE'].includes(payload.error ?? '')) throw failure('Le prix est inférieur à l’accord du déposant. Modifiez l’accord dans Dépôts-ventes après son autorisation.');
+    if (payload.error === 'INVALID_SALE_PAYMENT') throw failure('Vérifiez les montants : espèces et virement doivent couvrir exactement le total de la vente.');
+    if (payload.error === 'INVALID_SALE_PAYMENT_DATE') throw failure('La réception du paiement ne peut pas précéder le jour de la vente.');
+    if (payload.error === 'SALE_CANCELLED') throw failure('Cette vente a été annulée. Son encaissement ne peut plus être modifié.');
+    if (payload.error === 'INVALID_PAYMENT_DATE') throw failure('Le solde est insuffisant à cette date ou l’encaissement n’a pas encore été reçu.');
+    if (payload.error === 'PAYMENT_EXCEEDS_BALANCE') throw failure('Le versement dépasse le solde dû au déposant. Actualisez les données.');
+    if (payload.error === 'AUTHORIZATION_REQUIRED') throw failure('Indiquez l’autorisation du déposant pour modifier cet accord.');
+    if (payload.error === 'INVALID_STOCK_SELECTION') throw failure('Sélectionnez entre 1 et 500 articles distincts du stock.');
+    if (payload.error === 'ITEM_UNAVAILABLE') throw failure('Cet article n’est plus disponible. Actualisez les données.');
     if (payload.error === 'SALE_BEFORE_PURCHASE')
-      throw new Error('La date de vente ne peut pas précéder le jour du rachat ou du dépôt.');
-    if (payload.error === 'ITEM_NOT_FOUND') throw new Error('Carte introuvable dans votre stock.');
+      throw failure('La date de vente ne peut pas précéder le jour du rachat ou du dépôt.');
+    if (payload.error === 'ITEM_NOT_FOUND') throw failure('Carte introuvable dans votre stock.');
     if (payload.error === 'PURCHASE_DATE_AFTER_SALE')
-      throw new Error('Impossible de déplacer le rachat après une vente déjà enregistrée.');
-    throw new Error(payload.error ?? `Erreur serveur (${r.status})`);
+      throw failure('Impossible de déplacer le rachat après une vente déjà enregistrée.');
+    throw failure(payload.error ?? `Erreur serveur (${r.status})`);
   }
   const result = r.status === 204 ? null : await r.json();
   return result as T;
 }
+const request = rawRequest;
 type ReadPage<T> = { items: T[]; nextCursor: string | null; isDone: boolean };
 async function firstReadPage<T>(path: string): Promise<T[]> {
   const params = new URLSearchParams({ size: '25' });
@@ -340,10 +354,17 @@ type PublicCard = {
   gradingGrade?: string;
   gradingNotes?: string;
   catalogueImageUrl?: string;
-  salePriceCents: number;
+  salePriceCents?: number;
+  quantity: number;
 };
 function ConventionCatalog() {
+  const [detailId,setDetailId]=useState<string|null>(null);
   const [cards, setCards] = useState<PublicCard[]>([]);
+  const [gradingCompanies,setGradingCompanies] = useState<string[]>([]);
+  const [languages,setLanguages] = useState<string[]>([]);
+  const [seriesOptions,setSeriesOptions] = useState<string[]>([]);
+  const [series,setSeries] = useState('');
+  const [language,setLanguage] = useState('');
   const [tcg, setTcg] = useState<Tcg | 'all'>('all');
   const [totalCount, setTotalCount] = useState(0);
   const [search, setSearch] = useState('');
@@ -353,6 +374,8 @@ function ConventionCatalog() {
   const [gradingCompany, setGradingCompany] = useState<'all' | GradingCompany>('all');
   const [gradingGrade, setGradingGrade] = useState('');
   const [layout, setLayout] = useState<'grid' | 'list'>('grid');
+  const [catalogueSort,setCatalogueSort]=useState<'recent'|'name'|'price-asc'|'price-desc'>('recent');
+  const [catalogueRetry,setCatalogueRetry]=useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(12);
   const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
@@ -363,7 +386,7 @@ function ConventionCatalog() {
   useEffect(() => {
     setCursorHistory([null]);
     setPage(1);
-  }, [tcg, search, minimum, maximum, gradingStatus, gradingCompany, gradingGrade, pageSize]);
+  }, [tcg, series, language, search, minimum, maximum, gradingStatus, gradingCompany, gradingGrade, pageSize,catalogueSort]);
   useEffect(() => {
     setLoading(true);
     let active = true;
@@ -372,19 +395,20 @@ function ConventionCatalog() {
     const timer = window.setTimeout(
       () => {
         unsubscribe = publicRealtime.subscribe<{
-          page: PublicCard[]; totalCount: number; continueCursor: string; isDone: boolean;
+          page: PublicCard[]; gradingCompanies: string[]; languages: string[]; series: string[]; totalCount: number; continueCursor: string; isDone: boolean;
         }>('operations:publicCatalogue', {
-          tcg, search, gradingStatus, gradingCompany: gradingCompany === 'all' ? '' : gradingCompany,
+          tcg, series, language, search, sort:catalogueSort, gradingStatus, gradingCompany: gradingCompany === 'all' ? '' : gradingCompany,
           gradingGrade, paginationOpts: { numItems: pageSize, cursor: cursorHistory[page - 1] ?? null },
           ...(minimum ? { minPrice: Math.round(Number(minimum) * 100) } : {}),
           ...(maximum ? { maxPrice: Math.round(Number(maximum) * 100) } : {}),
         }, result => {
           if (!active) return;
           setCards(result.page); setTotalCount(result.totalCount);
+          setGradingCompanies(result.gradingCompanies); setLanguages(result.languages); setSeriesOptions(result.series);
           setNextCursor(result.continueCursor); setIsDone(result.isDone);
           setLoading(false); setError('');
         }, reason => {
-          if (active) { setCards([]); setError(reason.message); setLoading(false); }
+          if (active) { setCards([]); setError('Connexion au catalogue impossible. Vérifiez votre connexion puis réessayez.'); setLoading(false); }
         });
       },
       search ? 250 : 0,
@@ -396,6 +420,8 @@ function ConventionCatalog() {
     };
   }, [
     tcg,
+    series,
+    language,
     page,
     pageSize,
     search,
@@ -404,12 +430,12 @@ function ConventionCatalog() {
     gradingStatus,
     gradingCompany,
     gradingGrade,
-    cursorHistory,
+    cursorHistory,catalogueSort,catalogueRetry,
   ]);
   const formatPrice = (cents: number) =>
-    new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+    new Intl.NumberFormat('fr-BE', { style: 'currency', currency: shopCurrency }).format(cents / 100);
   const hasFilters = Boolean(
-    tcg !== 'all' ||
+    tcg !== 'all' || series !== '' || language !== '' ||
       search.trim() ||
       minimum !== '' ||
       maximum !== '' ||
@@ -422,14 +448,14 @@ function ConventionCatalog() {
   const pageCards = cards;
   const pagination = () => (
     <nav className="public-catalogue-pagination" aria-label="Pagination du catalogue">
-      <button
+      <Button
         type="button"
         className="secondary public-catalogue-page-button"
         onClick={() => setPage((current) => Math.max(1, current - 1))}
-        disabled={currentPage <= 1}
+        disabled={loading || currentPage <= 1}
       >
         Précédent
-      </button>
+      </Button>
       <span aria-live="polite">
         Page <strong>{currentPage}</strong>
       </span>
@@ -450,7 +476,7 @@ function ConventionCatalog() {
           ))}
         </select>
       </label>
-      <button
+      <Button
         type="button"
         className="secondary public-catalogue-page-button"
         onClick={() => {
@@ -459,15 +485,16 @@ function ConventionCatalog() {
             setPage((current) => current + 1);
           }
         }}
-        disabled={isDone}
+        disabled={loading || isDone || !nextCursor}
       >
         Suivant
-      </button>
+      </Button>
     </nav>
   );
   return (
     <main className="public-catalogue-page">
-      <PublicNavigation active="catalogue" />
+      <PublicNavigation active="catalogue" /><AppearanceControl />
+      {detailId && <PublicProductDetail id={detailId} onClose={()=>setDetailId(null)} />}
       <header className="public-catalogue-hero">
         <BrandIdentity catalogue />
         <div className="public-catalogue-total" aria-live="polite">
@@ -490,11 +517,11 @@ function ConventionCatalog() {
               : `${visible.length} résultat${visible.length === 1 ? '' : 's'}`}
           </span>
         </div>
-        <TcgChoices value={tcg} all onChange={setTcg} />
+        <TcgChoices value={tcg} all onChange={value => {setTcg(value); setSeries(''); setSeriesOptions([]);}} />
         <div className="form-grid public-catalogue-filters">
           <label className="public-catalogue-search-field">
             Recherche
-            <input
+            <Input
               type="search"
               value={search}
               onChange={(event) => {
@@ -506,12 +533,21 @@ function ConventionCatalog() {
             />
           </label>
         </div>
+        <label className="convention-series-filter">Série / extension
+          <SeriesFilter value={series} onChange={setSeries} options={seriesOptions} loading={loading} />
+        </label>
         <details className="convention-advanced">
-          <summary>Filtres avancés · prix et gradation</summary>
+          <summary>Filtres avancés · langue, prix et gradation</summary>
           <div className="form-grid public-catalogue-filters">
+            <label>Langue
+              <select value={language} onChange={event=>setLanguage(event.target.value)}>
+                <option value="">Toutes les langues</option>
+                {[...new Set([...languages,...(language?[language]:[])])].map(value=><option key={value} value={value}>{languageLabel(value)}</option>)}
+              </select>
+            </label>
             <label>
-              Prix minimum (€)
-              <input
+              Prix minimum ({currencySymbol})
+              <Input
                 type="number"
                 min="0"
                 step="0.01"
@@ -524,8 +560,8 @@ function ConventionCatalog() {
               />
             </label>
             <label>
-              Prix maximum (€)
-              <input
+              Prix maximum ({currencySymbol})
+              <Input
                 type="number"
                 min="0"
                 step="0.01"
@@ -561,16 +597,16 @@ function ConventionCatalog() {
                 }}
               >
                 <option value="all">Toutes les sociétés</option>
-                {gradingCompanies.map((company) => (
-                  <option key={company.id} value={company.id}>
-                    {company.name}
+                {[...new Set([...gradingCompanies,...(gradingCompany!=='all'?[gradingCompany]:[])])].map((company) => (
+                  <option key={company} value={company}>
+                    {company}
                   </option>
                 ))}
               </select>
             </label>
             <label>
               Note de gradation
-              <input
+              <Input
                 type="search"
                 value={gradingGrade}
                 onChange={(event) => {
@@ -583,11 +619,11 @@ function ConventionCatalog() {
           </div>
         </details>
         {hasFilters && (
-          <button
+          <Button
             className="secondary public-catalogue-reset"
             type="button"
             onClick={() => {
-              setTcg('all');
+              setTcg('all'); setLanguage(''); setSeries('');
               setSearch('');
               setMinimum('');
               setMaximum('');
@@ -598,13 +634,13 @@ function ConventionCatalog() {
             }}
           >
             Effacer les filtres
-          </button>
+          </Button>
         )}
       </section>
       {error ? (
         <section className="panel public-catalogue-state" role="alert">
           <h2>Le stock est momentanément indisponible</h2>
-          <p>{error}</p>
+          <p>{error}</p><Button variant="outline" onClick={()=>setCatalogueRetry(v=>v+1)}>Réessayer</Button>
         </section>
       ) : loading ? (
         <section className="panel public-catalogue-state" aria-live="polite">
@@ -613,6 +649,7 @@ function ConventionCatalog() {
       ) : visible.length ? (
         <>
           <div className="public-catalogue-results-toolbar">
+            <label className="catalogue-sort">Trier par<select value={catalogueSort} onChange={e=>setCatalogueSort(e.target.value as typeof catalogueSort)}><option value="recent">Ajouts récents</option><option value="name">Nom A–Z</option><option value="price-asc">Prix croissant</option><option value="price-desc">Prix décroissant</option></select></label>
             <span className="public-catalogue-result-summary">
               {visible.length} carte{visible.length === 1 ? '' : 's'} trouvée
               {visible.length === 1 ? '' : 's'}
@@ -622,7 +659,7 @@ function ConventionCatalog() {
               role="group"
               aria-label="Disposition des cartes"
             >
-              <button
+              <Button
                 type="button"
                 className={
                   layout === 'grid'
@@ -635,8 +672,8 @@ function ConventionCatalog() {
                 onClick={() => setLayout('grid')}
               >
                 <FiGrid className="public-catalogue-layout-icon" aria-hidden="true" focusable="false" />
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className={
                   layout === 'list'
@@ -649,7 +686,7 @@ function ConventionCatalog() {
                 onClick={() => setLayout('list')}
               >
                 <FiList className="public-catalogue-layout-icon" aria-hidden="true" focusable="false" />
-              </button>
+              </Button>
             </div>
           </div>
           {pagination()}
@@ -660,17 +697,18 @@ function ConventionCatalog() {
           >
             {pageCards.map((card) => (
               <article className="public-catalogue-card" key={card.id}>
-                <div className="public-catalogue-image-wrap">
+                <button type="button" className="public-catalogue-image-wrap" aria-label={`Voir ${card.name}`} onClick={()=>setDetailId(card.id)}>
                   <ConventionPhoto key={`${card.id}:${card.hasPhoto}`} {...card} apiBase={API} />
-                </div>
+                </button>
                 <div className="public-catalogue-card-details">
                   <div className="public-catalogue-card-title">
-                    <h3>{card.name}</h3>
+                    <h3><Button variant="link" className="product-detail-link" onClick={()=>setDetailId(card.id)}>{card.name}</Button></h3>
                     <strong className="public-catalogue-price">
-                      {formatPrice(card.salePriceCents)}
+                      {card.salePriceCents === undefined ? 'Ouvert aux offres' : formatPrice(card.salePriceCents)}
                     </strong>
                   </div>
                   <p className="public-catalogue-series">{card.series || 'Série non renseignée'}</p>
+                  <p className="public-catalogue-availability">{card.quantity} disponible{card.quantity > 1 ? 's' : ''}</p>
                   <div className="public-catalogue-tags">
                     {card.identifier && <span>N° {card.identifier}</span>}
                     {card.language && <span>{languageLabel(card.language)}</span>}
@@ -690,11 +728,11 @@ function ConventionCatalog() {
           <h2>Aucun article trouvé</h2>
           <p>Essayez un autre nom, numéro ou une plage de prix différente.</p>
           {hasFilters && (
-            <button
+            <Button
               className="secondary"
               type="button"
               onClick={() => {
-                setTcg('all');
+                setTcg('all'); setLanguage(''); setSeries('');
                 setSearch('');
                 setMinimum('');
                 setMaximum('');
@@ -705,14 +743,67 @@ function ConventionCatalog() {
               }}
             >
               Réinitialiser la recherche
-            </button>
+            </Button>
           )}
         </section>
       )}
     </main>
   );
 }
+const accountSession=new AccountSession();
+function newAccountRecovery(accountId:string|null) {
+  return {
+    purchase:new SubmittedAttempt<{purchaseId:string;itemIds:string[]},{client:Client;validItems:PurchaseDraft[];buyerNote:string;sellerNote:string;reference:string;occurredAt:number;downloadReceipt:boolean}>(accountId??undefined),
+    sale:new SubmittedAttempt<{ids:string[]}>(accountId??undefined),
+    saleHistory:new SubmittedAttempt<unknown,{name:string}>(accountId??undefined),
+    photos:new PendingPurchasePhotos<File>(),
+  };
+}
+const accountRecovery=new AccountRecoveryVault<ReturnType<typeof newAccountRecovery>>(value=>value.purchase.state!=='idle'||value.sale.state!=='idle'||value.saleHistory.state!=='idle'||value.photos.rows.length>0);
 function App() {
+  const [identity,setIdentity]=useState<{accountId:string|null;epoch:number}|null>(null);
+  const [boundaryError,setBoundaryError]=useState('');
+  const checkGeneration=useRef(0);
+  const selectedAccount=useRef<string|null>(null);
+  const selectIdentity=useCallback((accountId:string|null)=>{
+    checkGeneration.current++;
+    const epoch=accountSession.select(accountId);
+    if(selectedAccount.current!==accountId)realtime.reset();
+    selectedAccount.current=accountId;
+    setIdentity(previous=>previous?.accountId===accountId&&previous.epoch===epoch?previous:{accountId,epoch});
+  },[]);
+  const verifyIdentity=useCallback(async()=>{
+    const generation=++checkGeneration.current;
+    try {const status=parseAuthStatus(await rawRequest<unknown>('/auth/status'));if(generation!==checkGeneration.current)return;setBoundaryError('');selectIdentity(status.authenticated&&status.accountId?status.accountId:null);}
+    catch(error){if(generation===checkGeneration.current)setBoundaryError(error instanceof Error?error.message:'Vérification de la session impossible.');}
+  },[selectIdentity]);
+  const accountMismatch=useCallback(()=>{selectIdentity(null);void verifyIdentity();},[selectIdentity,verifyIdentity]);
+  useEffect(()=>{void verifyIdentity();const focus=()=>void verifyIdentity();window.addEventListener('focus',focus);const visible=()=>{if(document.visibilityState==='visible')focus();};document.addEventListener('visibilitychange',visible);return()=>{checkGeneration.current++;window.removeEventListener('focus',focus);document.removeEventListener('visibilitychange',visible);};},[verifyIdentity]);
+  useEffect(()=>{const warn=(event:BeforeUnloadEvent)=>{if(hasRetainedAccountWork()){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[]);
+  if(!identity)return <main className="auth-shell"><p role="status">{boundaryError||'Vérification de la session…'}</p>{boundaryError&&<Button onClick={()=>void verifyIdentity()}>Réessayer</Button>}</main>;
+  return <AccountWorkspace key={`${identity.accountId??'signed-out'}:${identity.epoch}`} accountId={identity.accountId} onIdentity={selectIdentity} onAccountMismatch={accountMismatch} sessionError={boundaryError} onRetrySession={verifyIdentity}/>;
+}
+function AccountWorkspace({accountId,onIdentity,onAccountMismatch,sessionError,onRetrySession}:{accountId:string|null;onIdentity:(accountId:string|null)=>void;onAccountMismatch:()=>void;sessionError:string;onRetrySession:()=>Promise<void>}) {
+  const scope=useRef(accountSession.scope(accountId)).current;
+  const request=useRef(scope.bind(rawRequest,onAccountMismatch)).current;
+  const recovery=useRef(accountId?accountRecovery.forAccount(accountId,()=>newAccountRecovery(accountId)):newAccountRecovery(null)).current;
+
+  const exportLock=useRef(false);
+  const [exporting,setExporting]=useState(false);
+  const [addStockOpen, setAddStockOpen] = useState(false);
+  const [saleQuantities,setSaleQuantities]=useState<Record<string,number>>({});
+  function changeSaleQuantity(item:Item,quantity:number) {
+    if(saleAttempt.current.current)return;
+    const next=Math.max(0,Math.min(quantity,item.origin==='supplier'?(item.quantity??0):1));
+    const previous=selectedItemIds.includes(item._id)?saleQuantities[item._id]??1:0;
+    setSaleQuantities(values=>({...values,[item._id]:next}));
+    setSelectedItemIds(ids=>next?[...new Set([...ids,item._id])]:ids.filter(id=>id!==item._id));
+    setSalePrices(values=>({...values,[item._id]:((previous&&values[item._id]!==undefined?Number(values[item._id].replace(',','.'))/previous:(item.askingPriceCents??0)/100)*next).toFixed(2)}));
+  }
+  function quantityControl(item:Item) {
+    const quantity=selectedItemIds.includes(item._id)?saleQuantities[item._id]??1:0;
+    return <div className="basket-quantity" role="group" aria-label={`Quantité de ${item.name}`}><Button type="button" variant="secondary" aria-label={`Retirer une unité de ${item.name}`} disabled={!quantity} onClick={()=>changeSaleQuantity(item,quantity-1)}>−</Button><span aria-live="polite">{quantity?`✓ ${quantity}`:'0'}</span><Button type="button" aria-label={`Ajouter une unité de ${item.name}`} disabled={quantity>=(item.origin==='supplier'?(item.quantity??0):1)} onClick={()=>changeSaleQuantity(item,quantity+1)}>+</Button></div>;
+  }
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   useEffect(() => {
     const events = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
@@ -725,12 +816,8 @@ function App() {
       lastUserActivity = -Infinity;
     };
   }, []);
-  const catalogRequests = useRef(new Map<string, number>());
-  function beginCatalog(key: string) {
-    const token = (catalogRequests.current.get(key) ?? 0) + 1;
-    catalogRequests.current.set(key, token);
-    return () => catalogRequests.current.get(key) === token;
-  }
+  const catalogRequests = useRef(new RequestGenerations());
+  function beginCatalog(key:string){return catalogRequests.current.begin(key);}
   function changeTcg(draft: PurchaseDraft, tcg: Tcg, reset = false) {
     if (!reset && (draft.tcg ?? 'pokemon') === tcg) return;
     beginCatalog(draft.key);
@@ -747,6 +834,7 @@ function App() {
               cardResults: [],
               searching: false,
               catalogueCardId: undefined,
+              catalogueSetId: undefined,
               catalogueImageUrl: undefined,
               availableLanguages: undefined,
               language: tcg === 'riftbound' ? 'en' : 'fr',
@@ -802,6 +890,8 @@ function App() {
     [saleDates, setSaleDates] = useState<Record<string, string>>({}),
     [purchaseDates, setPurchaseDates] = useState<Record<string, string>>({}),
     [stockSearch, setStockSearch] = useState(''),
+    [stockTcg, setStockTcg] = useState<Tcg | 'all'>('all'),
+    [stockSeries, setStockSeries] = useState(''),
     [stockOrigin, setStockOrigin] = useState('all'),
     [stockVisibility, setStockVisibility] = useState<'all' | 'visible' | 'hidden'>('all'),
     [visibilitySelectedIds, setVisibilitySelectedIds] = useState<string[]>([]),
@@ -816,19 +906,42 @@ function App() {
     [saleConfirmOpen, setSaleConfirmOpen] = useState(false),
     [bulkSalePrice, setBulkSalePrice] = useState(''),
     [error, setError] = useState(''),
-    [logged, setLogged] = useState(false),
+    [initializationError,setInitializationError] = useState(''),
+    [logged, setLogged] = useState(Boolean(accountId)),
     [signupEnabled, setSignupEnabled] = useState<boolean | null>(null),
     [loading, setLoading] = useState(false);
+  const [lastSaleIds,setLastSaleIds]=useState<string[]>([]);
   const [salePaymentDraft, setSalePaymentDraft] = useState<PaymentDraft>(newPaymentDraft);
   const [paymentSale, setPaymentSale] = useState<Sale | null>(null);
   const [editPaymentDraft, setEditPaymentDraft] = useState<PaymentDraft>(newPaymentDraft);
   const [collectionFilter, setCollectionFilter] = useState('all');
+  const [salesSearch, setSalesSearch] = useState('');
+  const [salesStatus, setSalesStatus] = useState('all');
+  const [salesHistoryOrigin, setSalesHistoryOrigin] = useState('all');
+  const [salesFrom, setSalesFrom] = useState('');
+  const [salesTo, setSalesTo] = useState('');
+  const [purchaseStage, setPurchaseStage] = useState<'contact' | 'items' | 'review'>('contact');
+  const purchaseAttempt=useRef(recovery.purchase);
+  const [purchaseSubmission,setPurchaseSubmission]=useState<SubmissionState>(recovery.purchase.state);
+  const purchasePhotos=useRef(recovery.photos);
+  const [pendingPurchasePhotos,setPendingPurchasePhotos]=useState(recovery.photos.rows.length);
+  const [photoRetryBusy,setPhotoRetryBusy]=useState(false);
+  const photoRetryLock=useRef(false);
+  const purchaseRunning = useRef(false);
+  const companyRecords = useGradingCompanies(request, logged);
+  const gradingCompanies = companyRecords.companies.filter(c=>!c.archivedAt).map(c=>({id:c.name,name:c.name}));
+  const [askingPriceDrafts, setAskingPriceDrafts] = useState<Record<string, string>>({});
   const [clientEditorOpen, setClientEditorOpen] = useState(false);
   const [clientReturnToPurchase, setClientReturnToPurchase] = useState(false);
   const visibilityAttempt = useRef<{ signature: string; body: string } | null>(null);
   const visibilityRunning = useRef(false);
-  const saleAttempt = useRef<{ signature: string; body: string } | null>(null);
-  const paymentAttempt = useRef<{ signature: string; body: string } | null>(null);
+  const saleAttempt=useRef(recovery.sale);
+  const [saleSubmission,setSaleSubmission]=useState<SubmissionState>(recovery.sale.state);
+  const saleRunning=useRef(false);
+  useEffect(()=>{if(!pendingPurchasePhotos&&purchaseSubmission==='idle'&&saleSubmission==='idle')return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[pendingPurchasePhotos,purchaseSubmission,saleSubmission]);
+  const saleHistoryAttempt=useRef(recovery.saleHistory);
+  const [saleHistorySubmission,setSaleHistorySubmission]=useState<SubmissionState>(recovery.saleHistory.state);
+  const saleHistoryRunning=useRef(false);
   const [historyRows, setHistoryRows] = useState<Purchase[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatus, setHistoryStatus] = useState('all');
@@ -841,60 +954,37 @@ function App() {
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [historyRevision, setHistoryRevision] = useState(0);
-  useEffect(() => {
-    if (!logged || adminPage !== 'purchaseHistory') return;
-    let active = true;
-    setHistoryBusy(true);
-    setHistoryError('');
-    const timer = window.setTimeout(() => {
-      const params = new URLSearchParams({
-        page: String(historyPage),
-        size: String(historySize),
-        search: historySearch,
-        status: historyStatus,
-      });
-      if (historyFrom) params.set('from', String(new Date(`${historyFrom}T00:00:00`).getTime()));
-      if (historyTo) params.set('to', String(new Date(`${historyTo}T23:59:59.999`).getTime()));
-      void request<{ rows: Purchase[]; page: number; totalPages: number; totalCount: number }>(
-        `/purchases/page?${params}`,
-      )
-        .then((result) => {
-          if (!active) return;
-          setHistoryRows(result.rows);
-          setHistoryTotal(result.totalCount);
-          setHistoryPages(result.totalPages);
-          setHistoryPage(result.page);
-        })
-        .catch((e) => {
-          if (active) setHistoryError(e instanceof Error ? e.message : 'Historique indisponible');
-        })
-        .finally(() => {
-          if (active) setHistoryBusy(false);
-        });
-    }, 250);
-    return () => {
-      active = false;
-      window.clearTimeout(timer);
-    };
-  }, [
-    logged,
-    adminPage,
-    historySearch,
-    historyStatus,
-    historyFrom,
-    historyTo,
-    historyPage,
-    historySize,
-    historyRevision,
-  ]);
-  const stockRead = useReadPage<Item>(request, '/stock', { search: stockSearch, origin: stockOrigin, visibility: adminPage === 'stock' ? stockVisibility : 'all', gradingStatus: stockGradingStatus, gradingCompany: stockGradingCompany, gradingText: stockGradingGrade }, logged && (adminPage === 'stock' || adminPage === 'sales'), historyRevision);
+  const historyReadGeneration=useRef(0);
+  const refreshPurchaseHistory=useCallback(async()=>{
+    const generation=++historyReadGeneration.current;
+    setHistoryBusy(true);setHistoryError('');
+    const params=new URLSearchParams({page:String(historyPage),size:String(historySize),search:historySearch,status:historyStatus});
+    if(historyFrom)params.set('from',String(shopDateTimestamp(historyFrom,shopTimezone,0)));
+    if(historyTo)params.set('to',String(shopDateTimestamp(historyTo,shopTimezone,23,59,59)+999));
+    try {
+      const result=await request<{rows:Purchase[];page:number;totalPages:number;totalCount:number}>(`/purchases/page?${params}`);
+      scope.assertActive();
+      if(generation!==historyReadGeneration.current)throw new Error('La recherche a changé. Actualisez la liste courante.');
+      setHistoryRows(result.rows);setHistoryTotal(result.totalCount);setHistoryPages(result.totalPages);setHistoryPage(result.page);
+    } catch(e) {
+      if(generation===historyReadGeneration.current)setHistoryError(e instanceof Error?e.message:'Historique indisponible');
+      throw e;
+    } finally {if(generation===historyReadGeneration.current)setHistoryBusy(false);}
+  },[request,scope,historyPage,historySize,historySearch,historyStatus,historyFrom,historyTo]);
+  useEffect(()=>{
+    if(!logged||adminPage!=='purchaseHistory')return;
+    const timer=window.setTimeout(()=>{void refreshPurchaseHistory().catch(()=>{});},250);
+    return()=>{historyReadGeneration.current++;window.clearTimeout(timer);};
+  },[logged,adminPage,refreshPurchaseHistory,historyRevision]);
+  const stockRead = useReadPage<Item>(request, '/stock', { search: stockSearch, tcg: stockTcg, series: stockSeries, origin: stockOrigin, visibility: adminPage === 'stock' ? stockVisibility : 'all', gradingStatus: stockGradingStatus, gradingCompany: stockGradingCompany, gradingText: stockGradingGrade }, logged && (adminPage === 'stock' || adminPage === 'sales'), historyRevision);
   const clientsRead = useReadPage<Client>(request, '/sellers', { search: clientSearch }, logged && adminPage === 'clients', historyRevision);
   useEffect(() => {
     setItems(previous => [...previous.filter(item => selectedItemIds.includes(item._id) && !stockRead.items.some(row => row._id === item._id)), ...stockRead.items]);
   }, [stockRead.items, selectedItemIds]);
-  const salesHistoryRead = useReadPage<Sale>(request, '/sales', { paymentStatus: collectionFilter }, logged && adminPage === 'salesHistory', historyRevision);
+  const salesHistoryRead = useReadPage<Sale>(request, '/sales', { paymentStatus: collectionFilter, search: salesSearch, status: salesStatus, origin: salesHistoryOrigin, ...(salesFrom ? {from:String(shopDateTimestamp(salesFrom,shopTimezone,0))} : {}), ...(salesTo ? {to:String(shopDateTimestamp(salesTo,shopTimezone,23,59,59)+999)} : {}) }, logged && adminPage === 'salesHistory', historyRevision);
   const conflictsRead = useReadPage<SaleConflict>(request, '/conflicts', {}, logged && adminPage === 'saleConflicts', historyRevision);
   function navigateAdminPage(page: AdminPage, replace = false) {
+    setError('');
     const url = adminPagePaths[page];
     window.history[replace ? 'replaceState' : 'pushState']({}, '', url);
     setAdminPage(page);
@@ -915,20 +1005,26 @@ function App() {
       } catch {
         // An unauthenticated first visit has no CSRF cookie yet.
       }
-      const [authStatus] = await Promise.all([
-        request<{ signupEnabled: boolean }>('/auth/status'),
-      ]);
+      const authStatus=parseAuthStatus(await request<unknown>('/auth/status'));
+      setInitializationError('');
+      const verifiedAccount=authStatus.authenticated&&authStatus.accountId?authStatus.accountId:null;
+      if(verifiedAccount!==accountId){onIdentity(verifiedAccount);return;}
       setHistoryRevision((value) => value + 1);
       setSignupEnabled(authStatus.signupEnabled);
+      if (!authStatus.authenticated) {
+        realtime.reset();
+        setLogged(false);
+        return;
+      }
       setLogged(true);
       setError('');
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Connexion impossible';
       if (message === 'UNAUTHENTICATED' || message === 'INVALID_SESSION') {
-        realtime.reset();
-      setLogged(false);
+        realtime.reset();onIdentity(null);
+        setLogged(false);
         setError('');
-      } else setError(message);
+      } else setInitializationError(message);
     } finally {
       setLoading(false);
     }
@@ -1019,7 +1115,7 @@ function App() {
       setLoading(false);
     }
   }
-  async function searchPokemonCards(draft: PurchaseDraft) {
+  async function searchPokemonCards(draft: PurchaseDraft, append = false) {
     if (draft.tcg === 'other') return setError('Pour un autre produit, utilisez la saisie manuelle.');
     const term = draft.cardSearch?.trim();
     if (!term) return setError('Saisissez un nom ou un numéro de carte à rechercher.');
@@ -1041,113 +1137,11 @@ function App() {
         if (!results.length) setError(`Aucune carte Riftbound trouvée pour « ${term} » (FR/EN).`);
         return;
       }
-      const localized = await Promise.all(
-        cardLanguages.map(async ({ id: language }) => {
-          const filter = search.localId
-            ? `localId=${encodeURIComponent(search.localId)}`
-            : `name=${encodeURIComponent(search.name)}`;
-          const response = await fetch(
-            `https://api.tcgdex.net/v2/${language}/cards?${filter}&pagination:page=1&pagination:itemsPerPage=100`,
-          );
-          if (!response.ok) throw new Error('Catalogue Pokémon indisponible.');
-          const cards = (await response.json()) as Omit<CatalogCard, 'language'>[];
-          return cards
-            .filter(
-              (card) =>
-                !search.localId ||
-                normalizeCardNumber(card.localId) === normalizeCardNumber(search.localId!),
-            )
-            .map((card) => ({ ...card, language }));
-        }),
-      );
-      let results = localized.flat();
-      const setMetadata = new Map<string, { official?: number; total?: number; name?: string }>();
-      if (search.denominator !== undefined && results.length) {
-        const setIds = [
-          ...new Set(results.map((card) => card.id.slice(0, card.id.lastIndexOf('-')))),
-        ];
-        await Promise.all(
-          setIds.map(async (setId) => {
-            if (!setId) return;
-            const cardLanguage =
-              results.find((card) => card.id.startsWith(`${setId}-`))?.language ?? 'en';
-            try {
-              const response = await fetch(
-                `https://api.tcgdex.net/v2/${cardLanguage}/sets/${encodeURIComponent(setId)}`,
-              );
-              if (!response.ok) return;
-              const set = (await response.json()) as {
-                cardCount?: { official?: number; total?: number };
-                name?: string;
-              };
-              setMetadata.set(setId, { ...set.cardCount, name: set.name });
-            } catch {
-              // An unverified denominator must not return a potentially wrong card.
-            }
-          }),
-        );
-        results = results.filter((card) => {
-          const setId = card.id.slice(0, card.id.lastIndexOf('-'));
-          const count = setMetadata.get(setId);
-          return count?.official === search.denominator || count?.total === search.denominator;
-        });
-      }
-      const normalizedName = normalizeCardName(search.name);
-      if (search.localId && normalizedName) {
-        const scoreName = (card: CatalogCard) => {
-          const setId = card.id.slice(0, card.id.lastIndexOf('-'));
-          const candidates = [
-            normalizeCardName(card.name),
-            normalizeCardName(setMetadata.get(setId)?.name ?? ''),
-          ];
-          if (candidates.some((name) => name === normalizedName)) return 0;
-          if (candidates.some((name) => name.startsWith(normalizedName))) return 1;
-          if (candidates.some((name) => name.includes(normalizedName))) return 2;
-          return Number.POSITIVE_INFINITY;
-        };
-        const bestScore = Math.min(...results.map(scoreName));
-        results = Number.isFinite(bestScore)
-          ? results.filter((card) => scoreName(card) === bestScore)
-          : [];
-      }
-      results = results
-        .sort((a, b) => {
-          const nameScore = (card: CatalogCard) => {
-            if (!normalizedName) return 0;
-            const name = normalizeCardName(card.name);
-            return name === normalizedName
-              ? 0
-              : name.startsWith(normalizedName)
-                ? 1
-                : name.includes(normalizedName)
-                  ? 2
-                  : 3;
-          };
-          return nameScore(a) - nameScore(b) || a.id.localeCompare(b.id);
-        })
-        .slice(0, search.localId ? 30 : 15);
+      const result = await searchTcgdex({query:term,language:draft.language??'fr',page:append?(draft.providerPage??1)+1:1,pageSize:50});
       if (!current()) return;
-      if (!results.length) {
-        setError(
-          `Aucune correspondance exacte pour « ${term} ». Aucun résultat approximatif n’a été affiché.`,
-        );
-      }
-      const languagesByCard = new Map<string, CatalogLanguage[]>();
-      for (const card of results) {
-        const found = languagesByCard.get(card.id) ?? [];
-        if (!found.includes(card.language)) found.push(card.language);
-        languagesByCard.set(card.id, found);
-      }
-      const hydrated = results.map((card) => ({
-        ...card,
-        availableLanguages: languagesByCard.get(card.id) ?? [card.language],
-      }));
-      if (!current()) return;
-      setPurchaseItems((rows) =>
-        rows.map((row) =>
-          row.key === draft.key ? { ...row, cardResults: hydrated, searching: false } : row,
-        ),
-      );
+      if (result.message) setError(result.message);
+      const hydrated = result.cards.map(card=>({...card,language:card.language as CatalogLanguage,availableLanguages:[card.language] as CatalogLanguage[]}));
+      setPurchaseItems(rows=>rows.map(row=>row.key===draft.key?{...row,cardResults:append?[...(row.cardResults??[]),...hydrated]:hydrated,providerPage:result.page,providerHasMore:result.hasMore,searching:false}:row));
     } catch (e) {
       if (!current()) return;
       setPurchaseItems((rows) =>
@@ -1169,6 +1163,7 @@ function App() {
                 identifier: card.localId,
                 language: card.language,
                 catalogueCardId: card.id,
+                catalogueSetId:card.setId,
                 catalogueImageUrl: card.image,
                 availableLanguages: [card.language],
                 cardResults: [],
@@ -1197,7 +1192,7 @@ function App() {
             language,
             card: (await response.json()) as {
               image?: string;
-              set?: { name?: string };
+              set?: { name?: string;id?:string };
               localId?: string;
               name?: string;
             },
@@ -1227,6 +1222,7 @@ function App() {
               identifier: localId,
               language: card.language,
               catalogueCardId: card.id,
+                catalogueSetId:selected?.set?.id??card.setId,
               availableLanguages: availableLanguages.length ? availableLanguages : [card.language],
               catalogueImageUrl: image ? `${image}/low.webp` : undefined,
               cardResults: [],
@@ -1254,7 +1250,7 @@ function App() {
         name: string;
         localId: string;
         image?: string;
-        set?: { name?: string };
+        set?: { name?: string;id?:string };
       };
       if (!current()) return;
       setPurchaseItems((rows) =>
@@ -1292,8 +1288,12 @@ function App() {
     setClientAddress('');
   }
   async function createPurchase(downloadReceipt: boolean) {
+    if (purchaseRunning.current||photoRetryLock.current) return;
+    purchaseRunning.current = true;
     setLoading(true);
+    setError('');
     try {
+      if(!purchaseAttempt.current.current) {
       const client = clients.find((entry) => entry._id === selectedClient);
       if (!client) throw new Error('Sélectionnez un client existant.');
       const clientId = client._id;
@@ -1318,7 +1318,6 @@ function App() {
         if (asking !== undefined && (!Number.isFinite(asking) || asking < 0))
           throw new Error(`Prix de vente invalide pour « ${item.name} ».`);
         return {
-          operationId: crypto.randomUUID(),
           name: item.name.trim(),
           tcg: item.tcg ?? 'pokemon',
           series: item.series.trim() || undefined,
@@ -1332,6 +1331,8 @@ function App() {
           gradingCertificate: item.gradingCertificate?.trim() || undefined,
           gradingNotes: item.gradingNotes?.trim() || undefined,
           catalogueImageUrl: item.catalogueImageUrl || undefined,
+          catalogueCardId:item.catalogueCardId,
+          catalogueSetId:item.catalogueSetId,
           purchasePriceCents: Math.round(marketValue * discountPercent),
           askingPriceCents: Math.round((asking ?? marketValue) * 100),
           vatRegime: 'margin',
@@ -1339,29 +1340,27 @@ function App() {
       });
       const reference = purchaseReference.trim() || `R-${Date.now()}`;
       const occurredAt = dateAtCurrentLocalTime(purchaseDate);
-      const purchase = await request<{ purchaseId: string; itemIds: string[] }>('/purchases', {
-        method: 'POST',
-        body: JSON.stringify({
-          operationId: crypto.randomUUID(),
-          sellerId: clientId,
-          buyerNote, sellerNote,
-          occurredAt,
-          reference,
-          items,
-        }),
-      });
-      const photoFailures: string[] = [];
-      for (const [index, item] of validItems.entries()) {
-        if (!item.photo || !purchase.itemIds[index]) continue;
-        try {
-          await uploadItemAttachment(purchase.itemIds[index], item.photo);
-        } catch (error) {
-          photoFailures.push(`${item.name} (${error instanceof Error ? error.message : 'Échec de l’envoi'})`);
-        }
+      if (!Number.isFinite(occurredAt)) throw new Error('Saisissez une date de rachat valide.');
+      purchaseAttempt.current.prepare('/purchases', {
+        sellerId:clientId,buyerNote,sellerNote,occurredAt,reference,
+        items:items.map(item=>({...item,operationId:crypto.randomUUID()})),
+      }, {client,validItems:validItems.map(item=>({...item})),buyerNote,sellerNote,reference,occurredAt,downloadReceipt});
       }
+      setPurchaseSubmission(purchaseAttempt.current.state);
+      const submission=purchaseAttempt.current.current!;
+      const {reference,occurredAt,client,validItems}=submission.context;
+      const submittedBuyerNote=submission.context.buyerNote,submittedSellerNote=submission.context.sellerNote,submittedReceipt=submission.context.downloadReceipt;
+      const wasConfirmed=submission.state==='confirmed';
+      const purchase=await purchaseAttempt.current.execute(request);scope.assertActive();
+      setPurchaseSubmission('confirmed');
+      if(!wasConfirmed) purchasePhotos.current.add(validItems.flatMap((item,index)=>item.photo&&purchase.itemIds[index]?[{purchaseId:purchase.purchaseId,itemId:purchase.itemIds[index],name:item.name,file:item.photo}]:[]));
+      setPendingPurchasePhotos(purchasePhotos.current.rows.length);
+      const photoFailures=await purchasePhotos.current.retry(uploadItemAttachment);
+      scope.assertActive();
+      setPendingPurchasePhotos(purchasePhotos.current.rows.length);
       let receiptFailure = '';
-      if (downloadReceipt) await downloadPurchaseReceipt({
-        buyerNote, sellerNote,
+      if (submittedReceipt) await downloadPurchaseReceipt({
+        buyerNote:submittedBuyerNote, sellerNote:submittedSellerNote,
         reference,
         occurredAt,
         status: 'pending',
@@ -1389,6 +1388,10 @@ function App() {
       }).catch((error) => {
         receiptFailure = error instanceof Error ? error.message : 'Génération du PDF impossible.';
       });
+      scope.assertActive();
+      purchaseAttempt.current.release();
+      setPurchaseSubmission('idle');
+      setPurchaseStage('contact');
       setSelectedClient('');
       setPurchaseReference('');
       setBuyerNote('');
@@ -1407,22 +1410,31 @@ function App() {
           photo: null,
         },
       ]);
-      await load();
+      const refreshFailure=await load().then(()=>'',()=> ' Les données n’ont pas pu être actualisées ; le rachat reste enregistré.');
       if (receiptFailure)
         setError(
           `Rachat ${reference} enregistré. Le bordereau n’a pas pu être téléchargé : ${receiptFailure} Réessayez depuis l’historique.${photoFailures.length ? ` Photos non envoyées : ${photoFailures.join(', ')}.` : ''}`,
         );
       else if (photoFailures.length)
-        setError(`Rachat ${reference} enregistré.${downloadReceipt ? ' Le bordereau PDF a été téléchargé.' : ''} Photo non envoyée pour : ${photoFailures.join(', ')}.`);
+        setError(`Rachat ${reference} enregistré.${submittedReceipt ? ' Le bordereau PDF a été téléchargé.' : ''} Photo non envoyée pour : ${photoFailures.join(', ')}.`);
       else
         setError(
-          `Rachat ${reference} enregistré en attente de validation du client.${downloadReceipt ? ' Le bordereau PDF a été téléchargé.' : ' Le bordereau reste disponible dans l’historique.'}`,
+          `Rachat ${reference} enregistré en attente de validation du client.${submittedReceipt ? ' Le bordereau PDF a été téléchargé.' : ' Le bordereau reste disponible dans l’historique.'}${refreshFailure}`,
         );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Rachat impossible.');
+      setPurchaseSubmission(purchaseAttempt.current.state);
+      setError(`${e instanceof Error ? e.message : 'Rachat impossible.'}${purchaseAttempt.current.state==='unknown'?' Résultat incertain : reprenez la même demande avec le bouton de récupération.':''}`);
     } finally {
+      purchaseRunning.current = false;
       setLoading(false);
     }
+  }
+  async function retryPurchasePhotos() {
+    if(photoRetryLock.current)return;
+    photoRetryLock.current=true;setPhotoRetryBusy(true);
+    try {const failures=await purchasePhotos.current.retry(uploadItemAttachment);scope.assertActive();setPendingPurchasePhotos(purchasePhotos.current.rows.length);setError(failures.length?`Photos encore en attente : ${failures.join(', ')}`:'Toutes les photos en attente sont enregistrées.');}
+    catch(error){if(error instanceof Error&&error.message!=='ACCOUNT_SCOPE_CHANGED')setError(error.message);}
+    finally {photoRetryLock.current=false;setPhotoRetryBusy(false);}
   }
   async function savePurchaseDate(purchase: Purchase) {
     const value = purchaseDates[purchase._id] ?? localDateInputValue(new Date(purchase.occurredAt));
@@ -1467,25 +1479,34 @@ function App() {
     }
   }
   async function cancelPendingPurchase(purchase: Purchase) {
-    if (!window.confirm(`Annuler le rachat ${purchase.reference} en attente ?`)) return;
     setLoading(true);
     try {
       await request(`/purchases/${encodeURIComponent(purchase._id)}/cancel`, { method: 'POST' });
       await load();
       setError(`Rachat ${purchase.reference} annulé.`);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Annulation du rachat impossible.');
+      return false;
     } finally {
       setLoading(false);
     }
   }
+  async function uploadEvidence(target:{supplierReceiptId?:string;giftId?:string},file:File,operationId:string) {
+    scope.assertActive();
+    const form=new FormData();for(const [key,value] of Object.entries(target))if(value)form.append(key,value);form.append('file',file);form.append('operationId',operationId);
+    const headers=scope.headers(sessionActivityHeaders());if(csrfToken)headers.set('X-CSRF-Token',csrfToken);
+    const response=await fetch(`${API}/attachments`,{method:'POST',headers,credentials:'include',body:form});scope.assertActive();if(response.status===401){onAccountMismatch();throw new Error('ACCOUNT_SCOPE_CHANGED');}if(response.status===403){const problem=await response.clone().json().catch(()=>null);scope.assertActive();if(problem?.error==='ACCOUNT_MISMATCH'){onAccountMismatch();throw new Error('ACCOUNT_SCOPE_CHANGED');}}csrfToken=response.headers.get('X-CSRF-Token')??csrfToken;
+    if(!response.ok)throw new Error('Le justificatif n’a pas pu être envoyé. Le mouvement reste enregistré.');
+  }
   async function uploadItemAttachment(itemId: string, file: File, operationId?: string) {
+    scope.assertActive();
     file = await optimizeUploadImage(file, API);
     const form = new FormData();
     form.append('itemId', itemId);
     if (operationId) form.append('operationId', operationId);
     form.append('file', file);
-    const headers = new Headers(sessionActivityHeaders());
+    const headers = scope.headers(sessionActivityHeaders());
     if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
     const response = await fetch(`${API}/attachments`, {
       method: 'POST',
@@ -1493,6 +1514,9 @@ function App() {
       credentials: 'include',
       body: form,
     });
+    scope.assertActive();
+    if(response.status===401){onAccountMismatch();throw new Error('ACCOUNT_SCOPE_CHANGED');}
+    if(response.status===403){const problem=await response.clone().json().catch(()=>null);scope.assertActive();if(problem?.error==='ACCOUNT_MISMATCH'){onAccountMismatch();throw new Error('ACCOUNT_SCOPE_CHANGED');}}
     csrfToken = response.headers.get('X-CSRF-Token') ?? csrfToken;
     if (!response.ok) {
       const payload = await response.json().catch(() => null) as { error?: string } | null;
@@ -1512,6 +1536,7 @@ function App() {
       loadReceiptLogo(),
       request<SignatoryProfile>('/auth/profile'),
     ]);
+    scope.assertActive();
     const url = URL.createObjectURL(createPurchaseReceiptPdf({ ...receipt, signatory }, logo));
     const link = document.createElement('a');
     link.href = url;
@@ -1537,7 +1562,9 @@ function App() {
       occurredAt,
       status: purchase.status as 'pending' | 'active' | 'cancelled',
       client,
-      items: purchase.items.map((item) => ({
+      items: purchase.items.map((item) => {
+        if(item.purchasePriceCents==null||!Number.isSafeInteger(item.purchasePriceCents)||item.purchasePriceCents<0)throw new Error(`Coût d’acquisition inconnu pour « ${item.name} » : impossible de générer un nouveau bordereau. Les documents archivés restent disponibles.`);
+        return ({
         name: item.name,
         series: item.series ?? '',
         identifier: item.identifier ?? '',
@@ -1554,7 +1581,7 @@ function App() {
             : item.purchasePriceCents),
         discountPercent: item.discountPercent ?? 70,
         purchasePriceCents: item.purchasePriceCents,
-      })),
+      });}),
     });
     return true;
   }
@@ -1569,7 +1596,9 @@ function App() {
     }
   }
   async function sellItem(itemId: string) {
-    const amount = Number(salePrices[itemId]?.replace(',', '.'));
+    const item = stockRead.items.find(item => item._id === itemId);
+    const raw = askingPriceDrafts[itemId] ?? (item?.askingPriceCents === undefined ? '' : String(item.askingPriceCents / 100));
+    const amount = raw.trim() ? Number(raw.replace(',', '.')) : NaN;
     if (!Number.isFinite(amount) || amount < 0) {
       setError('Saisissez un prix de vente valide.');
       return;
@@ -1594,6 +1623,10 @@ function App() {
     }
   }
   async function sellSelectedItems() {
+    if(saleRunning.current)return;
+    saleRunning.current=true;setLoading(true);setError('');
+    try {
+      if(!saleAttempt.current.current) {
     if (!selectedItemIds.length) return setError('Sélectionnez au moins un article.');
     const saleItems = selectedItemIds.map((itemId) => {
       const item = items.find((entry) => entry._id === itemId);
@@ -1602,45 +1635,55 @@ function App() {
         (item?.askingPriceCents === undefined ? '' : (item.askingPriceCents / 100).toString());
       const amount = Number(text.replace(',', '.'));
       if (!item || !text.trim() || !Number.isFinite(amount) || amount < 0) return null;
-      return { itemId, salePriceCents: Math.round(amount * 100) };
+      return { itemId, quantity:saleQuantities[itemId]??1, salePriceCents: Math.round(amount * 100) };
     });
     if (saleItems.some(sale => { const item = items.find(item => item._id === sale?.itemId); return item?.origin === 'consignment' && sale && sale.salePriceCents < (item.agreedPriceCents ?? item.askingPriceCents ?? 0); })) return setError('Un prix est inférieur à l’accord du déposant. Enregistrez son autorisation dans Dépôts-ventes avant la vente.');
     if (saleItems.some((item) => item === null))
       return setError('Saisissez un prix de vente valide pour chaque article du panier.');
-    setLoading(true);
-    try {
-      const total = saleItems.reduce((sum, item) => sum + (item?.salePriceCents ?? 0), 0);
-      const payload = { items: saleItems, ...paymentPayload(salePaymentDraft, total) };
-      const signature = JSON.stringify(payload);
-      if (saleAttempt.current?.signature !== signature) saleAttempt.current = { signature, body: JSON.stringify({ operationId: crypto.randomUUID(), occurredAt: Date.now(), ...payload }) };
-      await request('/sales/bulk', { method: 'POST', body: saleAttempt.current.body });
-      saleAttempt.current = null;
-      setSalePaymentDraft(newPaymentDraft());
+
+        const total=saleItems.reduce((sum,item)=>sum+(item?.salePriceCents??0),0);
+        saleAttempt.current.prepare('/sales/bulk',{occurredAt:Date.now(),items:saleItems,...paymentPayload(salePaymentDraft,total)},undefined);
+      }
+      setSaleSubmission(saleAttempt.current.state);
+      const result=await saleAttempt.current.execute(request);scope.assertActive();
+      setSaleSubmission('confirmed');setLastSaleIds(result.ids);
+      setSalePaymentDraft(newPaymentDraft());setSaleConfirmOpen(false);setSelectedItemIds([]);setSaleQuantities({});
+      saleAttempt.current.release();setSaleSubmission('idle');
+      try {await load();} catch {setError('Vente enregistrée. L’actualisation a échoué ; rechargez les données sans recréer la vente.');}
+    } catch(e) {
+      setSaleSubmission(saleAttempt.current.state);
       setSaleConfirmOpen(false);
-      setSelectedItemIds([]);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Vente groupée impossible.');
-    } finally {
-      setLoading(false);
-    }
+      setError(`${e instanceof Error?e.message:'Vente groupée impossible.'}${saleAttempt.current.state==='unknown'?' Résultat incertain : reprenez la même demande, sans modifier le panier.':''}`);
+    } finally {saleRunning.current=false;setLoading(false);}
+  }
+  async function resumeSaleHistory() {
+    if (saleHistoryRunning.current || !saleHistoryAttempt.current.current) return false;
+    saleHistoryRunning.current=true;setLoading(true);setError('');
+    try {
+      await saleHistoryAttempt.current.execute(request);scope.assertActive();
+      // A failed refresh is a read failure; never resend a confirmed correction.
+      setPaymentSale(null);setEditPaymentDraft(newPaymentDraft());
+      saleHistoryAttempt.current.release();setSaleHistorySubmission('idle');
+      try {await load();} catch {setError('Opération enregistrée. Actualisez l’historique sans répéter la correction ou l’annulation.');}
+      return true;
+    } catch(e) {
+      setSaleHistorySubmission(saleHistoryAttempt.current.state);
+      setError(`${e instanceof Error?e.message:'Enregistrement impossible.'}${saleHistoryAttempt.current.state==='unknown'?' Résultat incertain : reprenez la demande conservée avant une nouvelle correction ou annulation.':''}`);
+      return false;
+    } finally {saleHistoryRunning.current=false;setLoading(false);}
   }
   async function saveSalePayment() {
-    if (!paymentSale) return;
-    setLoading(true);
-    setError('');
+    if (saleHistoryRunning.current) return;
     try {
-      const { payment } = paymentPayload(editPaymentDraft, paymentSale.salePriceCents);
-      if (!payment) throw new Error('Choisissez un mode de paiement reçu.');
-      const payload = { saleId: paymentSale._id, ...payment };
-      const signature = JSON.stringify(payload);
-      if (paymentAttempt.current?.signature !== signature) paymentAttempt.current = { signature, body: JSON.stringify({ operationId: crypto.randomUUID(), ...payload }) };
-      await request('/sales/payment', { method: 'POST', body: paymentAttempt.current.body });
-      paymentAttempt.current = null;
-      setPaymentSale(null);
-      await load();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Encaissement impossible.'); }
-    finally { setLoading(false); }
+      if(!saleHistoryAttempt.current.current) {
+        if(!paymentSale)return;
+        const {payment}=paymentPayload(editPaymentDraft,paymentSale.salePriceCents);
+        if(!payment)throw new Error('Choisissez un mode de paiement reçu.');
+        saleHistoryAttempt.current.prepare('/sales/payment',{saleId:paymentSale._id,...payment},{name:paymentSale.itemName});
+      }
+      setSaleHistorySubmission(saleHistoryAttempt.current.state);
+      await resumeSaleHistory();
+    } catch(e) {setError(e instanceof Error?e.message:'Encaissement impossible.');}
   }
   async function setCatalogueVisibility(itemIds: string[], hidden: boolean) {
     if (visibilityRunning.current || !itemIds.length) return;
@@ -1672,7 +1715,9 @@ function App() {
     }
   }
   async function saveAskingPrice(itemId: string) {
-    const amount = Number(salePrices[itemId]?.replace(',', '.'));
+    const item = stockRead.items.find(item => item._id === itemId);
+    const raw = askingPriceDrafts[itemId] ?? (item?.askingPriceCents === undefined ? '' : String(item.askingPriceCents / 100));
+    const amount = raw.trim() ? Number(raw.replace(',', '.')) : NaN;
     if (!Number.isFinite(amount) || amount < 0)
       return setError('Saisissez un prix de vente valide.');
     setLoading(true);
@@ -1689,18 +1734,17 @@ function App() {
     }
   }
   async function cancelSale(saleId: string) {
-    setLoading(true);
-    try {
-      await request('/sales/cancel', {
-        method: 'POST',
-        body: JSON.stringify({ operationId: crypto.randomUUID(), saleId }),
-      });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Annulation impossible.');
-    } finally {
-      setLoading(false);
+    if (saleHistoryRunning.current) return false;
+    if(saleHistoryAttempt.current.current) {
+      const pending=saleHistoryAttempt.current.current;
+      if(pending.path==='/sales/cancel'&&JSON.parse(pending.body).saleId===saleId)return resumeSaleHistory();
+      setError('Reprenez la correction ou l’annulation conservée avant une nouvelle opération.');
+      return false;
     }
+    const sale=salesHistoryRead.items.find(value=>value._id===saleId);
+    saleHistoryAttempt.current.prepare('/sales/cancel',{saleId},{name:sale?.itemName??saleId});
+    setSaleHistorySubmission(saleHistoryAttempt.current.state);
+    return resumeSaleHistory();
   }
   async function resolveConflict(conflictId: string) {
     const resolutionNote = resolutionNotes[conflictId]?.trim();
@@ -1743,6 +1787,7 @@ function App() {
     } finally {
       csrfToken = undefined;
       realtime.reset();
+      onIdentity(null);
       setLogged(false);
       setItems([]);
       setPurchases([]);
@@ -1750,27 +1795,31 @@ function App() {
     }
   }
   useEffect(() => {
-    let cancelled = false;
-    void request<{ authenticated: boolean; signupEnabled: boolean }>('/auth/status')
-      .then(async (status) => {
-        if (cancelled) return;
-        setSignupEnabled(status.signupEnabled);
-        if (status.authenticated) await load();
-      })
-      .catch(() => {
-        if (!cancelled) {
-          realtime.reset();
-      setLogged(false);
-          setSignupEnabled(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+    // Identity was already verified by the outer boundary. A temporary failure
+    // must retain that workspace and offer retry, never turn it into a logout.
+    void load();
   }, [load]);
   async function exportXlsx() {
-    const [purchases, consignments, balances, exportSales, exportStock, clients] = await Promise.all([request<Purchase[]>('/purchases'), request<Consignment[]>('/consignments'), request<ConsignmentBalances>('/consignments/balances'), request<Sale[]>('/sales'), request<Item[]>('/stock'), request<Client[]>('/sellers')]);
-    const { default: ExcelJS } = await import('exceljs');
+    if(exportLock.current)return;
+    exportLock.current=true;setExporting(true);setError('');
+    try {
+    const readingStartedAt = new Date();
+    type ExportSale = Sale & {sellerId?:string;balanceEligible:boolean;exportRowId:string};
+    type ExportLot = {itemId:string;remainingQuantity:number;remainingCostCents:number|null};
+    const [purchases, consignments, exportSales, exportStock, clients, payments, stockLots] = await Promise.all([
+      readExportPages<Purchase>(request,'purchases'), readExportPages<Consignment>(request,'consignments'),
+      readExportPages<ExportSale>(request,'sales'), readExportPages<Item>(request,'stock'),
+      readExportPages<Client & {hasDeposits:boolean}>(request,'contacts'),
+      readExportPages<ConsignmentBalances['payments'][number]>(request,'payments'),
+      readExportPages<ExportLot>(request,'stockLots'),
+    ]);
+    const readingFinishedAt = new Date();
+    const balances = {payments, balances:exportBalances(clients,exportSales,payments)};
+    const lotsByItem = new Map<string,ExportLot[]>();
+    for(const lot of stockLots){const rows=lotsByItem.get(lot.itemId)??[];rows.push(lot);lotsByItem.set(lot.itemId,rows);}
+    const valuedStock=exportStock.filter(item=>item.status!=='pending'&&item.status!=='cancelled'&&item.origin!=='consignment');
+    const valuations=new Map(valuedStock.map(item=>[item._id,stockValuation(item,lotsByItem.get(item._id)??[])]));
+    const { default: ExcelJS } = await import('exceljs');scope.assertActive();
     const wb = new ExcelJS.Workbook();
     wb.creator = brand.name;
     wb.created = new Date();
@@ -1789,11 +1838,11 @@ function App() {
       'Note de gradation',
       'N° de certification',
       'Notes de gradation',
-      'Valeur actuelle (€)',
+      "Valeur actuelle (€)".replaceAll('€',currencySymbol),
       'Décote (%)',
       'N° série',
-      'Prix achat (€)',
-      'Prix vente demandé (€)',
+      "Prix achat (€)".replaceAll('€',currencySymbol),
+      "Prix vente demandé (€)".replaceAll('€',currencySymbol),
       'Régime TVA',
       'Statut',
     ]);
@@ -1804,7 +1853,7 @@ function App() {
         purchasesSheet.addRow([
           purchase.reference,
           item._id,
-          new Date(purchase.occurredAt),
+          exportDate(purchase.occurredAt,shopTimezone),
           purchase.sellerName,
           item.name,
           item.series ?? '',
@@ -1815,11 +1864,11 @@ function App() {
           item.gradingGrade ?? '',
           item.gradingCertificate ?? '',
           item.gradingNotes ?? '',
-          item.marketValueCents === undefined ? '' : item.marketValueCents / 100,
+          moneyCell(item.marketValueCents),
           item.discountPercent ?? '',
           item.serialNumber ?? '',
-          item.purchasePriceCents / 100,
-          item.askingPriceCents === undefined ? '' : item.askingPriceCents / 100,
+          moneyCell(item.purchasePriceCents),
+          moneyCell(item.askingPriceCents),
           item.vatRegime,
           purchase.status,
         ]);
@@ -1838,18 +1887,19 @@ function App() {
       'N° de certification',
       'Notes de gradation',
       'Date vente',
-      'Prix vente (€)',
+      'Quantité vendue',
+      "Total vente (€)".replaceAll('€',currencySymbol),
       'Référence achat origine',
       'Date achat origine',
       'Vendeur origine',
-      'Valeur actuelle (€)',
+      "Valeur actuelle (€)".replaceAll('€',currencySymbol),
       'Décote (%)',
-      'Prix achat (€)',
-      'Écart vente moins achat (€)',
+      "Coût total attribué (€)".replaceAll('€',currencySymbol),
+      "Écart vente moins achat (€)".replaceAll('€',currencySymbol),
       'Régime TVA',
       'Client final',
       'Statut',
-      'Encaissement', 'Espèces reçues (€)', 'Virement reçu (€)', 'Date réception', 'Référence paiement',
+      'Encaissement', "Espèces reçues (€)".replaceAll('€',currencySymbol), "Virement reçu (€)".replaceAll('€',currencySymbol), 'Date réception', 'Référence paiement',
     ]);
     for (const sale of exportSales) {
       if (sale.status !== 'active' || sale.origin === 'consignment') continue;
@@ -1864,19 +1914,20 @@ function App() {
         sale.gradingGrade ?? '',
         sale.gradingCertificate ?? '',
         sale.gradingNotes ?? '',
-        new Date(sale.occurredAt),
+        exportDate(sale.occurredAt,shopTimezone),
+        sale.quantity??'',
         sale.salePriceCents / 100,
         sale.purchaseReference,
-        new Date(sale.purchaseOccurredAt),
+        exportDate(sale.purchaseOccurredAt,shopTimezone),
         sale.sellerName,
-        sale.marketValueCents === undefined ? '' : sale.marketValueCents / 100,
+        moneyCell(sale.marketValueCents),
         sale.discountPercent ?? '',
-        sale.purchasePriceCents / 100,
-        (sale.salePriceCents - sale.purchasePriceCents) / 100,
+        moneyCell(allocatedSaleCost(sale)),
+        moneyCell(moneyDifference(sale.salePriceCents,allocatedSaleCost(sale))),
         sale.vatRegime,
         sale.customerName ?? '',
         sale.status,
-        paymentStatusLabel(sale), sale.payment ? sale.payment.cashCents / 100 : '', sale.payment ? sale.payment.transferCents / 100 : '', sale.payment ? new Date(sale.payment.receivedAt) : '', sale.payment?.reference ?? '',
+        paymentStatusLabel(sale), sale.payment ? sale.payment.cashCents / 100 : '', sale.payment ? sale.payment.transferCents / 100 : '', sale.payment ? exportDate(sale.payment.receivedAt,shopTimezone) : '', sale.payment?.reference ?? '',
       ]);
     }
     const stock = wb.addWorksheet('Stock');
@@ -1895,16 +1946,21 @@ function App() {
       'Référence rachat',
       'Date rachat',
       'Vendeur origine',
-      'Valeur actuelle (€)',
+      "Valeur actuelle (€)".replaceAll('€',currencySymbol),
       'Décote (%)',
-      'Prix achat (€)',
-      'Prix vente demandé (€)',
+      'Quantité actuellement en stock',
+      "Coût total restant des lots (€)".replaceAll('€',currencySymbol),
+      'État du coût restant',
+      "Coût historique de la ligne d’achat (€)".replaceAll('€',currencySymbol),
+      "Prix demandé unitaire (€)".replaceAll('€',currencySymbol),
+      "Valeur totale au prix demandé (€)".replaceAll('€',currencySymbol),
       'Régime TVA',
       'Statut',
       'Visibilité catalogue',
     ]);
     for (const item of exportStock) {
       if (item.status === 'pending' || item.status === 'cancelled' || item.origin === 'consignment') continue;
+      const valuation=valuations.get(item._id)!;
       stock.addRow([
         item._id,
         item.name,
@@ -1918,29 +1974,33 @@ function App() {
         item.gradingNotes ?? '',
         item.serialNumber ?? '',
         item.purchaseReference,
-        new Date(item.purchaseOccurredAt),
+        exportDate(item.purchaseOccurredAt,shopTimezone),
         item.sellerName,
-        item.marketValueCents === undefined ? '' : item.marketValueCents / 100,
+        moneyCell(item.marketValueCents),
         item.discountPercent ?? '',
-        item.purchasePriceCents / 100,
-        item.askingPriceCents === undefined ? '' : item.askingPriceCents / 100,
+        valuation.quantity??'',
+        moneyCell(valuation.remainingCostCents),
+        valuation.remainingCostCents===null?'Inconnu ou incomplet':'Connu',
+        moneyCell(item.purchasePriceCents),
+        moneyCell(valuation.unitAskingPriceCents),
+        moneyCell(valuation.totalAskingPriceCents),
         item.vatRegime,
         item.status,
         item.hiddenFromCatalogue ? 'Masqué' : 'Visible',
       ]);
     }
     const depositSheet = wb.addWorksheet('Dépôts');
-    depositSheet.addRow(['Référence', 'Date dépôt', 'Échéance', 'Déposant', 'Identifiant article', 'Article', 'Type', 'Description', 'Prix convenu (€)', 'Commission (%)', 'Au déposant au prix convenu (€)', 'Statut', 'Conditions']);
-    for (const deposit of consignments) for (const item of deposit.items) depositSheet.addRow([deposit.reference, new Date(deposit.occurredAt), deposit.dueAt ? new Date(deposit.dueAt) : '', deposit.sellerName, item._id, item.name, item.productType, item.description ?? '', (item.agreedPriceCents ?? item.askingPriceCents) / 100, item.commissionRateBps / 100, ((item.agreedPriceCents ?? item.askingPriceCents) - Math.round((item.agreedPriceCents ?? item.askingPriceCents) * item.commissionRateBps / 10000)) / 100, item.status, deposit.notes ?? '']);
+    depositSheet.addRow(['Référence', 'Date dépôt', 'Échéance', 'Déposant', 'Identifiant article', 'Article', 'Type', 'Description', "Prix convenu (€)".replaceAll('€',currencySymbol), 'Commission (%)', "Au déposant au prix convenu (€)".replaceAll('€',currencySymbol), 'Statut', 'Conditions']);
+    for (const deposit of consignments) for (const item of deposit.items) depositSheet.addRow([deposit.reference, exportDate(deposit.occurredAt,shopTimezone), deposit.dueAt ? exportDate(deposit.dueAt,shopTimezone) : '', deposit.sellerName, item._id, item.name, item.productType, item.description ?? '', (item.agreedPriceCents ?? item.askingPriceCents) / 100, item.commissionRateBps / 100, ((item.agreedPriceCents ?? item.askingPriceCents) - Math.round((item.agreedPriceCents ?? item.askingPriceCents) * item.commissionRateBps / 10000)) / 100, item.status, deposit.notes ?? '']);
     const commissionSheet = wb.addWorksheet('Commissions');
-    commissionSheet.addRow(['Vente', 'Article', 'Déposant', 'Date', 'Encaissement (€)', 'Commission (%)', 'Commission (€)', 'Part déposant (€)', 'Statut', 'Encaissement', 'Espèces reçues (€)', 'Virement reçu (€)', 'Date réception', 'Référence paiement']);
-    for (const sale of exportSales.filter(sale => sale.origin === 'consignment')) commissionSheet.addRow([sale._id, sale.itemName, sale.sellerName, new Date(sale.occurredAt), sale.salePriceCents / 100, (sale.commissionRateBps ?? 0) / 100, (sale.commissionCents ?? 0) / 100, (sale.depositorAmountCents ?? 0) / 100, sale.status, paymentStatusLabel(sale), sale.payment ? sale.payment.cashCents / 100 : '', sale.payment ? sale.payment.transferCents / 100 : '', sale.payment ? new Date(sale.payment.receivedAt) : '', sale.payment?.reference ?? '']);
+    commissionSheet.addRow(['Vente', 'Article', 'Déposant', 'Date', "Encaissement (€)".replaceAll('€',currencySymbol), 'Commission (%)', "Commission (€)".replaceAll('€',currencySymbol), "Part déposant (€)".replaceAll('€',currencySymbol), 'Statut', 'Encaissement', "Espèces reçues (€)".replaceAll('€',currencySymbol), "Virement reçu (€)".replaceAll('€',currencySymbol), 'Date réception', 'Référence paiement']);
+    for (const sale of exportSales.filter(sale => sale.origin === 'consignment')) commissionSheet.addRow([sale._id, sale.itemName, sale.sellerName, exportDate(sale.occurredAt,shopTimezone), sale.salePriceCents / 100, sale.commissionRateBps==null?'':sale.commissionRateBps/100, moneyCell(sale.commissionCents), moneyCell(sale.depositorAmountCents), sale.status, paymentStatusLabel(sale), sale.payment ? sale.payment.cashCents / 100 : '', sale.payment ? sale.payment.transferCents / 100 : '', sale.payment ? exportDate(sale.payment.receivedAt,shopTimezone) : '', sale.payment?.reference ?? '']);
     const paymentsSheet = wb.addWorksheet('Reversements');
-    paymentsSheet.addRow(['Identifiant', 'Déposant', 'Date', 'Montant (€)', 'Mode', 'Référence']);
-    for (const payment of balances.payments) paymentsSheet.addRow([payment._id, payment.sellerName, new Date(payment.occurredAt), payment.amountCents / 100, payment.method, payment.reference ?? '']);
+    paymentsSheet.addRow(['Identifiant', 'Déposant', 'Date', "Montant (€)".replaceAll('€',currencySymbol), 'Mode', 'Référence']);
+    for (const payment of balances.payments) paymentsSheet.addRow([payment._id, payment.sellerName, exportDate(payment.occurredAt,shopTimezone), payment.amountCents / 100, payment.method, payment.reference ?? '']);
     const balancesSheet = wb.addWorksheet('Soldes déposants');
-    balancesSheet.addRow(['Déposant', 'Part des ventes actives (€)', 'Versé (€)', 'Solde dû / régularisation négative (€)']);
-    for (const balance of balances.balances) balancesSheet.addRow([balance.sellerName, balance.earnedCents / 100, balance.paidCents / 100, balance.balanceCents / 100]);
+    balancesSheet.addRow(['Déposant', "Part des ventes actives (€)".replaceAll('€',currencySymbol), "Versé (€)".replaceAll('€',currencySymbol), "Solde dû / régularisation négative (€)".replaceAll('€',currencySymbol)]);
+    for (const balance of balances.balances) balancesSheet.addRow([balance.sellerName, moneyCell(balance.earnedCents), moneyCell(balance.paidCents), moneyCell(balance.balanceCents)]);
     const clientsSheet = wb.addWorksheet('Clients');
     clientsSheet.addRow(['Identifiant client', 'Nom', 'E-mail', 'Téléphone', 'Adresse']);
     for (const client of clients)
@@ -1952,8 +2012,13 @@ function App() {
         client.address ?? '',
       ]);
     const meta = wb.addWorksheet('Export');
-    meta.addRow(['Généré le', new Date()]);
-    meta.addRow(['Périmètre', 'Données centrales au moment de la génération']);
+    meta.addRow(['Généré le (UTC)', new Date().toISOString()]);
+    meta.addRow(['Début de lecture (UTC)', readingStartedAt.toISOString()]);
+    meta.addRow(['Fin de lecture (UTC)', readingFinishedAt.toISOString()]);
+    meta.addRow(['Périmètre', 'Toutes les pages des données centrales pendant cet intervalle. Des modifications simultanées peuvent être visibles entre les pages ; cet export ne constitue pas un instantané atomique.']);
+    meta.addRow(['Dates métier', `Dates civiles au format AAAA-MM-JJ dans le fuseau ${shopTimezone}.`]);
+    meta.addRow(['Coûts inconnus', 'Cellules vides : coût non renseigné ; aucune marge calculée sans coût connu. Un coût nul connu reste 0.']);
+    meta.addRow(['Stock', 'Quantité et coût total restant : lots actuellement détenus. Coût historique de ligne : acquisition d’origine, non unitaire. Prix demandé : unitaire ; valeur demandée : quantité × prix unitaire, sans valeur de vente garantie.']);
     for (const sheet of [purchasesSheet, salesSheet, stock, depositSheet, commissionSheet, paymentsSheet, balancesSheet, clientsSheet, meta]) {
       const lastColumn = sheet.columnCount;
       sheet.autoFilter = {
@@ -1971,13 +2036,16 @@ function App() {
         column.width = Math.min(width, 34);
       });
     }
-    const blob = await wb.xlsx.writeBuffer();
+    const blob = await wb.xlsx.writeBuffer();scope.assertActive();
     const url = URL.createObjectURL(new Blob([blob]));
     const a = document.createElement('a');
     a.href = url;
     a.download = 'suivi-tva-marge.xlsx';
     a.click();
     URL.revokeObjectURL(url);
+    } catch(reason) {
+      setError(`Export impossible. Aucun classeur partiel n’a été téléchargé. ${reason instanceof Error?reason.message:'Une lecture des données a échoué.'} Vous pouvez réessayer.`);
+    } finally {exportLock.current=false;setExporting(false);}
   }
   const filteredItems = stockRead.items;
   const selectedSaleTotalCents = selectedItemIds.reduce((total, itemId) => {
@@ -1999,121 +2067,28 @@ function App() {
   if (logged && signingRoute) return <ReceiptSigningPage {...signingRoute} request={request} />;
   return (
     <main className={logged ? "admin-shell" : "auth-shell"}>
-      {!logged && <header className="workspace-header"><BrandIdentity /></header>}
-      {logged && (
-        <>
-          <aside className="workspace-sidebar">
-            <a className="workspace-home" href={adminPagePaths.dashboard} onClick={(event) => { event.preventDefault(); navigateAdminPage('dashboard'); }} aria-label="Vue d’ensemble"><BrandIdentity /></a>
-            <span className="navigation-caption">Espace de gestion</span>
-            <nav className="admin-nav" aria-label="Navigation administrateur">
-              {([
-                ['dashboard', 'Vue d’ensemble', FiGrid],
-                ['stock', 'Stock', FiPackage],
-                ['sales', 'Ventes', FiShoppingCart],
-                ['purchaseHistory', 'Rachats', FiShoppingBag],
-                ['consignments', 'Dépôts-ventes', FiArchive],
-                ['clients', 'Clients', FiUsers],
-                ['exports', 'Exports', FiDownload],
-                ['settings', 'Paramètres', FiSettings],
-              ] as const).map(([page, label, Icon]) => {
-                const active = adminPage === page || (page === 'sales' && ['saleSummary', 'salesHistory', 'saleConflicts'].includes(adminPage)) || (page === 'purchaseHistory' && adminPage === 'purchases') || (page === 'consignments' && ['consignmentNew', 'consignmentPayouts'].includes(adminPage));
-                const children: [AdminPage, string][] = page === 'sales' ? [['sales', 'Nouvelle vente'], ['salesHistory', 'Historique'], ['saleConflicts', 'Conflits']] : page === 'purchaseHistory' ? [['purchaseHistory', 'Historique'], ['purchases', 'Nouveau rachat']] : page === 'consignments' ? [['consignments', 'Dossiers'], ['consignmentNew', 'Nouveau dépôt'], ['consignmentPayouts', 'Reversements']] : [];
-                return <div key={page} className={`navigation-group ${page === 'exports' ? 'navigation-utilities' : ''}`}><a href={adminPagePaths[page]} aria-current={active ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigateAdminPage(page); }}>
-                  <Icon className="navigation-icon" aria-hidden="true" focusable="false" />
-                  <span>{label}</span>
-                </a>{active && children.length > 0 && <div className="navigation-submenu">{children.map(([destination, title]) => <a key={destination} href={adminPagePaths[destination]} aria-current={adminPage === destination ? 'page' : undefined} onClick={event => { event.preventDefault(); navigateAdminPage(destination); }}>{title}</a>)}</div>}</div>;
-              })}
-            </nav>
-            <p className="sidebar-note">Stock, ventes et suivi clients<br />dans un même espace.</p>
-          </aside>
-          <div className="workspace-page-heading">
-            <div><p className="eyebrow">Gestion / {{ dashboard: 'Vue d’ensemble', stock: 'Inventaire', sales: 'Ventes', saleSummary: 'Ventes', salesHistory: 'Ventes', saleConflicts: 'Ventes', purchases: 'Rachats', purchaseHistory: 'Rachats', consignments: 'Dépôts-ventes', consignmentNew: 'Nouveau dépôt', consignmentPayouts: 'Reversements', clients: 'Clients', exports: 'Outils', settings: 'Compte' }[adminPage]}</p>
-              <h1>{{ dashboard: 'Votre activité en un regard', stock: 'Stock disponible', sales: 'Nouvelle vente', saleSummary: 'Panier et confirmation', salesHistory: 'Historique des ventes', saleConflicts: 'Conflits à résoudre', purchases: 'Nouveau rachat', purchaseHistory: 'Historique des rachats', consignments: 'Dépôts-ventes', consignmentNew: 'Nouveau dépôt', consignmentPayouts: 'Reversements', clients: 'Répertoire clients', exports: 'Exports', settings: 'Paramètres' }[adminPage]}</h1>
-              <p>{{ dashboard: 'Suivez les encaissements et les opérations de votre boutique.', stock: 'Retrouvez vos articles et gérez leur visibilité au catalogue.', sales: 'Recherchez les articles à ajouter au panier.', saleSummary: 'Vérifiez les articles et renseignez le règlement.', salesHistory: 'Consultez les ventes et suivez leurs encaissements.', saleConflicts: 'Examinez les ventes concurrentes et consignez leur résolution.', purchases: 'Sélectionnez un client, puis ajoutez les articles du rachat.', purchaseHistory: 'Consultez les dossiers et poursuivez les opérations en attente.', consignments: 'Retrouvez les dossiers et les articles confiés.', consignmentNew: 'Identifiez le déposant et les articles confiés à la boutique.', consignmentPayouts: 'Consultez les soldes et enregistrez les paiements aux déposants.', clients: 'Retrouvez les coordonnées de vos vendeurs et déposants.', exports: 'Téléchargez vos données de gestion.', settings: 'Gérez votre signataire et les préférences de votre espace.' }[adminPage]}</p>
-            </div>
-            {adminPage === 'purchaseHistory' && <button onClick={() => navigateAdminPage('purchases')}>+ Nouveau rachat</button>}
-            {adminPage === 'stock' && <div className="actions"><a href="/convention" target="_blank" rel="noreferrer">Catalogue convention <FiExternalLink aria-hidden="true" focusable="false" /></a><button onClick={() => navigateAdminPage('sales')}>+ Nouvelle vente</button></div>}
-            {adminPage === 'consignments' && <button onClick={() => navigateAdminPage('consignmentNew')}>+ Nouveau dépôt</button>}
-            {adminPage === 'dashboard' && <button onClick={() => navigateAdminPage('sales')}>+ Nouvelle vente</button>}
-          </div>
-          {(() => {
-            const links: [AdminPage, string][] = ['sales', 'saleSummary', 'salesHistory', 'saleConflicts'].includes(adminPage) ? [['sales', 'Nouvelle vente'], ['salesHistory', 'Historique'], ['saleConflicts', 'Conflits']] : ['purchases', 'purchaseHistory'].includes(adminPage) ? [['purchaseHistory', 'Historique'], ['purchases', 'Nouveau rachat']] : ['consignments', 'consignmentNew', 'consignmentPayouts'].includes(adminPage) ? [['consignments', 'Dossiers'], ['consignmentNew', 'Nouveau dépôt'], ['consignmentPayouts', 'Reversements']] : [];
-            return links.length ? <nav className="sales-section-nav" aria-label="Navigation de la section">{links.map(([page, label]) => <a key={page} href={adminPagePaths[page]} aria-current={adminPage === page ? 'page' : undefined} onClick={event => { event.preventDefault(); navigateAdminPage(page); }}>{label}</a>)}</nav> : null;
-          })()}
-        </>
-      )}
+      {logged && <WorkspaceChrome page={adminPage} paths={adminPagePaths} navigate={navigateAdminPage} basketCount={selectedItemIds.reduce((total, id) => total + (saleQuantities[id] ?? 1), 0)} basketTotalCents={selectedSaleTotalCents} addStockOpen={addStockOpen} onAddStockOpenChange={setAddStockOpen} />}
+      {(initializationError||sessionError)&&<section className="workspace-feedback" role="alert"><span>Vérification de la session indisponible. Votre saisie est conservée. {initializationError||sessionError}</span><Button disabled={loading} onClick={()=>void Promise.all([load(),onRetrySession()])}>Réessayer la connexion</Button></section>}
+      {logged && purchaseSubmission!=='idle' && <section className="workspace-feedback" role="status" style={{flexWrap:'wrap'}}><strong>{formatSubmissionSummary(submissionSummary(purchaseAttempt.current.current),shopCurrency,shopTimezone)}</strong><span>{purchaseSubmission==='rejected'?'La demande de rachat a été refusée. Vous pouvez revoir les champs.':'Le résultat du rachat doit être récupéré avant toute modification.'}</span><Button disabled={loading} onClick={()=>void createPurchase(false)}>Reprendre le même rachat</Button>{purchaseSubmission==='rejected'&&<Button disabled={loading} onClick={()=>{purchaseAttempt.current.release();setPurchaseSubmission('idle');}}>Revoir le rachat refusé</Button>}</section>}
+      {logged && saleSubmission!=='idle' && <section className="workspace-feedback" role="status" style={{flexWrap:'wrap'}}><strong>{formatSubmissionSummary(submissionSummary(saleAttempt.current.current),shopCurrency,shopTimezone)}</strong><span>{saleSubmission==='rejected'?'La vente a été refusée. Vous pouvez revoir le panier.':'Vente en attente de confirmation. Le panier et le paiement soumis sont conservés.'}</span><Button disabled={loading} onClick={()=>void sellSelectedItems()}>Reprendre la même vente</Button>{saleSubmission==='rejected'&&<Button disabled={loading} onClick={()=>{saleAttempt.current.release();setSaleSubmission('idle');}}>Revoir la vente refusée</Button>}</section>}
+      {logged && saleHistorySubmission!=='idle' && <section className="workspace-feedback" role="status" style={{flexWrap:'wrap'}}><strong>{formatSubmissionSummary(submissionSummary(saleHistoryAttempt.current.current),shopCurrency,shopTimezone)}</strong><span>{saleHistorySubmission==='rejected'?'La demande a été refusée. Vous pouvez la revoir.':'La demande et sa référence sont conservées. Vérifiez son résultat avant une autre correction ou annulation.'}</span><Button disabled={loading} onClick={()=>void resumeSaleHistory()}>Vérifier la demande conservée</Button>{saleHistorySubmission==='rejected'&&<Button disabled={loading} onClick={()=>{saleHistoryAttempt.current.release();setSaleHistorySubmission('idle');setPaymentSale(null);}}>Revoir la demande refusée</Button>}</section>}
+      {logged && pendingPurchasePhotos>0 && <section className="workspace-feedback" role="status" style={{flexWrap:'wrap'}}><span>{pendingPurchasePhotos} photo(s) de rachats enregistrés restent à envoyer. Gardez cette page ouverte pour conserver les fichiers.</span><Button disabled={photoRetryBusy||loading} onClick={()=>void retryPurchasePhotos()}>{photoRetryBusy?'Envoi…':'Réessayer les photos restantes'}</Button></section>}
+      {logged && error && <div className="workspace-feedback" role="status"><span>{error}</span><Button variant="ghost" size="icon" aria-label="Fermer le message" onClick={()=>setError('')}>×</Button></div>}
+      {logged && adminPage === 'saleSummary' && lastSaleIds.length>0 && !selectedItemIds.length && <section className="sale-completed"><div><h2>Vente enregistrée</h2><p>Retrouvez le paiement et les corrections dans l’historique.</p></div><SaleTickets saleIds={lastSaleIds} request={request}/><Button variant="outline" onClick={()=>navigateAdminPage('salesHistory')}>Voir l’historique</Button></section>}
+      {logged && adminPage === 'documents' && <DocumentsPage request={request} />}
+      {logged && adminPage === 'inventoryOperations' && <InventoryOperations request={request} upload={uploadEvidence} onChanged={load} />}
+      {logged && adminPage === 'settings' && <GradingCompanies request={request} />}
       {logged && adminPage === 'exports' && (
         <section className="panel export-page">
           <p className="eyebrow">Outils de gestion</p>
           <h2>Télécharger les données</h2>
           <p>Créez un classeur Excel avec les données de gestion actuellement disponibles pour votre compte.</p>
-          <div className="actions"><button type="button" onClick={() => void exportXlsx()}>Télécharger le classeur Excel</button></div>
+          <div className="actions"><Button type="button" disabled={exporting} onClick={() => void exportXlsx()}>{exporting?'Préparation du classeur…':'Télécharger le classeur Excel'}</Button></div>
           <p className="muted">Le téléchargement utilise les exports métier existants et conserve leurs règles de calcul.</p>
         </section>
       )}
       {!logged ? (
-        <section className="panel">
-          <h2>{resetToken ? 'Nouveau mot de passe' : 'Connexion'}</h2>
-          {resetToken ? (
-            <>
-              <label>
-                Nouveau mot de passe (12 caractères minimum)
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                />
-              </label>
-              <button type="button" disabled={loading} onClick={() => void completePasswordReset()}>
-                Modifier le mot de passe
-              </button>
-            </>
-          ) : (
-            <>
-              <label>
-                E-mail
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              </label>
-              <label>
-                Mot de passe
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </label>
-              <div className="actions">
-                <button type="button" onClick={() => void auth('login')} disabled={loading}>
-                  Se connecter
-                </button>
-                {signupEnabled && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => void auth('register')}
-                    disabled={loading}
-                  >
-                    Créer un compte
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                className="secondary"
-                disabled={loading}
-                onClick={() => void requestPasswordReset()}
-              >
-                Mot de passe oublié ?
-              </button>
-              {resetRequested && (
-                <p>
-                  Si un compte correspond à cette adresse, un lien de réinitialisation a été envoyé.
-                </p>
-              )}
-            </>
-          )}
-          {error && <p className="error">{error}</p>}
-        </section>
+        <AuthenticationPanel email={email} password={password} newPassword={newPassword} resetToken={resetToken} loading={loading} signupEnabled={signupEnabled} resetRequested={resetRequested} error={error} onEmail={setEmail} onPassword={setPassword} onNewPassword={setNewPassword} onLogin={() => void auth('login')} onRegister={() => void auth('register')} onResetRequest={() => void requestPasswordReset()} onResetComplete={() => void completePasswordReset()} />
       ) : (
         <>
           {adminPage === 'dashboard' && (
@@ -2148,403 +2123,48 @@ function App() {
                 loading={loading}
                 onToggle={(enabled) => void updateSignupSetting(enabled)}
               />
-            </Suspense><section className="panel"><h2>Session</h2><p>Fermez votre session sur cet appareil.</p><button type="button" className="secondary" onClick={() => void logout()}>Déconnexion</button></section></>
+            </Suspense><section className="panel"><h2>Session</h2><p>Fermez votre session sur cet appareil.</p><Button type="button" className="secondary" onClick={() => void logout()}>Déconnexion</Button></section></>
           )}
-          <section className="stats" hidden={adminPage !== 'stock'}>
-            <strong>
-              {stockRead.items.length}
-              <span> articles sur cette page</span>
-            </strong>
-            <span>Source : données centrales · Internet requis</span>
-          </section>
-          <section className="panel" hidden={adminPage !== 'stock'}>
-            <h2>Mon stock</h2>
-            <label>Visibilité du catalogue<select value={stockVisibility} disabled={visibilityBusy} onChange={event => { setStockVisibility(event.target.value as typeof stockVisibility); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="visible">Visibles dans le catalogue</option><option value="hidden">Masqués du catalogue</option></select></label>
-            {visibilityNotice && <p role="status">{visibilityNotice}</p>}
-
-            <label>Origine<select value={stockOrigin} onChange={event => { setStockOrigin(event.target.value); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="purchase">Articles rachetés</option><option value="consignment">Dépôts-ventes</option><option value="supplier">Achats fournisseurs</option></select></label>
-            {error && <p className="error">{error}</p>}
-            <label>
-              Rechercher dans le stock
-              <input
-                value={stockSearch}
-                onChange={(event) => {
-                  setStockSearch(event.target.value);
-                  setStockPage(1); setVisibilitySelectedIds([]);
-                }}
-                placeholder="Nom, description, série, référence, client ou certificat"
-              />
-            </label>
-            <div className="form-grid stock-grading-filters" aria-label="Filtres de gradation">
-              <label>
-                Gradation
-                <select
-                  value={stockGradingStatus}
-                  onChange={(event) => {
-                    setStockGradingStatus(event.target.value as typeof stockGradingStatus);
-                    setStockPage(1); setVisibilitySelectedIds([]);
-                  }}
-                >
-                  <option value="all">Toutes</option>
-                  <option value="graded">Gradées</option>
-                  <option value="ungraded">Non gradées</option>
-                </select>
-              </label>
-              <label>
-                Société
-                <select
-                  value={stockGradingCompany}
-                  onChange={(event) => {
-                    setStockGradingCompany(event.target.value as typeof stockGradingCompany);
-                    setStockPage(1); setVisibilitySelectedIds([]);
-                  }}
-                >
-                  <option value="all">Toutes les sociétés</option>
-                  {gradingCompanies.map((company) => (
-                    <option key={company.id} value={company.id}>
-                      {company.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Note de gradation
-                <input
-                  type="search"
-                  value={stockGradingGrade}
-                  onChange={(event) => {
-                    setStockGradingGrade(event.target.value);
-                    setStockPage(1); setVisibilitySelectedIds([]);
-                  }}
-                  placeholder="Ex. 10 ou 9.5"
-                />
-              </label>
-            </div>
-            <StockVisibilityToolbar selectedCount={selectedVisibilityIds.length} resultCount={filteredItems.length} pageCount={visibleItems.length} disabled={visibilityBusy || loading}
-              onSelectPage={() => setVisibilitySelectedIds(visibleItems.map(item => item._id))}
-              onSelectResults={() => setVisibilitySelectedIds(filteredItems.slice(0, 500).map(item => item._id))}
-              onClear={() => setVisibilitySelectedIds([])}
-              onHide={() => void setCatalogueVisibility(selectedVisibilityIds, true)}
-              onShow={() => void setCatalogueVisibility(selectedVisibilityIds, false)} />
-            <div className="actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setSelectedItemIds(previous => [...new Set([...previous, ...filteredItems.map(item => item._id)])])}
-              >
-                Ajouter cette page au panier ({filteredItems.length})
-              </button>
-              <button type="button" className="secondary" onClick={() => setSelectedItemIds([])}>
-                Vider le panier
-              </button>
-            </div>
-            {selectedItemIds.length > 0 && (
-              <div className="stock-sale-basket">
-                <div className="stock-sale-basket-heading">
-                  <div>
-                    <h3>Panier de vente · {selectedItemIds.length} carte(s)</h3>
-                    <span>Ouvrez le résumé pour modifier les prix et vérifier la vente.</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setSelectedItemIds([])}
-                  >
-                    Vider
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className="cart-summary-link"
-                  onClick={() => navigateAdminPage('saleSummary')}
-                >
-                  <FiShoppingCart aria-hidden="true" focusable="false" />
-                  Voir le résumé du panier
-                </button>
-              </div>
-            )}
-            {editingProductId && <ProductEditor key={editingProductId} itemId={editingProductId} apiBase={API} request={request} upload={uploadItemAttachment} onClose={() => setEditingProductId(null)} onChanged={async () => { stockRead.reload(); await load(); }} />}
-            {visibleItems.map((item) => (
-              <article key={item._id} className="stock-row">
-                <label className="stock-select">
-                  <input
-                    type="checkbox"
-                    aria-label={`Ajouter ${item.name} au panier de vente`}
-                    checked={selectedItemIds.includes(item._id)}
-                    onChange={(event) =>
-                      setSelectedItemIds((ids) =>
-                        event.target.checked
-                          ? [...ids, item._id]
-                          : ids.filter((id) => id !== item._id),
-                      )
-                    }
-                  />
-                </label>
-                <div className="stock-content">
-                  <div className="stock-details">
-                    <div className="stock-visibility-actions">
-                      <label><input type="checkbox" aria-label={`Sélectionner ${item.name} pour modifier sa visibilité`} disabled={visibilityBusy || loading || (!selectedVisibilityIds.includes(item._id) && selectedVisibilityIds.length >= 500)} checked={selectedVisibilityIds.includes(item._id)} onChange={event => setVisibilitySelectedIds(ids => event.target.checked ? [...new Set([...ids, item._id])] : ids.filter(id => id !== item._id))} /> Sélectionner pour la visibilité</label>
-                      <span className={`stock-visibility-badge${item.hiddenFromCatalogue ? ' is-hidden' : ''}`}>{item.hiddenFromCatalogue ? 'Masqué du catalogue' : 'Visible dans le catalogue'}</span>
-                      <button type="button" className="secondary" disabled={visibilityBusy || loading} aria-label={`${item.hiddenFromCatalogue ? 'Afficher' : 'Masquer'} ${item.name} dans le catalogue`} onClick={() => void setCatalogueVisibility([item._id], !item.hiddenFromCatalogue)}>{item.hiddenFromCatalogue ? 'Afficher dans le catalogue' : 'Masquer du catalogue'}</button>
-                    </div>
-                    <b>{item.name}</b>{item.origin === 'consignment' && <span className="consignment-badge">Dépôt-vente{item.productType === 'sealed' ? ' · Scellé' : ''}</span>}
-                    <small>
-                      {[item.series, item.identifier, item.serialNumber]
-                        .filter(Boolean)
-                        .join(' · ') || 'Carte sans détails'}{' '}
-                      {item.language && ` · ${languageLabel(item.language)}`}{(!item.productType || item.productType === 'card') && ` · ${conditionLabel(item.condition)}`}
-                      {item.origin === 'supplier' ? ` · Stock fournisseur · ${item.quantity ?? 0} unité(s)` : item.origin === 'consignment' ? ` · Dépôt de ${item.sellerName} · Commission ${(item.commissionRateBps ?? 3000) / 100} %` : ` · Racheté à ${item.sellerName} · Achat ${(item.purchasePriceCents / 100).toFixed(2)} €`}
-                    </small>
-                    {item.gradingCompany && (
-                      <GradingBadge
-                        company={item.gradingCompany}
-                        grade={item.gradingGrade}
-                        certificate={item.gradingCertificate}
-                      />
-                    )}
-                    {item.gradingCompany && item.gradingNotes && (
-                      <small>Notes : {item.gradingNotes}</small>
-                    )}
-                    {item.photos?.map((photo) => (
-                      <a
-                        className="item-photo-link"
-                        key={photo._id}
-                        href={`${API}/attachments/${encodeURIComponent(photo._id)}/download`}
-                      >
-                        Photo : {photo.filename}
-                      </a>
-                    ))}
-                    {item.origin === 'consignment' && <p>Prix convenu : {money(item.agreedPriceCents ?? item.askingPriceCents ?? 0)}. Pour modifier l’accord, ouvrez <button type="button" className="secondary" onClick={() => navigateAdminPage('consignments')}>Dépôts-ventes</button>.</p>}
-                    <div className="price-edit">
-                      <input
-                        aria-label={`Prix de vente demandé pour ${item.name}`}
-                        inputMode="decimal"
-                        placeholder="Prix de vente (€)"
-                        value={
-                          salePrices[item._id] ??
-                          (item.askingPriceCents === undefined
-                            ? ''
-                            : (item.askingPriceCents / 100).toFixed(2))
-                        }
-                        onChange={(event) =>
-                          setSalePrices((values) => ({ ...values, [item._id]: event.target.value }))
-                        }
-                      />
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={loading}
-                        onClick={() => void saveAskingPrice(item._id)}
-                      >
-                        Enregistrer le prix
-                      </button>
-                    </div>
-                  </div>
-                  <button type="button" className="secondary" onClick={() => setEditingProductId(item._id)}>Modifier la fiche et les photos</button>
-                  <ItemThumbnail name={item.name} catalogueImageUrl={item.catalogueImageUrl} photos={item.photos} apiBase={API} />
-                </div>
-                {item.askingPriceCents !== undefined && (
-                  <strong>Vente {(item.askingPriceCents / 100).toFixed(2)} €</strong>
-                )}
-              </article>
-            ))}
-            
-            {stockPagination()}
-          </section>
-          <section className="panel" hidden={adminPage !== 'sales'}>
-            <h2>Choisir les articles</h2>
-            {error && <p className="error" role="alert">{error}</p>}
-            <label>Origine<select value={stockOrigin} onChange={event => { setStockOrigin(event.target.value); setStockPage(1); setVisibilitySelectedIds([]); }}><option value="all">Tous les articles</option><option value="purchase">Articles rachetés</option><option value="consignment">Dépôts-ventes</option><option value="supplier">Achats fournisseurs</option></select></label>
-            {selectedItemIds.length > 0 && (
-              <p className="sale-cart-nudge">
-                {selectedItemIds.length} article(s) dans le panier. Utilisez le caddie flottant pour
-                ouvrir le résumé.
-              </p>
-            )}
-            <label>
-              Rechercher dans le stock
-              <input
-                value={stockSearch}
-                onChange={(event) => {
-                  setStockSearch(event.target.value);
-                  setStockPage(1); setVisibilitySelectedIds([]);
-                }}
-                placeholder="Nom, série ou identifiant"
-              />
-            </label>
-            <div className="sale-search-results">
-              {visibleItems.map((item) => (
-                <article key={item._id} className="sale-search-row">
-                  <ItemThumbnail name={item.name} catalogueImageUrl={item.catalogueImageUrl} photos={item.photos} apiBase={API} />
-                  <div className="sale-item-description">
-                    <b>{item.name}</b>{item.origin === 'consignment' && <span className="consignment-badge">Dépôt-vente{item.productType === 'sealed' ? ' · Scellé' : ''}</span>}
-                    <small>{[item.series, item.identifier].filter(Boolean).join(' · ')}</small>
-                  </div>
-                  <strong>{((item.askingPriceCents ?? 0) / 100).toFixed(2)} €</strong>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={selectedItemIds.includes(item._id)}
-                    onClick={() => setSelectedItemIds((ids) => [...ids, item._id])}
-                  >
-                    {selectedItemIds.includes(item._id) ? 'Dans le panier' : 'Ajouter'}
-                  </button>
-                </article>
-              ))}
-            </div>
-            {stockPagination()}
-            
-          </section>
-          <section className="panel sale-cart-summary" hidden={adminPage !== 'saleSummary'}>
-            <div className="sale-cart-summary-heading">
-              <div>
-                <h2>Résumé du panier</h2>
-                {error && <p className="error" role="alert">{error}</p>}
-                <p>{selectedItemIds.length} article(s) sélectionné(s)</p>
-              </div>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => navigateAdminPage('sales')}
-              >
-                Retour à la recherche
-              </button>
-            </div>
-            {selectedItemIds.map((itemId) => {
-              const item = items.find((entry) => entry._id === itemId);
-              if (!item) return null;
-              return (
-                <article className="sale-cart-summary-row" key={itemId}>
-                  <ItemThumbnail name={item.name} catalogueImageUrl={item.catalogueImageUrl} photos={item.photos} apiBase={API} />
-                  <div className="sale-cart-summary-name">
-                    <b>{item.name}</b>{item.origin === 'consignment' && <span className="consignment-badge">Dépôt-vente{item.productType === 'sealed' ? ' · Scellé' : ''}</span>}
-                    <small>{[item.series, item.identifier].filter(Boolean).join(' · ')}</small>
-                    {item.origin === 'consignment' && <small>{consignmentSplitLabel(item, salePrices[itemId])}</small>}
-                  </div>
-                  <label>
-                    Prix de vente (€)
-                    <input
-                      inputMode="decimal"
-                      value={
-                        salePrices[itemId] ??
-                        (item.askingPriceCents === undefined
-                          ? ''
-                          : (item.askingPriceCents / 100).toFixed(2))
-                      }
-                      onChange={(event) =>
-                        setSalePrices((values) => ({ ...values, [itemId]: event.target.value }))
-                      }
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="secondary"
-                    aria-label={`Retirer ${item.name} du panier`}
-                    onClick={() => setSelectedItemIds((ids) => ids.filter((id) => id !== itemId))}
-                  >
-                    Retirer
-                  </button>
-                </article>
-              );
-            })}
-            {!selectedItemIds.length ? (
-              <p>Le panier est vide. Retournez à la recherche pour ajouter des cartes.</p>
-            ) : (
-              <div className="sale-cart-summary-footer">
-                <strong>
-                  Total proposé{' '}
-                  <span>
-                    {new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR' }).format(
-                      selectedSaleTotalCents / 100,
-                    )}
-                  </span>
-                </strong>
-                <p>L’heure actuelle sera utilisée lors de l’enregistrement de la vente.</p>
-                <button type="button" disabled={loading} onClick={() => setSaleConfirmOpen(true)}>
-                  Vérifier et confirmer la vente
-                </button>
-              </div>
-            )}
-          </section>
-          <section className="panel" hidden={adminPage !== 'clients'}>
-            <h2>Clients</h2>
-            <p>Créez une fiche client une seule fois, puis associez ses rachats à son dossier.</p>
-            <button type="button" className="secondary" onClick={() => { clearClientForm(); setClientEditorOpen(true); }}>+ Nouveau client</button>
-            {clientEditorOpen && <div className="client-editor"><h3>{editingClientId ? 'Modifier la fiche client' : 'Créer une fiche client'}</h3>
-            <div className="form-grid">
-              <label>
-                Nom du client
-                <input value={clientName} onChange={(event) => setClientName(event.target.value)} />
-              </label>
-              <label>
-                E-mail
-                <input
-                  type="email"
-                  value={clientEmail}
-                  onChange={(event) => setClientEmail(event.target.value)}
-                />
-              </label>
-              <label>
-                Téléphone
-                <input
-                  value={clientPhone}
-                  onChange={(event) => setClientPhone(event.target.value)}
-                />
-              </label>
-              <label>
-                Adresse
-                <input
-                  value={clientAddress}
-                  onChange={(event) => setClientAddress(event.target.value)}
-                />
-              </label>
-            </div>
-            <div className="actions">
-              <button type="button" disabled={loading} onClick={() => void saveClient()}>
-                {editingClientId ? 'Enregistrer les modifications' : 'Créer la fiche client'}
-              </button>
-              <button type="button" className="secondary" onClick={() => { clearClientForm(); setClientEditorOpen(false); if (clientReturnToPurchase) { setClientReturnToPurchase(false); navigateAdminPage('purchases'); } }}>Annuler</button>
-            </div>
-            </div>}
-            <div className="client-search-section">
-              <h3>Rechercher une fiche client</h3>
-              <label>
-                Nom, e-mail, téléphone ou adresse
-                <input
-                  type="search"
-                  value={clientSearch}
-                  onChange={(event) => {
-                    setClientSearch(event.target.value);
-                    setClientPage(1);
-                  }}
-                  placeholder="Saisissez un nom ou une coordonnée"
-                />
-              </label>
-              <div className="client-search-summary" aria-live="polite">
-                {filteredClients.length} résultat{filteredClients.length === 1 ? '' : 's'} sur cette page
-              </div>
-              {visibleClients.map((client) => (
-                <article key={client._id}>
-                  <div>
-                    <b>{client.name}</b>
-                    <small>
-                      {[client.email, client.phone, client.address].filter(Boolean).join(' · ')}
-                    </small>
-                  </div>
-                  <button type="button" className="secondary" onClick={() => { editClient(client); setClientEditorOpen(true); }}>
-                    Modifier
-                  </button>
-                </article>
-              ))}
-              <ReadPagination data={clientsRead} />
-            </div>
-          </section>
-          <section className="panel" hidden={adminPage !== 'purchases'}>
+          {adminPage === 'stock' && <fieldset disabled={saleSubmission!=='idle'} style={{border:0,padding:0,margin:0,minWidth:0}}><StockWorkspace
+            items={visibleItems} apiBase={API} request={request}
+            filters={{search:stockSearch,tcg:stockTcg,series:stockSeries,origin:stockOrigin,visibility:stockVisibility,gradingStatus:stockGradingStatus,gradingCompany:stockGradingCompany,gradingGrade:stockGradingGrade}}
+            onFiltersChange={f=>{setStockTcg(f.tcg);setStockSeries(f.series);setStockSearch(f.search);setStockOrigin(f.origin);setStockVisibility(f.visibility);setStockGradingStatus(f.gradingStatus);setStockGradingCompany(f.gradingCompany);setStockGradingGrade(f.gradingGrade);setStockPage(1);setVisibilitySelectedIds([]);}}
+            gradingCompanies={gradingCompanies} loading={stockRead.busy} busy={loading} error={stockRead.error||error} notice={visibilityNotice}
+            visibilityBusy={visibilityBusy} visibilitySelection={selectedVisibilityIds} onVisibilitySelectionChange={setVisibilitySelectedIds} onSetVisibility={(ids,hidden)=>void setCatalogueVisibility(ids,hidden)}
+            basketQuantities={Object.fromEntries(selectedItemIds.map(id=>[id,saleQuantities[id]??1]))}
+            basketCount={selectedItemIds.reduce((n,id)=>n+(saleQuantities[id]??1),0)} basketTotalCents={selectedSaleTotalCents}
+            onBasketQuantityChange={changeSaleQuantity}
+            onAddPageToBasket={()=>{for(const item of visibleItems) if(!selectedItemIds.includes(item._id)) changeSaleQuantity(item,1);}}
+            onClearBasket={()=>{setSelectedItemIds([]);setSaleQuantities({});}} onOpenBasket={()=>navigateAdminPage('saleSummary')}
+            priceDrafts={askingPriceDrafts} onPriceDraftChange={(item,value)=>setAskingPriceDrafts(v=>({...v,[item._id]:value}))}
+            onSaveAskingPrice={item=>void saveAskingPrice(item._id)} onEditProduct={item=>setEditingProductId(item._id)}
+            onOpenConsignments={()=>navigateAdminPage('consignments')} onAddStock={()=>setAddStockOpen(true)} pagination={stockRead}
+          /></fieldset>}
+          {editingProductId && <ProductEditor key={editingProductId} itemId={editingProductId} apiBase={API} request={request} upload={uploadItemAttachment} onClose={() => setEditingProductId(null)} onChanged={async () => { stockRead.reload(); await load(); }} />}
+          {['sales','saleSummary'].includes(adminPage) && <fieldset disabled={saleSubmission!=='idle'} style={{border:0,padding:0,margin:0,minWidth:0}}><SalesWorkspace mode={adminPage==='sales'?'selection':'review'} items={visibleItems}
+            basketItems={selectedItemIds.flatMap(id=>{const item=items.find(x=>x._id===id);return item?[item]:[];})}
+            basketQuantities={Object.fromEntries(selectedItemIds.map(id=>[id,saleQuantities[id]??1]))} lineTotals={salePrices} totalCents={selectedSaleTotalCents} apiBase={API}
+            tcg={stockTcg} series={stockSeries} onTcgChange={value=>{setStockTcg(value as Tcg | 'all');setStockSeries('');}} onSeriesChange={setStockSeries}
+            search={stockSearch} origin={stockOrigin} onSearchChange={value=>{setStockSearch(value);setStockPage(1);}} onOriginChange={value=>{setStockOrigin(value);setStockPage(1);}}
+            onQuantityChange={changeSaleQuantity} onLineTotalChange={(item,value)=>setSalePrices(v=>({...v,[item._id]:value}))}
+            onRemoveItem={item=>setSelectedItemIds(ids=>ids.filter(id=>id!==item._id))} onClearBasket={()=>{setSelectedItemIds([]);setSaleQuantities({});}}
+            onReviewBasket={()=>navigateAdminPage('saleSummary')} onContinueShopping={()=>navigateAdminPage('sales')}
+            paymentDraft={salePaymentDraft} onPaymentChange={setSalePaymentDraft} confirmOpen={saleConfirmOpen} onConfirmOpenChange={setSaleConfirmOpen}
+            onConfirmSale={()=>void sellSelectedItems()} loading={stockRead.busy} submitting={loading} error={stockRead.error||error} pagination={stockRead}
+          /></fieldset>}
+          {adminPage === 'clients' && <ContactsWorkspace data={clientsRead} search={clientSearch} onSearch={value=>{setClientSearch(value);setClientPage(1);}} editorOpen={clientEditorOpen} editing={!!editingClientId}
+            draft={{name:clientName,email:clientEmail,phone:clientPhone,address:clientAddress}} onDraft={draft=>{setClientName(draft.name);setClientEmail(draft.email);setClientPhone(draft.phone);setClientAddress(draft.address);}}
+            busy={loading} error={error} onNew={()=>{clearClientForm();setError('');setClientEditorOpen(true);}} onEdit={client=>{editClient(client);setError('');setClientEditorOpen(true);}}
+            onClose={()=>{clearClientForm();setError('');setClientEditorOpen(false);if(clientReturnToPurchase){setClientReturnToPurchase(false);navigateAdminPage('purchases');}}} onSave={()=>void saveClient()} />}
+          <section className="buyback-flow" hidden={adminPage !== 'purchases'}><fieldset disabled={purchaseSubmission!=='idle'||loading} style={{border:0,padding:0,margin:0,minWidth:0}}>
+            <ol className="flow-steps" aria-label="Étapes du rachat">{(['contact','items','review'] as const).map((stage,index)=><li key={stage} aria-current={purchaseStage===stage?'step':undefined}><span>{index+1}</span>{['Contact','Cartes','Vérification'][index]}</li>)}</ol>
+            <div className="buyback-contact-stage" hidden={purchaseStage !== 'contact'}>
+            <header><h2>À qui rachetez-vous ces cartes ?</h2><p>Choisissez le contact qui figurera sur le bordereau.</p></header>
             <ClientPicker clients={clients} request={request} value={selectedClient} onChange={setSelectedClient} label="Rechercher un client" onResolved={client => setClients(previous => [...previous.filter(row => row._id !== client._id).slice(-19), client as Client])} onCreate={() => { clearClientForm(); setClientEditorOpen(true); setClientReturnToPurchase(true); navigateAdminPage('clients'); }} />
             <div className="form-grid">
               <label>
                 Référence du rachat
-                <input
+                <Input
                   value={purchaseReference}
                   onChange={(event) => setPurchaseReference(event.target.value)}
                   placeholder="Générée automatiquement si vide"
@@ -2552,7 +2172,7 @@ function App() {
               </label>
               <label>
                 Date du rachat
-                <input
+                <Input
                   type="date"
                   value={purchaseDate}
                   onChange={(event) => setPurchaseDate(event.target.value)}
@@ -2561,10 +2181,19 @@ function App() {
             </div>
             <p>Notes et conditions facultatives, reprises sur le bordereau. Pour un complément après gradation, précisez les cartes concernées et la note attendue.</p>
             <div className="form-grid">
-              <label>Note de l’acheteur (facultative)<textarea rows={4} maxLength={2000} value={buyerNote} onChange={event => setBuyerNote(event.target.value)} placeholder="Ex. : complément de 100 € par carte si la note convenue est obtenue." /></label>
+              <label>Note de l’acheteur (facultative)<textarea rows={4} maxLength={2000} value={buyerNote} onChange={event => setBuyerNote(event.target.value)} placeholder={"Ex. : complément de 100 € par carte si la note convenue est obtenue.".replaceAll('€',currencySymbol)} /></label>
               <label>Note du vendeur (facultative)<textarea rows={4} maxLength={2000} value={sellerNote} onChange={event => setSellerNote(event.target.value)} /></label>
             </div>
+            <div className="flow-footer"><span>Les cartes seront saisies à l’étape suivante.</span><Button disabled={!selectedPurchaseClient || loading || !purchaseDate} onClick={()=>setPurchaseStage('items')}>Continuer vers les cartes →</Button></div>
+            </div>
+            <div hidden={purchaseStage === 'contact'}>
+            <div className="buyback-contact-summary"><strong>{selectedPurchaseClient?.name || 'Contact à sélectionner'}</strong><span>{purchaseDate && new Date(`${purchaseDate}T12:00:00`).toLocaleDateString('fr-BE')} · {purchaseReference || 'Référence automatique'}</span></div>
             <PurchaseEditor
+              onBackToContact={()=>setPurchaseStage('contact')}
+              onStageChange={stage=>setPurchaseStage(current=>current==='contact'?'contact':stage)}
+              request={request}
+              invalidateSearch={key=>{beginCatalog(key);}}
+              loadMore={row=>searchPokemonCards(row,true)}
               rows={purchaseItems}
               setRows={setPurchaseItems}
               search={searchPokemonCards}
@@ -2575,356 +2204,29 @@ function App() {
               busy={loading}
               hasClient={!!selectedPurchaseClient}
             />
-          </section>
-          <section className="panel" hidden={adminPage !== 'salesHistory'}>
-            <h2>Encaissements</h2>
-            <label>Encaissement<select value={collectionFilter} onChange={event => setCollectionFilter(event.target.value)}><option value="all">Toutes les ventes</option><option value="pending">À encaisser</option><option value="received">Reçues</option><option value="unknown">Non renseignées</option></select></label>
-            {salesHistoryRead.items.map((sale) => (
-              <article key={sale._id} className="sale-history-row">
-                <ItemThumbnail name={sale.itemName} catalogueImageUrl={sale.catalogueImageUrl} photos={sale.photos} apiBase={API} />
-                <span className="sale-item-description">
-                  {sale.itemName} · {sale.sellerName} · {(sale.salePriceCents / 100).toFixed(2)} € ·{' '}
-                  {sale.status}
-                  <small>{paymentStatusLabel(sale)}{sale.payment && ` · ${paymentDetail(sale.payment)}`}{sale.status === 'cancelled' && ' · Vente annulée, historique conservé'}</small>
-                  {sale.origin === 'consignment' && <small>Dépôt-vente · Commission {money(sale.commissionCents ?? 0)} · Part déposant {money(sale.depositorAmountCents ?? 0)}</small>}
-                </span>
-                {sale.status === 'active' && <button type="button" className="secondary" disabled={loading} onClick={() => {
-                  setError(''); setPaymentSale(sale);
-                  setEditPaymentDraft(sale.payment ? { mode: sale.payment.cashCents > 0 && sale.payment.transferCents > 0 ? 'mixed' : sale.payment.transferCents > 0 ? 'transfer' : 'cash', cash: (sale.payment.cashCents / 100).toFixed(2), date: new Date(sale.payment.receivedAt).toLocaleDateString('en-CA'), reference: sale.payment.reference ?? '' } : newPaymentDraft());
-                }}>{sale.paymentStatus === 'received' ? 'Corriger l’encaissement' : 'Marquer reçu'}</button>}
-                {sale.status === 'active' && (
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => void cancelSale(sale._id)}
-                  >
-                    Annuler
-                  </button>
-                )}
-              </article>
-            ))}
-            <ReadPagination data={salesHistoryRead} />
-          </section>
-          <section className="panel" hidden={adminPage !== 'saleConflicts'}>
-            <h2>Ventes concurrentes</h2>
-            {conflictsRead.items.map((conflict) => (
-              <article key={conflict._id}>
-                <div>
-                  <b>{conflict.itemName}</b>
-                  <small>
-                    Vente concurrente · {(conflict.salePriceCents / 100).toFixed(2)} € ·{' '}
-                    {new Date(conflict.occurredAt).toLocaleDateString('fr-BE')}
-                  </small>
-                  <input
-                    aria-label={`Note de résolution pour ${conflict.itemName}`}
-                    placeholder="Note de résolution"
-                    value={resolutionNotes[conflict._id] ?? ''}
-                    onChange={(event) =>
-                      setResolutionNotes((notes) => ({
-                        ...notes,
-                        [conflict._id]: event.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void resolveConflict(conflict._id)}
-                >
-                  Marquer traité
-                </button>
-              </article>
-            ))}
-            <ReadPagination data={conflictsRead} />
-          </section>
-          <section className="panel" hidden={adminPage !== 'purchaseHistory'}>
-            <div className="form-grid">
-              <label>
-                Recherche
-                <input
-                  type="search"
-                  value={historySearch}
-                  placeholder="Référence ou client"
-                  onChange={(e) => {
-                    setHistorySearch(e.target.value);
-                    setHistoryPage(1);
-                  }}
-                />
-              </label>
-              <label>
-                Statut
-                <select
-                  value={historyStatus}
-                  onChange={(e) => {
-                    setHistoryStatus(e.target.value);
-                    setHistoryPage(1);
-                  }}
-                >
-                  <option value="all">Tous</option>
-                  <option value="pending">En attente</option>
-                  <option value="active">Validés</option>
-                  <option value="cancelled">Annulés</option>
-                </select>
-              </label>
-              <label>
-                Du
-                <input
-                  type="date"
-                  value={historyFrom}
-                  onChange={(e) => {
-                    setHistoryFrom(e.target.value);
-                    setHistoryPage(1);
-                  }}
-                />
-              </label>
-              <label>
-                Au
-                <input
-                  type="date"
-                  value={historyTo}
-                  onChange={(e) => {
-                    setHistoryTo(e.target.value);
-                    setHistoryPage(1);
-                  }}
-                />
-              </label>
             </div>
-            <div className="purchase-result-pages">
-              <label>
-                Par page
-                <select
-                  value={historySize}
-                  onChange={(e) => {
-                    setHistorySize(Number(e.target.value));
-                    setHistoryPage(1);
-                  }}
-                >
-                  {[12, 24, 48].map((n) => (
-                    <option key={n}>{n}</option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => {
-                  setHistorySearch('');
-                  setHistoryStatus('all');
-                  setHistoryFrom('');
-                  setHistoryTo('');
-                  setHistoryPage(1);
-                }}
-              >
-                Effacer les filtres
-              </button>
-              <span>{historyTotal} rachat(s)</span>
-            </div>
-            {historyError && <p role="alert">{historyError}</p>}
-            {historyBusy && <p role="status">Chargement des rachats…</p>}
-            {!historyBusy &&
-              !historyError &&
-              historyRows.map((purchase) => (
-                <details className="purchase-history-row" key={purchase._id}>
-                  <summary>
-                    <span>
-                      {purchase.reference} · {purchase.sellerName}
-                    </span>
-                    <strong className={`purchase-status purchase-status-${purchase.status}`}>
-                      {purchase.status === 'pending'
-                        ? 'En attente de validation client'
-                        : purchase.status === 'cancelled'
-                          ? 'Annulé'
-                          : 'Validé'}
-                    </strong>
-                    <strong>{purchase.items.length} carte(s)</strong>
-                    <span>{new Date(purchase.occurredAt).toLocaleDateString('fr-BE')}</span>
-                  </summary>
-                  <div className="purchase-history-body">
-                    {purchase.status === 'pending' && (
-                      <div className="actions">
-                        <button
-                          type="button"
-                          disabled={loading}
-                          onClick={() => void validatePendingPurchase(purchase)}
-                        >
-                          Valider le rachat et ajouter au stock
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={loading}
-                          onClick={() => void cancelPendingPurchase(purchase)}
-                        >
-                          Annuler le rachat
-                        </button>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => {
-                        void downloadSavedPurchaseReceipt(purchase)
-                          .then((downloaded) => {
-                            if (downloaded)
-                              setError(`Justificatif PDF téléchargé pour ${purchase.reference}.`);
-                          })
-                          .catch((error) =>
-                            setError(
-                              error instanceof Error
-                                ? error.message
-                                : 'Génération du PDF impossible.',
-                            ),
-                          );
-                      }}
-                    >
-                      Télécharger le justificatif non signé PDF
-                    </button>
-                    <ReceiptSigning kind="purchase" targetId={purchase._id} request={request} allowSigning={purchase.status !== 'cancelled'} />
-                    {purchase.items.flatMap((item) =>
-                      (item.photos ?? []).map((photo) => (
-                        <a
-                          key={photo._id}
-                          href={`${API}/attachments/${encodeURIComponent(photo._id)}/download`}
-                        >
-                          {item.name} · {photo.filename}
-                        </a>
-                      )),
-                    )}
-                    <label>
-                      Date du rachat
-                      <input
-                        type="date"
-                        value={
-                          purchaseDates[purchase._id] ??
-                          localDateInputValue(new Date(purchase.occurredAt))
-                        }
-                        onChange={(event) =>
-                          setPurchaseDates((dates) => ({
-                            ...dates,
-                            [purchase._id]: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      disabled={loading}
-                      onClick={() => void savePurchaseDate(purchase)}
-                    >
-                      Enregistrer la date
-                    </button>
-                    <button type="button" onClick={() => void loadAttachments(purchase._id)}>
-                      Justificatifs
-                    </button>
-                    {(attachmentsByPurchase[purchase._id] ?? []).map((attachment) => (
-                      <a
-                        key={attachment._id}
-                        href={`${API}/attachments/${encodeURIComponent(attachment._id)}/download`}
-                      >
-                        {attachment.filename}
-                      </a>
-                    ))}
-                  </div>
-                </details>
-              ))}
-            {!historyBusy && !historyError && !historyRows.length && (
-              <p>Aucun rachat ne correspond aux filtres.</p>
-            )}
-            <nav className="purchase-result-pages" aria-label="Pages de l’historique">
-              <button
-                type="button"
-                className="secondary"
-                disabled={historyBusy || historyPage <= 1}
-                onClick={() => setHistoryPage((p) => p - 1)}
-              >
-                Précédent
-              </button>
-              <span>
-                Page {historyPage} / {historyPages}
-              </span>
-              <button
-                type="button"
-                className="secondary"
-                disabled={historyBusy || historyPage >= historyPages}
-                onClick={() => setHistoryPage((p) => p + 1)}
-              >
-                Suivant
-              </button>
-            </nav>
-          </section>
-          {selectedItemIds.length > 0 &&
-            adminPage !== 'saleSummary' &&
-            adminPage !== 'purchases' && (
-              <button
-                type="button"
-                className="cart-fab"
-                aria-label={`Ouvrir le résumé du panier, ${selectedItemIds.length} carte(s)`}
-                onClick={() => navigateAdminPage('saleSummary')}
-              >
-                <FiShoppingCart aria-hidden="true" focusable="false" />
-                <span className="cart-fab-count">{selectedItemIds.length}</span>
-              </button>
-            )}
-          {paymentSale && <div className="sale-confirm-overlay"><section className="sale-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-sale-title"><h2 id="payment-sale-title">Encaissement de {paymentSale.itemName}</h2>{error && <p className="error" role="alert">{error}</p>}<SalePaymentEditor value={editPaymentDraft} onChange={setEditPaymentDraft} totalCents={paymentSale.salePriceCents} allowPending={false} disabled={loading} /><div className="actions"><button type="button" className="secondary" disabled={loading} onClick={() => setPaymentSale(null)}>Fermer</button><button type="button" disabled={loading} onClick={() => void saveSalePayment()}>Confirmer le paiement reçu</button></div></section></div>}
-          {saleConfirmOpen && (
-            <div className="sale-confirm-overlay">
-              <section
-                className="sale-confirm-dialog"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="sale-confirm-title"
-              >
-                <h2 id="sale-confirm-title">Valider la vente</h2>
-                {error && <p className="error" role="alert">{error}</p>}
-                <p>Vérifiez les articles et les prix avant d’enregistrer la vente.</p>
-                {selectedItemIds.map((itemId) => {
-                  const item = items.find((entry) => entry._id === itemId);
-                  if (!item) return null;
-                  return (
-                    <label className="sale-confirm-row" key={itemId}>
-                      <span>
-                        <b>{item.name}</b>{item.origin === 'consignment' && <span className="consignment-badge">Dépôt-vente{item.productType === 'sealed' ? ' · Scellé' : ''}</span>}
-                        <small>{[item.series, item.identifier].filter(Boolean).join(' · ')}</small>
-                        {item.origin === 'consignment' && <small>{consignmentSplitLabel(item, salePrices[itemId])}</small>}
-                      </span>
-                      Prix (€)
-                      <input
-                        inputMode="decimal"
-                        value={
-                          salePrices[itemId] ??
-                          (item.askingPriceCents === undefined
-                            ? ''
-                            : (item.askingPriceCents / 100).toFixed(2))
-                        }
-                        onChange={(event) =>
-                          setSalePrices((values) => ({ ...values, [itemId]: event.target.value }))
-                        }
-                      />
-                    </label>
-                  );
-                })}
-                <SalePaymentEditor value={salePaymentDraft} onChange={setSalePaymentDraft} totalCents={selectedSaleTotalCents} disabled={loading} />
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={loading}
-                    onClick={() => setSaleConfirmOpen(false)}
-                  >
-                    Retour au panier
-                  </button>
-                  <button
-                    type="button"
-                    disabled={loading || !selectedItemIds.length}
-                    onClick={() => void sellSelectedItems()}
-                  >
-                    {loading ? 'Enregistrement…' : 'Confirmer et enregistrer la vente'}
-                  </button>
-                </div>
-              </section>
-            </div>
-          )}
+          </fieldset></section>
+          {adminPage === 'salesHistory' && <SalesHistoryWorkspace request={request} rows={salesHistoryRead.items} pagination={salesHistoryRead} apiBase={API} busy={loading} mutationBlocked={saleHistorySubmission!=='idle'} error={error}
+            filters={{search:salesSearch,status:salesStatus,origin:salesHistoryOrigin,payment:collectionFilter,from:salesFrom,to:salesTo}}
+            onFiltersChange={f=>{setSalesSearch(f.search);setSalesStatus(f.status);setSalesHistoryOrigin(f.origin);setCollectionFilter(f.payment);setSalesFrom(f.from);setSalesTo(f.to);}}
+            onCollect={sale=>{if(saleHistoryAttempt.current.current)return;setError('');setPaymentSale(sale);setEditPaymentDraft(sale.payment ? {mode:sale.payment.cashCents>0&&sale.payment.transferCents>0?'mixed':sale.payment.transferCents>0?'transfer':'cash',cash:(sale.payment.cashCents/100).toFixed(2),date:shopDateInput(new Date(sale.payment.receivedAt)),reference:sale.payment.reference??''}:newPaymentDraft());}}
+            onCancel={cancelSale} onDocuments={()=>navigateAdminPage('documents')} onNewSale={()=>navigateAdminPage('sales')} />}
+          {adminPage === 'saleConflicts' && <SaleConflictsWorkspace rows={conflictsRead.items} pagination={conflictsRead} notes={resolutionNotes} onNote={(id,value)=>setResolutionNotes(v=>({...v,[id]:value}))} onResolve={resolveConflict} busy={loading} error={error} />}
+          {adminPage === 'purchaseHistory' && <PurchaseHistoryWorkspace rows={historyRows}
+            filters={{search:historySearch,status:historyStatus,from:historyFrom,to:historyTo,size:historySize}}
+            onFiltersChange={f=>{setHistorySearch(f.search);setHistoryStatus(f.status);setHistoryFrom(f.from);setHistoryTo(f.to);setHistorySize(f.size);setHistoryPage(1);}}
+            page={historyPage} pages={historyPages} total={historyTotal} onPage={setHistoryPage} loading={historyBusy} busy={loading} error={historyError}
+            onCorrected={refreshPurchaseHistory} onRetry={()=>setHistoryRevision(v=>v+1)} apiBase={API} request={request} onValidate={validatePendingPurchase} onCancel={cancelPendingPurchase}
+            onDownload={async purchase=>{try{if(await downloadSavedPurchaseReceipt(purchase))setError(`Bordereau PDF téléchargé pour ${purchase.reference}.`);}catch(e){setError(e instanceof Error?e.message:'Téléchargement impossible.');}}}
+            dates={purchaseDates} onDate={(id,date)=>setPurchaseDates(v=>({...v,[id]:date}))} onSaveDate={savePurchaseDate} attachments={attachmentsByPurchase} onAttachments={loadAttachments}/>}
+          <Dialog open={!!paymentSale} onOpenChange={open=>{if(!open&&!loading)setPaymentSale(null);}}>
+            <DialogContent className="transaction-dialog"><DialogTitle>{paymentSale?.paymentStatus==='received'?'Corriger l’encaissement':'Enregistrer l’encaissement'}</DialogTitle><DialogDescription>{paymentSale?.itemName} · {money(paymentSale?.salePriceCents??0)}. Cette action enregistre un paiement déjà reçu.</DialogDescription>
+              {error && <p className="error" role="alert">{error}</p>}
+              <SalePaymentEditor value={editPaymentDraft} onChange={setEditPaymentDraft} totalCents={paymentSale?.salePriceCents??0} allowPending={false} disabled={loading||saleHistorySubmission!=='idle'} />
+              <div className="actions"><Button variant="outline" disabled={loading} onClick={()=>setPaymentSale(null)}>Fermer</Button><Button disabled={loading} onClick={()=>void saveSalePayment()}>{loading?'Enregistrement…':saleHistorySubmission!=='idle'?'Vérifier la demande conservée':'Confirmer le paiement reçu'}</Button></div>
+            </DialogContent>
+          </Dialog>
+
         </>
       )}
     </main>
@@ -2939,17 +2241,23 @@ if (path === '/') {
   window.history.replaceState({}, '', `${path}${window.location.search}${window.location.hash}`);
 }
 const isLegalPage = Object.hasOwn(legalPages, path);
-createRoot(root).render(
+const reactRoot = import.meta.hot?.data.reactRoot ?? createRoot(root);
+if (import.meta.hot) import.meta.hot.data.reactRoot = reactRoot;
+reactRoot.render(
   <>
     {isLegalPage ? (
       <LegalPage path={path as LegalPath} />
     ) : path === '/rachat' ? (
       <BuybackPage />
+    ) : path === '/depot-vente' ? (
+      <BuybackPage kind="depot" />
+    ) : path === '/boutique' ? (
+      <ShopPage />
     ) : path === '/convention' ? (
       <ConventionCatalog />
     ) : (
       <App />
     )}
-    <SiteFooter />
+    {(isLegalPage || path === "/convention" || path === "/rachat" || path === "/depot-vente" || path === "/boutique") && <SiteFooter />}
   </>,
 );

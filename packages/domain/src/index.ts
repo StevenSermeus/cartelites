@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import {calendarDay} from './calendarDay';
+export {calendarDay} from './calendarDay';
 
 export const ItemSchema = z.object({
   id: z.string().min(1),
@@ -19,7 +21,7 @@ export const ItemSchema = z.object({
   catalogueImageUrl: z.string().url().optional(),
   language: z.enum(['fr', 'en', 'ja', 'zh']).optional(),
   condition: z.enum(['M', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO']).optional(),
-  gradingCompany: z.enum(['PSA', 'CollectAura', 'PCA', 'CCC']).optional(),
+  gradingCompany: z.string().trim().min(1).max(100).optional(),
   gradingGrade: z.string().optional(),
   gradingCertificate: z.string().optional(),
   gradingNotes: z.string().optional(),
@@ -73,9 +75,11 @@ export type Inventory = ReadonlyMap<string, Item>;
 export function availableStock(items: Iterable<Item>): Item[] {
   return [...items].filter((item) => item.status === 'available');
 }
+/** Pass the selected shop timezone; business dates are compared at calendar-day granularity. */
 export function validateSaleAgainstStock(
   sale: Sale,
   items: Inventory,
+  timeZone: string,
 ):
   | { ok: true; item: Item }
   | {
@@ -91,11 +95,16 @@ export function validateSaleAgainstStock(
   if (item.status !== 'available') return { ok: false, reason: 'ITEM_UNAVAILABLE' };
   if (
     sale.occurredAt < item.purchaseOccurredAt &&
-    new Date(sale.occurredAt).toISOString().slice(0, 10) <
-      new Date(item.purchaseOccurredAt).toISOString().slice(0, 10)
+    calendarDay(sale.occurredAt,timeZone) <
+      calendarDay(item.purchaseOccurredAt,timeZone)
   )
     return { ok: false, reason: 'SALE_BEFORE_PURCHASE' };
   if (item.origin === 'consignment' && sale.salePriceCents < (item.agreedPriceCents ?? 0))
     return { ok: false, reason: 'PRICE_BELOW_AGREEMENT' };
   return { ok: true, item };
 }
+
+export * from './shopTheme';
+export * from './tcgdexSearch';
+
+export type * from './marketPrices';

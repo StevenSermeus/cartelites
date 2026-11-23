@@ -1,15 +1,20 @@
+import {documentVersion} from '../data/documentVersion';
+import {MotionModal as Modal} from './MotionModal';
+import {captureAccountScope,getSessionScope} from '../auth/session';
+import {shopDay,shopDayTimestamp} from '../data/shopCalendar';
+import {DateField} from './DateField';
+import { shopTimezone } from '../theme/shopFormatting';
 import { useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Crypto from "expo-crypto";
-import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
 import { useTheme } from "../theme/ThemeProvider";
-import { request, type Consignment } from "../data/apiRepository";
+import { request, finishFinancialAttempt, sharePdfFile, type Consignment } from "../data/apiRepository";
 import { ReceiptSigning } from "./ReceiptSigning";
 import { ReceiptPdfViewer } from "./ReceiptPdfViewer";
 import { Field } from "./Field";
 type Document = {
+  version?:number;
   id: string;
   kind: string;
   reference: string;
@@ -35,7 +40,7 @@ export function ConsignmentDocuments({
     [returns, setReturns] = useState<Return[]>([]),
     [selected, setSelected] = useState<string[]>([]),
     [notes, setNotes] = useState(""),
-    [date, setDate] = useState(new Date().toLocaleDateString("en-CA"));
+    [date, setDate] = useState(shopDay());
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [pdf, setPdf] = useState<{ pdfBase64: string; filename: string } | null>(
@@ -43,8 +48,7 @@ export function ConsignmentDocuments({
     ),
     [returnOpen, setReturnOpen] = useState(false),
     [viewPdf, setViewPdf] = useState(false);
-  const locked = useRef(false),
-    attempt = useRef({ key: "", id: Crypto.randomUUID() });
+  const locked = useRef(false);
   const load = () =>
     Promise.all([
       request<Document[]>(
@@ -58,18 +62,20 @@ export function ConsignmentDocuments({
     void load().catch((e) => setError(String(e.message ?? e)));
   }, [deposit._id]);
   const run = async (fn: () => Promise<void>) => {
+    const epoch=getSessionScope();
     if (locked.current) return;
     locked.current = true;
     setBusy(true);
     setError("");
     try {
       await fn();
-      await load();
+      if(epoch!==getSessionScope())return;
+      await load().catch(()=>{if(epoch===getSessionScope())setError('Opération terminée. Actualisation des documents indisponible ; réessayez leur lecture.');});
     } catch (e) {
+      if(epoch!==getSessionScope())return;
       setError(e instanceof Error ? e.message : "Opération impossible");
     } finally {
-      locked.current = false;
-      setBusy(false);
+      if(epoch===getSessionScope()){locked.current=false;setBusy(false);}
     }
   };
   const button = (label: string, action: () => void, disabled = false) => (
@@ -96,13 +102,13 @@ export function ConsignmentDocuments({
     setViewPdf(true);
   };
   const prepare = async () => {
-    const occurredAt = new Date(`${date}T12:00:00`).getTime();
+    const scope=await captureAccountScope();
+    const occurredAt = shopDayTimestamp(date);
     if (
       !selected.length ||
       !notes.trim() ||
       !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-      !Number.isFinite(occurredAt) ||
-      new Date(occurredAt).toLocaleDateString("en-CA") !== date
+      occurredAt === undefined
     )
       throw new Error(
         "Choisissez les articles, une date valide et leur état à la remise.",
@@ -112,17 +118,16 @@ export function ConsignmentDocuments({
         itemIds: selected,
         occurredAt,
         conditionNotes: notes.trim(),
-      },
-      key = JSON.stringify(input);
-    if (attempt.current.key !== key)
-      attempt.current = { key, id: Crypto.randomUUID() };
+      };
     await request("/consignments/returns/prepare", {
       ...input,
-      operationId: attempt.current.id,
+      operationId: Crypto.randomUUID(),
     });
+    scope.assertActive();
     setReturnOpen(false);
     setSelected([]);
     setNotes("");
+    await finishFinancialAttempt('/consignments/returns/prepare',scope);
   };
   return (
     <View style={{ gap: 12 }}>
@@ -152,7 +157,7 @@ export function ConsignmentDocuments({
       {documents.map((d) => (
         <View key={d.id}>
           {button(
-            `${d.kind === "payment" ? "Justificatif de reversement" : "Décompte"} · ${new Date(d.createdAt).toLocaleDateString("fr-BE")}`,
+            `${d.kind === "payment" ? "Justificatif de reversement" : "Décompte"} · ${documentVersion(d.version)} · ${new Date(d.createdAt).toLocaleDateString("fr-BE", {timeZone: shopTimezone()})}`,
             () => void run(() => open(d.id)),
           )}
         </View>
@@ -168,7 +173,7 @@ export function ConsignmentDocuments({
           }}
         >
           <Text style={{ color: colors.text }}>
-            Restitution du {new Date(r.occurredAt).toLocaleDateString("fr-BE")}{" "}
+            Restitution du {new Date(r.occurredAt).toLocaleDateString("fr-BE", {timeZone: shopTimezone()})}{" "}
             · {r.itemIds.length} article(s)
           </Text>
           <Text style={{ color: colors.secondary }}>
@@ -189,20 +194,7 @@ export function ConsignmentDocuments({
           "Partager le dernier document",
           () =>
             void run(async () => {
-              if (!(await Sharing.isAvailableAsync()))
-                throw new Error("Partage indisponible");
-              const uri = `${FileSystem.cacheDirectory}${pdf.filename.replace(/[^a-z0-9._-]/gi, "-")}`;
-              await FileSystem.writeAsStringAsync(uri, pdf.pdfBase64, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-              try {
-                await Sharing.shareAsync(uri, {
-                  mimeType: "application/pdf",
-                  UTI: "com.adobe.pdf",
-                });
-              } finally {
-                await FileSystem.deleteAsync(uri, { idempotent: true });
-              }
+              await sharePdfFile(pdf.filename,pdf.pdfBase64);
             }),
         )}
       {button(
@@ -266,10 +258,10 @@ export function ConsignmentDocuments({
                   </Text>
                 </Pressable>
               ))}
-            <Field
-              label="Date de remise (AAAA-MM-JJ)"
+            <DateField
+              label="Date de remise"
               value={date}
-              onChangeText={setDate}
+              onChange={setDate}
             />
             <Field
               label="État des articles à la remise"

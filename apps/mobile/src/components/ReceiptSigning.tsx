@@ -1,9 +1,13 @@
+import {captureAccountScope,getSessionScope} from '../auth/session';
+import {documentVersion} from '../data/documentVersion';
+import {formatCost,totalKnownCost} from '../data/inventoryCosts';
+import {MotionModal as Modal} from './MotionModal';
+import {shopTimezone} from '../theme/shopFormatting';
 import { PageTransition } from "./PageTransition";
 import { useTheme } from "../theme/ThemeProvider";
 import { useRef, useState, type ComponentRef } from "react";
 import {
   Alert,
-  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -12,14 +16,12 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
 import type { SignatoryProfile } from "../../../../packages/domain/src/consignmentReceipt";
 import {
   validSignature,
   type Signature,
 } from "../../../../packages/domain/src/signature";
-import { request } from "../data/apiRepository";
+import { request,sharePdfFile } from "../data/apiRepository";
 import { publishSignedArchive } from "../data/receiptDocument";
 import { SignaturePad } from "./SignaturePad";
 import { ReceiptPdfPreview, ReceiptPdfViewer } from "./ReceiptPdfViewer";
@@ -33,12 +35,13 @@ type Draft = {
     client: { name: string; email?: string };
     items: {
       name: string;
-      purchasePriceCents?: number;
-      askingPriceCents?: number;
+      purchasePriceCents?: number | null;
+      askingPriceCents?: number | null;
     }[];
   };
 };
 type Signed = {
+  version?:number;
   id: string;
   signedAt?: number;
   emailStatus: string;
@@ -70,24 +73,8 @@ const emailLabel = (status: string) =>
     failed: "Échec d’envoi : réessayez",
     unknown: "Résultat incertain : vérifiez Brevo avant de renvoyer",
   })[status] ?? status;
-async function share(pdfBase64: string, filename: string) {
-  if (!(await Sharing.isAvailableAsync()))
-    throw new Error("Le partage de PDF est indisponible.");
-  const uri = `${FileSystem.cacheDirectory}${filename.replace(/[^a-z0-9._-]/gi, "-")}`;
-  await FileSystem.writeAsStringAsync(uri, pdfBase64, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  try {
-    await Sharing.shareAsync(uri, {
-      mimeType: "application/pdf",
-      UTI: "com.adobe.pdf",
-    });
-  } finally {
-    await FileSystem.deleteAsync(uri, { idempotent: true }).catch(
-      () => undefined,
-    );
-  }
-}
+type AccountScope=Awaited<ReturnType<typeof captureAccountScope>>;
+const share=(pdf:string,filename:string,scope:AccountScope)=>sharePdfFile(filename,pdf,scope);
 export function ReceiptSigning({
   kind,
   targetId,
@@ -111,7 +98,7 @@ export function ReceiptSigning({
   const [reference, setReference] = useState("");
   const [summary, setSummary] = useState<{
     name: string;
-    amount: number;
+    amount: number | null;
     count: number;
   } | null>(null);
   const [documentAvailable, setDocumentAvailable] = useState(false);
@@ -132,58 +119,48 @@ export function ReceiptSigning({
     [completed, setCompleted] = useState<Signed | null>(null);
   const lock = useRef(false);
   const [preview, setPreview] = useState<string | null>(null);
-  const refresh = async () =>
-    setSigned(
-      (
-        await request<Signed[]>(
-          `/receipts?kind=${kind}&targetId=${encodeURIComponent(targetId)}`,
-        )
-      ).filter((row) => typeof row.signedAt === "number"),
-    );
-  async function run(action: () => Promise<void>) {
-    if (lock.current) return;
-    lock.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      await action();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Opération impossible.");
-    } finally {
-      lock.current = false;
-      setBusy(false);
-    }
+  const refresh = async (scope?:AccountScope) => {
+    scope??=await captureAccountScope();scope.assertActive();
+    const rows=await request<Signed[]>(`/receipts?kind=${kind}&targetId=${encodeURIComponent(targetId)}`);scope.assertActive();
+    setSigned(rows.filter(row=>typeof row.signedAt==='number'));
+  };
+  async function run(action:(scope:AccountScope)=>Promise<void>,originalScope?:AccountScope) {
+    if(lock.current)return;lock.current=true;setBusy(true);setError('');const epoch=getSessionScope();
+    try{const scope=originalScope??await captureAccountScope();scope.assertActive();await action(scope);scope.assertActive();}
+    catch(reason){if(epoch===getSessionScope())setError(reason instanceof Error?reason.message:'Opération impossible.');}
+    finally{if(epoch===getSessionScope()){lock.current=false;setBusy(false);}}
   }
   function goStep(value: number) {
     setStep(value);
     content.current?.scrollTo({ y: 0, animated: false });
   }
-  async function loadOriginal(id: string) {
+  async function loadOriginal(id:string,scope?:AccountScope) {
+    scope??=await captureAccountScope();scope.assertActive();
     const archived = await request<{ pdfBase64: string }>(
       `/receipts/${id}/pdf`,
     );
+    scope.assertActive();
     setSignedPdf(archived.pdfBase64);
     onSigned?.(archived.pdfBase64);
     return archived.pdfBase64;
   }
-  async function prepare() {
+  async function prepare(scope?:AccountScope) {
+    scope??=await captureAccountScope();scope.assertActive();
     const p = await request<SignatoryProfile>("/auth/profile");
+    scope.assertActive();
     setProfile(p);
     if (!p.firstName || !p.lastName || !p.capacity)
       throw new Error(
         "Complétez votre nom et votre qualité dans Compte → Mon signataire boutique.",
       );
     const d = await request<Draft>("/receipts/prepare", { kind, targetId });
+    scope.assertActive();
     setDraft(d);
     setReference(d.snapshot.reference);
     setSummary({
       name: d.snapshot.client.name,
       count: d.snapshot.items.length,
-      amount: d.snapshot.items.reduce(
-        (total, item) =>
-          total + (item.purchasePriceCents ?? item.askingPriceCents ?? 0),
-        0,
-      ),
+      amount: totalKnownCost(d.snapshot.items.map(item=>kind==='purchase'?item.purchasePriceCents:item.askingPriceCents)),
     });
     setDocumentAvailable(false);
     setSignedPdf(null);
@@ -197,7 +174,8 @@ export function ReceiptSigning({
     goStep(0);
     setCompleted(null);
   }
-  async function sign() {
+  async function sign(scope?:AccountScope) {
+    scope??=await captureAccountScope();scope.assertActive();
     if (!draft || !read || !companyAccepted || !accepted) return;
     if (save && profile)
       await request(
@@ -205,11 +183,13 @@ export function ReceiptSigning({
         { ...profile, signature: company },
         "PATCH",
       );
+    scope.assertActive();
     const result = await request<Signed>(`/receipts/${draft.id}/sign`, {
       company,
       client,
       accepted: true,
     });
+    scope.assertActive();
     setSignedPdf(null);
     const final = { ...result, recipient: draft.snapshot.client.email };
     setCompleted(final);
@@ -220,16 +200,14 @@ export function ReceiptSigning({
     setClient([]);
     setCompany([]);
     await publishSignedArchive(
-      () => onSignedPending?.(),
-      async () =>
-        (await request<{ pdfBase64: string }>(`/receipts/${result.id}/pdf`))
-          .pdfBase64,
+      () => {scope.assertActive();onSignedPending?.();},
+      async () => {const resultPdf=await request<{pdfBase64:string}>(`/receipts/${result.id}/pdf`);scope.assertActive();return resultPdf.pdfBase64;},
       (pdf) => {
-        setSignedPdf(pdf);
+        scope.assertActive();setSignedPdf(pdf);
         onSigned?.(pdf);
       },
     );
-    await refresh();
+    await refresh(scope);
     setSigned((rows) =>
       rows.map((row) =>
         row.id === result.id
@@ -241,6 +219,12 @@ export function ReceiptSigning({
           : row,
       ),
     );
+  }
+  async function resend(row:Signed) {
+    const epoch=getSessionScope();
+    try{const scope=await captureAccountScope();scope.assertActive();Alert.alert('Renvoyer cet exemplaire ?',`Destinataire : ${row.recipient}. Vérifiez Brevo si l’envoi précédent est incertain.`,[{text:'Annuler',style:'cancel'},{text:'Envoyer',onPress:()=>void run(async(current)=>{
+      current.assertActive();const result=await request<{emailStatus:string;emailError?:string}>(`/receipts/${row.id}/email`,{});current.assertActive();await refresh(current);current.assertActive();if(completed?.id===row.id)setCompleted({...completed,...result});
+    },scope)}]);}catch(reason){if(epoch===getSessionScope())setError(reason instanceof Error?reason.message:'Envoi indisponible.');}
   }
   const button = (
     label: string,
@@ -355,10 +339,11 @@ export function ReceiptSigning({
     <View style={{ marginVertical: 12 }}>
       {button("Ouvrir le document et les signatures", () => {
         setOpen(true);
-        void run(async () => {
+        void run(async (scope) => {
           const rows = await request<Signed[]>(
             `/receipts?kind=${kind}&targetId=${encodeURIComponent(targetId)}`,
           );
+          scope.assertActive();
           const originals = rows
             .filter((row) => typeof row.signedAt === "number")
             .sort((a, b) => b.signedAt! - a.signedAt!);
@@ -368,8 +353,8 @@ export function ReceiptSigning({
             setSummary(null);
             setReference("");
             goStep(3);
-            await loadOriginal(originals[0].id);
-          } else if (allowSigning) await prepare();
+            await loadOriginal(originals[0].id,scope);
+          } else if (allowSigning) await prepare(scope);
         });
       })}
       <Modal
@@ -544,10 +529,10 @@ export function ReceiptSigning({
                       {button(
                         "Partager le PDF",
                         () =>
-                          void run(async () => {
+                          void run(async (scope) => {
                             await share(
                               draft.pdfBase64,
-                              `${draft.snapshot.reference}.pdf`,
+                              `${draft.snapshot.reference}.pdf`,scope,
                             );
                             setDocumentAvailable(true);
                           }),
@@ -749,10 +734,7 @@ export function ReceiptSigning({
                       ]}
                     >
                       {summary && kind !== "consignment_return"
-                        ? new Intl.NumberFormat("fr-BE", {
-                            style: "currency",
-                            currency: "EUR",
-                          }).format(summary.amount / 100)
+                        ? formatCost(summary.amount)
                         : kind === "consignment_return" && summary
                           ? `${summary.count} article${summary.count > 1 ? "s" : ""} restitué${summary.count > 1 ? "s" : ""}`
                           : "Signé"}
@@ -793,9 +775,9 @@ export function ReceiptSigning({
                       accessibilityRole="button"
                       disabled={busy}
                       onPress={() =>
-                        void run(async () =>
+                        void run(async (scope) =>
                           setPreview(
-                            signedPdf ?? (await loadOriginal(completed.id)),
+                            signedPdf ?? (await loadOriginal(completed.id,scope)),
                           ),
                         )
                       }
@@ -854,10 +836,10 @@ export function ReceiptSigning({
                       accessibilityRole="button"
                       disabled={busy}
                       onPress={() =>
-                        void run(async () =>
+                        void run(async (scope) =>
                           share(
-                            signedPdf ?? (await loadOriginal(completed.id)),
-                            `document-signe-${completed.id}.pdf`,
+                            signedPdf ?? (await loadOriginal(completed.id,scope)),
+                            `document-signe-${completed.id}.pdf`,scope,
                           ),
                         )
                       }
@@ -982,7 +964,7 @@ export function ReceiptSigning({
                       }}
                     >
                       <Text style={{ color: colors.text }}>
-                        {new Date(row.signedAt!).toLocaleString("fr-BE")}
+                        {documentVersion(row.version)} · {new Date(row.signedAt!).toLocaleString("fr-BE", {timeZone: shopTimezone()})}
                       </Text>
                       <Text style={{ color: colors.text }}>
                         {row.recipient || "Adresse e-mail manquante"}
@@ -1001,47 +983,27 @@ export function ReceiptSigning({
                       {button(
                         "Lire l’original signé",
                         () =>
-                          void run(async () => {
+                          void run(async (scope) => {
                             const pdf = await request<{ pdfBase64: string }>(
                               `/receipts/${row.id}/pdf`,
                             );
-                            setPreview(pdf.pdfBase64);
+                            scope.assertActive();setPreview(pdf.pdfBase64);
                           }),
                       )}
                       {button(
                         "Partager l’original signé",
                         () =>
-                          void run(async () => {
+                          void run(async (scope) => {
                             const pdf = await request<{
                               pdfBase64: string;
                               filename: string;
                             }>(`/receipts/${row.id}/pdf`);
-                            await share(pdf.pdfBase64, pdf.filename);
+                            scope.assertActive();await share(pdf.pdfBase64,pdf.filename,scope);
                           }),
                       )}
                       {button(
                         "Envoyer / renvoyer au client",
-                        () =>
-                          Alert.alert(
-                            "Renvoyer cet exemplaire ?",
-                            `Destinataire : ${row.recipient}. Vérifiez Brevo si l’envoi précédent est incertain.`,
-                            [
-                              { text: "Annuler" },
-                              {
-                                text: "Envoyer",
-                                onPress: () =>
-                                  void run(async () => {
-                                    const result = await request<{
-                                      emailStatus: string;
-                                      emailError?: string;
-                                    }>(`/receipts/${row.id}/email`, {});
-                                    await refresh();
-                                    if (completed?.id === row.id)
-                                      setCompleted({ ...completed, ...result });
-                                  }),
-                              },
-                            ],
-                          ),
+                        () => void resend(row),
                         !row.recipient,
                       )}
                     </View>

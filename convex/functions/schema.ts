@@ -1,3 +1,4 @@
+import {activityTables} from '../shared/itemActivity';
 import { allocation } from './inventoryValidators';
 import { signatureValidator } from './signatures';
 import { defineSchema, defineTable } from 'convex/server';
@@ -5,6 +6,12 @@ import { v } from 'convex/values';
 import { salePaymentStatusValidator, salePaymentValidator } from './salePayments';
 
 export default defineSchema({
+  ...activityTables,
+  gradingCompanies: defineTable({
+    name: v.string(), normalizedName: v.string(), abbreviation: v.optional(v.string()),
+    website: v.optional(v.string()), archivedAt: v.optional(v.number()),
+    revision: v.number(), createdBy: v.string(), updatedBy: v.string(), createdAt: v.number(), updatedAt: v.number(),
+  }).index('by_name', ['normalizedName']),
   purchaseEdits: defineTable({ ownerId: v.string(), operationId: v.string(), operationDigest: v.string(), purchaseId: v.id('purchases'), before: v.any(), itemIds: v.array(v.id('items')), createdAt: v.number() }).index('by_owner_operation', ['ownerId', 'operationId']),
   accounts: defineTable({
     email: v.string(),
@@ -65,6 +72,13 @@ export default defineSchema({
     .index('by_owner', ['ownerId'])
     .index('by_seller', ['sellerId']),
   items: defineTable({
+    revision: v.optional(v.number()),
+    variant: v.optional(v.string()),
+    publicAttributes: v.optional(v.record(v.string(),v.string())),
+    privateAttributes: v.optional(v.record(v.string(),v.string())),
+    privateNotes: v.optional(v.string()),
+    catalogueCardId: v.optional(v.string()),
+    catalogueSetId: v.optional(v.string()),
     removedPurchaseId: v.optional(v.id('purchases')),
     ownerId: v.string(),
     operationId: v.string(),
@@ -74,6 +88,7 @@ export default defineSchema({
     productType: v.optional(v.union(v.literal('card'), v.literal('sealed'), v.literal('other'))),
     description: v.optional(v.string()),
     hiddenFromCatalogue: v.optional(v.boolean()),
+    priceVisible: v.optional(v.boolean()),
     commissionRateBps: v.optional(v.number()),
     agreedPriceCents: v.optional(v.number()),
     returnedAt: v.optional(v.number()),
@@ -101,7 +116,7 @@ export default defineSchema({
       ),
     ),
     gradingCompany: v.optional(
-      v.union(v.literal('PSA'), v.literal('CollectAura'), v.literal('PCA'), v.literal('CCC')),
+      v.string(),
     ),
     gradingGrade: v.optional(v.string()),
     gradingCertificate: v.optional(v.string()),
@@ -170,6 +185,10 @@ export default defineSchema({
     .index('by_owner_item_status', ['ownerId', 'itemId', 'status'])
     .index('by_item_status', ['itemId', 'status'])
     .index('by_seller', ['sellerId']),
+  saleCancellations: defineTable({
+    ownerId: v.string(), operationId: v.string(), operationDigest: v.string(),
+    saleId: v.id('sales'), createdAt: v.number(), applied: v.optional(v.boolean()),
+  }).index('by_owner_operation', ['ownerId', 'operationId']).index('by_sale', ['saleId']).index('by_sale_applied', ['saleId', 'applied']),
   salePaymentEvents: defineTable({
     ownerId: v.string(),
     operationId: v.string(),

@@ -29,6 +29,7 @@ test('suggested TTC price reaches the margin on HT revenue, rounded upwards', ()
   }
 });
 test('incomplete and invalid entries never produce a misleading estimate', () => {
+  for(const cost of [null,undefined]) {assert.equal(productProfit(cost,1000,2100,1),null);assert.equal(priceForMargin(cost,2100,30),null);}
   assert.equal(parsePriceInput(' 12,34 '), 1234);
   for (const value of ['', '12,', '-1', '12.345', 'abc'])
     assert.equal(parsePriceInput(value), null);

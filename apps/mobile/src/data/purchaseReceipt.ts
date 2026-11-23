@@ -9,8 +9,9 @@ export type ReceiptInput = {
 const languageName = (id?: string) => id === 'zh' ? 'Chinois' : id === 'en' ? 'Anglais' : id === 'ja' ? 'Japonais' : 'Français';
 const conditionName = (id?: string) => ({ M:'Mint (M)', NM:'Near Mint (NM)', EX:'Excellent (EX)', GD:'Good (GD)', LP:'Light Played (LP)', PL:'Played (PL)', PO:'Poor (PO)' }[id ?? ''] ?? 'Near Mint (NM)');
 export function mapPurchaseReceipt(purchase: Purchase, client: Seller, items: PurchaseItem[] = purchase.items): ReceiptInput {
+  if(items.some(item=>item.purchasePriceCents==null))throw new Error('Coût d’achat non renseigné : complétez le rapprochement avant de générer un nouveau bordereau. Les originaux archivés restent consultables.');
   return { buyerNote: purchase.buyerNote, sellerNote: purchase.sellerNote, reference: purchase.reference, occurredAt: purchase.occurredAt, status: purchase.status, client,
-    items: items.map(item => ({ name:item.name, tcg:item.tcg, series:item.series ?? '', identifier:item.identifier ?? '', language:languageName(item.language), condition:conditionName(item.condition), gradingCompany:item.gradingCompany, gradingGrade:item.gradingGrade, gradingCertificate:item.gradingCertificate, gradingNotes:item.gradingNotes, marketValueCents:item.marketValueCents ?? (item.discountPercent ? Math.round(item.purchasePriceCents/(item.discountPercent/100)) : item.purchasePriceCents), discountPercent:item.discountPercent ?? 70, purchasePriceCents:item.purchasePriceCents })) };
+    items: items.map(item => ({ name:item.name, tcg:item.tcg, series:item.series ?? '', identifier:item.identifier ?? '', language:languageName(item.language), condition:conditionName(item.condition), gradingCompany:item.gradingCompany, gradingGrade:item.gradingGrade, gradingCertificate:item.gradingCertificate, gradingNotes:item.gradingNotes, marketValueCents:item.marketValueCents ?? (item.discountPercent ? Math.round(item.purchasePriceCents!/(item.discountPercent/100)) : item.purchasePriceCents!), discountPercent:item.discountPercent ?? 70, purchasePriceCents:item.purchasePriceCents! })) };
 }
 
 /** Replaces the bounded embedded list with every page of the purchase's articles. */

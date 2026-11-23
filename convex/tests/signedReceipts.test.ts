@@ -103,6 +103,11 @@ test('signatures are per account; saving names preserves a signature, clearing r
   await t.mutation(internal.auth.setSignatoryProfile, { ...profile, signature: null });
   assert.equal((await t.query(internal.auth.signatoryProfile, { id: ownerId })).signature, null);
 });
+test('signed receipt versions retain unsigned draft gaps',async()=>{
+ const {t,ownerId,targetId,draft}=await fixture();
+ await t.run(async ctx=>{const original=await ctx.db.get(draft.id);const {_id,_creationTime,...fields}=original!;await ctx.db.insert('signedReceipts',{...fields,createdAt:fields.createdAt+1,signedAt:fields.createdAt+1});});
+ const rows=await t.query(internal.signedReceipts.list,{ownerId,kind:'purchase',targetId});assert.equal(rows.length,1);assert.equal(rows[0].version,2);
+});
 test('signing rejects changed documents, expired drafts, invalid strokes and another account', async () => {
   const { t, ownerId, otherId, targetId, draft, sign } = await fixture();
   await assert.rejects(

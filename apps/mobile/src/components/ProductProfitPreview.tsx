@@ -1,8 +1,9 @@
+import { formatShopMoney } from '../theme/shopFormatting';
 import { Pressable, Text, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 import { parsePriceInput, priceForMargin, productProfit } from '../data/productProfit';
 
-const money = (value: number) => `${(value / 100).toFixed(2).replace('.', ',')} €`;
+const money = (value: number) => formatShopMoney(value / 100);
 
 export function ProductProfitPreview({
   cost,

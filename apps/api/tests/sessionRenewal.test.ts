@@ -31,7 +31,7 @@ const { env } = await import('../src/env.js');
 const signingKey = await importPKCS8(keys.privateKey, 'RS256');
 async function agedToken(age: number, expiresIn = 3600 - age) {
   const now = Math.floor(Date.now() / 1000);
-  return new SignJWT({ sv: 0 }).setProtectedHeader({ alg: 'RS256' }).setSubject('employee')
+  return new SignJWT({ sv: 0, sessionJti: 'session-id' }).setProtectedHeader({ alg: 'RS256' }).setSubject('employee')
     .setJti('session-id').setIssuer(env.JWT_ISSUER).setAudience(env.JWT_AUDIENCE)
     .setIssuedAt(now - age).setExpirationTime(now + expiresIn).sign(signingKey);
 }
@@ -103,4 +103,14 @@ test('overridden durations control middleware renewal and token lifetime', async
     const token = decodeJwt(response.headers.get('X-Access-Token')!);
     assert.equal(token.exp! - token.iat!, 7200);
   } finally { env.JWT_TTL_SECONDS = oldTtl; env.SESSION_REFRESH_INTERVAL_SECONDS = oldInterval; }
+});
+
+test('both data models bind access tokens to a custom revocable session claim',async()=>{
+ const {verifyToken}=await import('../src/auth/tokens.js');
+ const issued=await issueToken('employee'),claims=decodeJwt(issued);assert.equal(claims.sessionJti,claims.jti);
+ for(const custom of [undefined,'other-session']){
+  const now=Math.floor(Date.now()/1000);
+  const invalid=await new SignJWT({sv:0,...(custom?{sessionJti:custom}:{})}).setProtectedHeader({alg:'RS256'}).setSubject('employee').setJti('session-id').setIssuer(env.JWT_ISSUER).setAudience(env.JWT_AUDIENCE).setIssuedAt(now).setExpirationTime(now+3600).sign(signingKey);
+  await assert.rejects(()=>verifyToken(invalid),/INVALID_SESSION/);
+ }
 });

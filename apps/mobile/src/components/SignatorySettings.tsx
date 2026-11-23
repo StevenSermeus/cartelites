@@ -10,7 +10,7 @@ export function SignatorySettings({
 }: {
   onEditingChange?: (editing: boolean) => void;
 }) {
-  const { colors } = useTheme();
+  const { colors, shopName } = useTheme();
 
   const [saved, setSaved] = useState<SignatoryProfile>({
     firstName: '',
@@ -154,7 +154,7 @@ export function SignatorySettings({
                 'Signataire à configurer'}
             </Text>
             <Text style={[{ color: colors.text }, { fontSize: 12, color: colors.secondary }]}>
-              Cartélites{saved.capacity ? ` · ${saved.capacity}` : ''}
+              {shopName}{saved.capacity ? ` · ${saved.capacity}` : ''}
             </Text>
           </View>
           <Text

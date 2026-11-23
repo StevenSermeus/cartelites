@@ -61,3 +61,10 @@ test('stock query validates product types without stripping the selected filter'
   assert.equal(readPageQuery.safeParse({productType:'invalid'}).success, false);
   assert.equal(readPageQuery.parse({}).productType, undefined);
 });
+
+
+test('staff stock filters accept the same100-character grading-company names as editable records and Convention',async()=>{
+ const {readPageQuery}=await import('../src/routes/paginatedReads.js');
+ for(const length of [41,100])assert.equal(readPageQuery.parse({gradingCompany:'A'.repeat(length)}).gradingCompany,'A'.repeat(length));
+ assert.equal(readPageQuery.safeParse({gradingCompany:'A'.repeat(101)}).success,false);
+});

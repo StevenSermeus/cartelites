@@ -1,6 +1,7 @@
+import {MotionModal as Modal} from './MotionModal';
 import { useTheme } from '../theme/ThemeProvider';
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Pdf from 'react-native-pdf';
 

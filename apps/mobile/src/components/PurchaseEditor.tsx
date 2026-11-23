@@ -1,14 +1,21 @@
+import {SeriesField} from './SeriesField';
+import {captureAccountScope,getSessionScope} from '../auth/session';
+import {useGradingCompanies,invalidateGradingCompanies} from '../data/useGradingCompanies';
+import {gradingPayload,gradingFailure} from '../data/gradingCompanies';
+import {MotionModal as Modal} from './MotionModal';
+import {MarketPricePanel} from './MarketPricePanel';
+import { formatShopMoney, shopCurrency } from '../theme/shopFormatting';
 import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useState, useRef, type Dispatch, type SetStateAction } from 'react';
 import {
   View,
   Text,
   Image,
   Pressable,
   StyleSheet,
-  Modal,
   ScrollView,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   TextInput,
   ActionSheetIOS,
@@ -18,7 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Field } from './Field';
 import { PurchaseValuation } from './PurchaseValuation';
 import { purchaseValuation } from '../data/purchaseValuation';
-import type { PurchaseDraft } from '../data/apiRepository';
+import { request, type PurchaseDraft } from '../data/apiRepository';
 import { AttachmentPreview } from './AttachmentPreview';
 import type { Tcg } from '../../../../packages/domain/src/riftbound';
 const amount = (v: string) => Number(v.replace(',', '.')) || 0;
@@ -26,7 +33,7 @@ export const purchaseTotal = (rows: PurchaseDraft[]) =>
   rows
     .filter((r) => r.included)
     .reduce((s, r) => s + Math.round(amount(r.marketValue) * amount(r.discountPercent)), 0) / 100;
-const money = (n: number) => `${n.toFixed(2).replace('.', ',')} €`;
+const money = (n: number) => formatShopMoney(n);
 function Button({
   title,
   onPress,
@@ -53,8 +60,8 @@ function Button({
         s.button,
         selected && s.selected,
         primary && {
-          backgroundColor: colors.accent,
-          borderColor: colors.accent,
+          backgroundColor: colors.primary,
+          borderColor: colors.primary,
           minHeight: 49,
           borderRadius: 13,
         },
@@ -64,7 +71,7 @@ function Button({
       <Text
         style={[
           { color: colors.text },
-          [s.buttonText, primary && { color: colors.onAccent, textAlign: 'center' }],
+          [s.buttonText, primary && { color: colors.onPrimary, textAlign: 'center' }],
         ]}
       >
         {title}
@@ -76,7 +83,7 @@ type Props = {
   rows: PurchaseDraft[];
   setRows: Dispatch<SetStateAction<PurchaseDraft[]>>;
   fresh: () => PurchaseDraft;
-  search: (d: PurchaseDraft) => Promise<void>;
+  search: (d: PurchaseDraft, page?: number) => Promise<void>;
   select: (d: PurchaseDraft, c: PurchaseDraft['cardResults'][number]) => Promise<void>;
   changeTcg: (d: PurchaseDraft, t: Tcg, reset?: boolean) => void;
   changeLanguage: (d: PurchaseDraft, l: 'fr' | 'en' | 'ja' | 'zh') => Promise<void>;
@@ -227,20 +234,25 @@ export function PurchaseEditor({
                   <Text style={{ color: colors.text }}>Retirer la photo</Text>
                 </Pressable>
               )}
+              {draft.tcg !== 'riftbound' && <View style={s.wrap}>
+                {(['fr', 'en', 'ja', 'zh'] as const).map(language => <Button key={language} title={{fr: 'Français', en: 'Anglais', ja: 'Japonais', zh: 'Chinois'}[language]} selected={draft.language === language} onPress={() => patch(draft.key, {language, cardResults: [], searchPage: undefined, searchHasMore: false, searchMessage: '', searching: false})} />)}
+              </View>}
               <Field
-                label="Nom ou numéro de carte"
+                label="Nom, numéro ou promo"
                 value={draft.cardSearch}
-                onChangeText={(v) => patch(draft.key, { cardSearch: v })}
-                placeholder={draft.tcg === 'riftbound' ? 'Sett, OGN-…' : 'Pikachu, 151/165…'}
+                onChangeText={(v) => patch(draft.key, { cardSearch: v, cardResults: [], searchPage: undefined, searchHasMore: false, searchMessage: '', searching: false })}
+                placeholder={draft.tcg === 'riftbound' ? 'Sett, OGN-…' : '60/106 · XY95 · 001/XY-P'}
               />
               <Button
                 title={draft.searching ? 'Recherche…' : 'Rechercher'}
                 disabled={draft.searching || !draft.cardSearch.trim()}
                 onPress={() => {
+                  Keyboard.dismiss();
                   setPage(0);
                   void search(draft);
                 }}
               />
+              {!!draft.searchMessage && <Text accessibilityLiveRegion="polite" style={{color: colors.secondary}}>{draft.searchMessage}</Text>}
               {draft.cardResults.length > 0 && (
                 <>
                   <Text style={[{ color: colors.text }, s.muted]}>
@@ -266,7 +278,7 @@ export function PurchaseEditor({
                         )}
                         <Text style={[{ color: colors.text }, s.name]}>{card.name}</Text>
                         <Text style={[{ color: colors.text }, s.muted]}>
-                          {card.setName ?? card.id} · {card.localId} · {card.language.toUpperCase()}
+                          {card.setName ?? card.id} · {card.printedNumber ?? card.localId} · {card.language.toUpperCase()}
                         </Text>
                       </Pressable>
                     ))}
@@ -290,6 +302,7 @@ export function PurchaseEditor({
                   )}
                 </>
               )}
+              {draft.searchHasMore && <Button title={draft.searching ? 'Chargement…' : 'Charger les résultats suivants'} disabled={draft.searching} onPress={() => void search(draft, (draft.searchPage ?? 1) + 1)} />}
               <Button
                 title={manual ? 'Fermer la saisie manuelle' : 'Saisie manuelle'}
                 onPress={() => setManual(!manual)}
@@ -301,8 +314,8 @@ export function PurchaseEditor({
                     value={draft.name}
                     onChangeText={(v) => patch(draft.key, { name: v })}
                   />
-                  <Field
-                    label="Série"
+                  <SeriesField
+                    tcg={draft.tcg ?? 'pokemon'}
                     value={draft.series}
                     onChangeText={(v) => patch(draft.key, { series: v })}
                   />
@@ -404,6 +417,9 @@ export function PurchaseEditor({
                 <Text style={s.muted}>Identification et estimation de la carte</Text>
                 <View style={s.identityGroup}>{identity(item)}</View>
                 <View style={s.formGroup}>
+                  {inputRow('Nom de la carte', item.name, value => patch(item.key, {name: value}))}
+                  <SeriesField compact tcg={item.tcg ?? 'pokemon'} value={item.series} onChangeText={value => patch(item.key, {series: value})} />
+                  {inputRow('Numéro', item.identifier, value => patch(item.key, {identifier: value}))}
                   {selectRow(
                     'Langue',
                     { fr: 'Français', en: 'Anglais', ja: 'Japonais', zh: 'Chinois' }[item.language],
@@ -452,26 +468,7 @@ export function PurchaseEditor({
                         })),
                       ),
                   )}
-                  {selectRow(
-                    'Gradation',
-                    item.gradingCompany
-                      ? `${item.gradingCompany} ${item.gradingGrade ?? ''}`.trim()
-                      : 'Non gradée',
-                    () =>
-                      choose(
-                        'Gradation',
-                        (['', 'PSA', 'CollectAura', 'PCA', 'CCC'] as const).map((company) => ({
-                          label: company || 'Non gradée',
-                          apply: () =>
-                            patch(item.key, {
-                              gradingCompany: company || undefined,
-                              gradingGrade: '',
-                              gradingCertificate: '',
-                              gradingNotes: '',
-                            }),
-                        })),
-                      ),
-                  )}
+                  <GradingCompanyPicker value={item.gradingCompany} onChange={company => patch(item.key, { gradingCompany: company || undefined, gradingGrade: '', gradingCertificate: '', gradingNotes: '' })} />
                   {item.gradingCompany && (
                     <>
                       {inputRow('Note', item.gradingGrade ?? '', (v) =>
@@ -486,7 +483,7 @@ export function PurchaseEditor({
                     </>
                   )}
                   {inputRow(
-                    'Cote du marché (€)',
+                    `Cote du marché (${shopCurrency()})`,
                     item.marketValue,
                     (v) =>
                       patch(item.key, {
@@ -542,12 +539,12 @@ export function PurchaseEditor({
                   {advanced && (
                     <>
                       {inputRow('Nom', item.name, (v) => patch(item.key, { name: v }))}
-                      {inputRow('Série', item.series, (v) => patch(item.key, { series: v }))}
+                      <SeriesField compact tcg={item.tcg ?? 'pokemon'} value={item.series} onChangeText={value => patch(item.key, {series: value})} />
                       {inputRow('Numéro', item.identifier, (v) =>
                         patch(item.key, { identifier: v }),
                       )}
                       {inputRow(
-                        'Prix de vente (€)',
+                        `Prix de vente (${shopCurrency()})`,
                         item.askingPriceTouched ? item.askingPrice : item.marketValue,
                         (v) => patch(item.key, { askingPrice: v, askingPriceTouched: true }),
                         true,
@@ -555,6 +552,7 @@ export function PurchaseEditor({
                     </>
                   )}
                 </View>
+                <MarketPricePanel name={item.name} identifier={item.identifier} series={item.series} language={item.language} gradingCompany={item.gradingCompany} gradingGrade={item.gradingGrade} />
                 <AttachmentPreview current={item.photo} onUse={(file) => photo(item.key, file)} />
                 {item.photo && (
                   <Pressable
@@ -859,3 +857,36 @@ const createStyles = (colors: ThemeColors) =>
       gap: 8,
     },
   });
+
+export function GradingCompanyPicker({value, onChange}: {value?: string; onChange: (value: string) => void}) {
+  const {colors} = useTheme();
+  const {companies,loading,error:loadError,reload}=useGradingCompanies();
+  const lock=useRef(false);
+  const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function create() {
+    if(lock.current)return;lock.current=true;setBusy(true);setError('');const epoch=getSessionScope();
+    try{const scope=await captureAccountScope();scope.assertActive();const body=gradingPayload({name,abbreviation:'',website:''});await request('/grading-companies',body);scope.assertActive();invalidateGradingCompanies();onChange(body.name);setName('');setCreating(false);}
+    catch(reason){if(epoch===getSessionScope())setError(gradingFailure(reason));}
+    finally{if(epoch===getSessionScope()){lock.current=false;setBusy(false);}}
+  }
+  return <View style={{padding: 12, gap: 8}}>
+    <Text style={{color: colors.secondary}}>Société de gradation</Text>
+    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6}}>
+      <Button title="Non gradée" selected={!value} onPress={() => onChange('')} />
+      {companies.filter(company=>!company.archivedAt).map(company => <Button key={company._id} title={company.name} selected={value === company.name} onPress={() => onChange(company.name)} />)}
+      {value && !companies.some(company => company.name === value&&!company.archivedAt) && <Text style={{color: colors.text}}>{value}</Text>}
+    </View>
+    {!creating && <Button title="Ajouter une société" onPress={() => setCreating(true)} />}
+    {creating && <>
+    <Field label="Ajouter une société de gradation" value={name} onChangeText={setName} placeholder="Nom de la société" />
+    <Button title={busy ? 'Enregistrement…' : 'Ajouter la société'} disabled={busy || !name.trim()} onPress={()=>void create()} />
+    <Button title="Annuler" disabled={busy} onPress={() => { setCreating(false); setName(''); }} />
+    </>}
+    {loading&&<Text accessibilityLiveRegion="polite" style={{color:colors.secondary}}>Chargement des sociétés…</Text>}
+    {!!(error||loadError)&&<Text accessibilityRole="alert" style={{color:colors.danger}}>{error||loadError}</Text>}
+    {!!loadError&&<Button title="Réessayer le chargement" disabled={loading} onPress={()=>void reload()}/>}
+  </View>;
+}

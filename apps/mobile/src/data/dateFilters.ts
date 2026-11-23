@@ -1,14 +1,7 @@
+import {shopDayTimestamp} from './shopCalendar';
 export function dateFilters(fromText: string, toText: string) {
   function parse(text: string, end: boolean) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return undefined;
-    const [year, month, day] = text.split("-").map(Number);
-    const date = new Date(`${text}T${end ? "23:59:59.999" : "00:00:00"}`);
-    return Number.isFinite(date.getTime()) &&
-      date.getFullYear() === year &&
-      date.getMonth() === month - 1 &&
-      date.getDate() === day
-      ? date.getTime()
-      : undefined;
+    return shopDayTimestamp(text,end?23:0,end?59:0,end?59:0,end?999:0);
   }
   const from = parse(fromText, false),
     to = parse(toText, true);

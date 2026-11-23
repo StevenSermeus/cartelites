@@ -6,7 +6,9 @@ const privateKey = importPKCS8(env.JWT_PRIVATE_KEY_PEM.replace(/\\n/g, '\n'), 'R
 const publicKey = importSPKI(env.JWT_PUBLIC_KEY_PEM.replace(/\\n/g, '\n'), 'RS256');
 export async function issueToken(subject: string, sessionVersion = 0, sessionId: string = randomUUID()) {
   const key = await privateKey;
-  return new SignJWT({ sv: sessionVersion, refreshAfter: env.SESSION_REFRESH_INTERVAL_SECONDS })
+  // Convex drops JWT jti from UserIdentity; this custom claim binds direct calls
+  // to the same revocable session checked by Hono in both data models.
+  return new SignJWT({ sv: sessionVersion, refreshAfter: env.SESSION_REFRESH_INTERVAL_SECONDS, sessionJti: sessionId })
     .setProtectedHeader({ alg: 'RS256', typ: 'JWT', kid: 'tcg-rs256-v1' })
     .setSubject(subject)
     .setIssuer(env.JWT_ISSUER)
@@ -26,6 +28,7 @@ export async function verifyToken(token: string) {
   if (
     protectedHeader.alg !== 'RS256' ||
     payload.scope !== undefined ||
+    payload.sessionJti !== payload.jti ||
     !payload.sub ||
     !payload.jti ||
     !Number.isFinite(payload.exp) ||

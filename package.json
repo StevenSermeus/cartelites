@@ -11,7 +11,10 @@
     "dev:api": "pnpm --filter @tcg-marge/api dev",
     "dev:web": "pnpm --filter @tcg-marge/web dev",
     "dev:mobile": "pnpm --filter @tcg-marge/mobile start",
-    "dev:convex": "pnpm --filter @tcg-marge/backend dev"
+    "dev:convex": "pnpm --filter @tcg-marge/backend dev",
+    "test": "node --import ./apps/api/node_modules/tsx/dist/loader.mjs --test packages/domain/tests/*.test.ts packages/realtime/tests/*.test.ts apps/api/tests/*.test.ts convex/tests/*.test.ts convex/rebuild/tests/*.test.ts apps/mobile/tests/*.test.ts apps/web/tests/*.test.ts",
+    "build": "pnpm --filter @tcg-marge/api build && pnpm --filter @tcg-marge/web build",
+    "data:reimport": "node --import ./apps/api/node_modules/tsx/dist/loader.mjs apps/api/scripts/migration/import-convex.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",

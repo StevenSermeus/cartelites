@@ -1,7 +1,16 @@
+import {completeGiftExport,giftPageQuery} from '../data/giftExport';
+import {creationBackTarget} from '../navigation/creationBack';
+import {MotionModal as Modal} from './MotionModal';
+import {captureAccountScope,getSessionScope} from '../auth/session';
+import type {AttemptContext} from '../data/submittedAttempt';
+import {shopDay,shopDayTimestamp} from '../data/shopCalendar';
+import {costCsv, summarizeGiftCosts} from '../data/inventoryCosts';
+import {DateField} from './DateField';
+import { formatShopMoney, formatShopDate, shopCurrency } from '../theme/shopFormatting';
+import { GradingCompanyPicker } from './PurchaseEditor';
 import { useEffect, useRef, useState, type ReactNode, type ComponentRef } from 'react';
 import {
   Alert,
-  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -12,8 +21,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Crypto from 'expo-crypto';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
 import { useTheme } from '../theme/ThemeProvider';
 import { Field } from './Field';
 import { AttachmentPreview } from './AttachmentPreview';
@@ -24,7 +31,9 @@ import { ProductEditor } from './ProductEditor';
 import { ProductProfitPreview } from './ProductProfitPreview';
 import { usePagedData } from '../data/usePagedData';
 import {
-  request,
+  request,shareCsvFile,
+  finishFinancialAttempt,
+  uploadCurrentFinancialFiles,
   uploadAttachment,
   openAttachment,
   type Item,
@@ -151,18 +160,13 @@ const count = (value: string) => {
   if (!Number.isSafeInteger(n) || n < 1) throw new Error('Indiquez une quantité entière positive.');
   return n;
 };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = shopDay;
 function timestamp(value: string) {
-  const n = Date.parse(value + 'T12:00:00');
-  if (
-    !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
-    !Number.isFinite(n) ||
-    new Date(n).toISOString().slice(0, 10) !== value
-  )
-    throw new Error('Date invalide (AAAA-MM-JJ).');
-  return n;
+  const result=shopDayTimestamp(value);
+  if(result===undefined)throw new Error('Date invalide (AAAA-MM-JJ).');
+  return result;
 }
-const money = (n: number) => (n / 100).toFixed(2) + ' €';
+const money = (n: number | null | undefined) => n == null ? 'Non renseigné' : formatShopMoney(n / 100);
 type Product = {
   tcg?: Item['tcg'];
   name: string;
@@ -194,10 +198,11 @@ type Gift = {
   recipient?: string;
   reason: string;
   note?: string;
-  costCents?: number;
+  costCents?: number | null;
+  reversalAvailable?: boolean;
   cancelledAt?: number;
   purchaseReference?: string;
-  lotSources: { reference?: string; supplier?: string; quantity: number; costCents: number }[];
+  lotSources: { reference?: string; supplier?: string; quantity: number; costCents: number | null }[];
 };
 type Page<T> = { page: T[]; continueCursor: string; isDone: boolean };
 type Details = {
@@ -206,10 +211,10 @@ type Details = {
   lots: {
     _id: string;
     remaining: number;
-    remainingCostCents: number;
+    remainingCostCents: number | null;
     receipt?: { supplier: string; reference: string } | null;
   }[];
-  openings: { _id: string; quantity: number; packSize: number; cancelledAt?: number }[];
+  openings: { _id: string; quantity: number; packSize: number; cancelledAt?: number; reversalAvailable?: boolean }[];
 };
 function ProductPicker({ onPick, onClose }: { onPick: (item: Item) => void; onClose: () => void }) {
   const [search, setSearch] = useState('');
@@ -238,7 +243,7 @@ export function InventoryManager({
   item?: Item;
   onChanged: () => Promise<void>;
 }) {
-  const { colors } = useTheme();
+  const { colors,reduceMotion } = useTheme();
   const [mode, setMode] = useState<
     'supplier' | 'gift' | 'opening' | 'photos' | 'gifts' | 'receipts' | null
   >(null);
@@ -293,17 +298,15 @@ export function InventoryManager({
       _id: string;
       supplier: string;
       reference: string;
-      totalCostCents: number;
+      totalCostCents: number | null;
       itemIds: string[];
     }[]
   >([]);
-  function operation(path: string, body: Record<string, unknown>) {
-    const signature = JSON.stringify([path, body]);
-    if (!attempts.current.has(signature)) attempts.current.set(signature, Crypto.randomUUID());
+  function operation(path: string, body: Record<string, unknown>, context:AttemptContext={}) {
     return request<{ result: any }>(path, {
       ...body,
-      operationId: attempts.current.get(signature),
-    });
+      operationId: Crypto.randomUUID(),
+    },'POST',context);
   }
   async function upload(
     target: 'itemId' | 'supplierReceiptId' | 'giftId',
@@ -315,6 +318,7 @@ export function InventoryManager({
     return uploadAttachment(target, id, file, attempts.current.get(key));
   }
   async function run(action: () => Promise<void>) {
+    const epoch=getSessionScope();
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
@@ -323,11 +327,11 @@ export function InventoryManager({
     try {
       await action();
     } catch (e) {
+      if(epoch!==getSessionScope())return;
       setError(e instanceof Error ? e.message : 'Opération impossible. Réessayez.');
-      if (mode === 'supplier') supplierScroll.current?.scrollTo({ y: 0, animated: true });
+      if (mode === 'supplier') supplierScroll.current?.scrollTo({ y: 0, animated: !reduceMotion });
     } finally {
-      lock.current = false;
-      setBusy(false);
+      if(epoch===getSessionScope()){lock.current = false;setBusy(false);}
     }
   }
   async function loadDetails() {
@@ -346,12 +350,16 @@ export function InventoryManager({
     );
   }
   function close() {
-    setEvidence([]);
-    if (busy) return;
-    setMode(null);
-    setError('');
-    setMessage('');
-    setPicker(false);
+    if(busy)return;
+    const finish=()=>{setEvidence([]);setMode(null);setError('');setMessage('');setPicker(false);};
+    if(mode==='supplier'&&(supplier.trim()||reference.trim()||date!==today()||lines.length||invoice||productInProgress)) {
+      Alert.alert('Fermer la réception ?',saved?'La réception est enregistrée. Les pièces restantes sont accessibles dans « Opérations à vérifier ».':'Votre saisie reste en mémoire tant que ce compte reste ouvert. Elle n’est pas encore enregistrée dans le stock.',[{text:'Continuer la saisie',style:'cancel'},{text:'Fermer',onPress:finish}]);
+    }else finish();
+  }
+  function goBack() {
+    const target=creationBackTarget(mode==='supplier'?step:0,busy,!!saved);
+    if(target.kind==='close'){close();return;}
+    if(target.kind==='step'){Keyboard.dismiss();setStep(target.step);setError('');setMessage('');supplierScroll.current?.scrollTo({y:0,animated:false});}
   }
   function pick(i: Item) {
     setExisting(i);
@@ -415,29 +423,13 @@ export function InventoryManager({
       taxRateBps: cents(rate),
     };
   }
-  function boundary(value: string, end = false) {
-    timestamp(value);
-    return Date.parse(value + (end ? 'T23:59:59.999' : 'T00:00:00'));
-  }
   async function loadGifts(next?: string) {
-    const page: Page<Gift> = await request<Page<Gift>>(
-      `/gifts?from=${boundary(from)}&to=${boundary(to, true)}${next ? '&cursor=' + encodeURIComponent(next) : ''}`,
-    );
-    setGifts(next ? gifts.concat(page.page) : page.page);
-    setCursor(page.isDone ? null : page.continueCursor);
+    const page:Page<Gift>=await request(`/gifts?${giftPageQuery(from,to,next)}`);
+    setGifts(next?gifts.concat(page.page):page.page);setCursor(page.isDone?null:page.continueCursor);
   }
   async function exportGifts() {
-    let next: string | null = null,
-      rows: Gift[] = [];
-    do {
-      const page: Page<Gift> = await request<Page<Gift>>(
-        `/gifts?from=${boundary(from)}&to=${boundary(to, true)}${next ? '&cursor=' + encodeURIComponent(next) : ''}`,
-      );
-      rows.push(...page.page);
-      if (rows.length > 10000)
-        throw new Error('Réduisez la période (maximum 10 000 dons par export).');
-      next = page.isDone ? null : page.continueCursor;
-    } while (next);
+    const scope=await captureAccountScope();scope.assertActive();
+    const rows=await completeGiftExport<Gift>(cursor=>request<Page<Gift>>(`/gifts?${giftPageQuery(from,to,cursor)}`),scope.assertActive);
     const escape = (v: unknown) =>
       '"' +
       String(v ?? '')
@@ -454,19 +446,19 @@ export function InventoryManager({
           'Bénéficiaire',
           'Motif',
           'Note',
-          'Coût connu EUR',
+          `Coût connu ${shopCurrency()}`,
           'Référence achat',
           'Fournisseur',
           'Statut',
         ],
         ...rows.map((g) => [
-          new Date(g.occurredAt).toISOString().slice(0, 10),
+          shopDay(g.occurredAt),
           g.itemName,
           g.quantity,
           g.recipient,
           g.reason,
           g.note,
-          g.costCents === undefined ? 'Non renseigné' : (g.costCents / 100).toFixed(2),
+          costCsv(g.costCents),
           g.purchaseReference || g.lotSources.map((s) => s.reference).join(' / '),
           g.lotSources.map((s) => s.supplier).join(' / '),
           g.cancelledAt ? 'Annulé' : 'Actif',
@@ -479,7 +471,7 @@ export function InventoryManager({
           '',
           '',
           (
-            rows.filter((g) => !g.cancelledAt).reduce((sum, g) => sum + (g.costCents ?? 0), 0) / 100
+            summarizeGiftCosts(rows).knownCents / 100
           ).toFixed(2),
           '',
           '',
@@ -488,7 +480,7 @@ export function InventoryManager({
         [
           '',
           'DONS ACTIFS AU COÛT INCONNU',
-          rows.filter((g) => !g.cancelledAt && g.costCents === undefined).length,
+          summarizeGiftCosts(rows).unknownCount,
           '',
           '',
           '',
@@ -500,14 +492,7 @@ export function InventoryManager({
       ]
         .map((r) => r.map(escape).join(';'))
         .join('\r\n');
-    const path = FileSystem.cacheDirectory + 'dons-' + Date.now() + '.csv';
-    await FileSystem.writeAsStringAsync(path, csv);
-    if (!(await Sharing.isAvailableAsync()))
-      throw new Error('Le partage de fichiers est indisponible.');
-    await Sharing.shareAsync(path, {
-      mimeType: 'text/csv',
-      UTI: 'public.comma-separated-values-text',
-    });
+    await shareCsvFile(`dons-${Date.now()}.csv`,csv,scope);
   }
   const supplierTotal = lines.reduce((sum, line) => sum + line.quantity * line.unitCostCents, 0);
   const supplierUnits = lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -553,7 +538,7 @@ export function InventoryManager({
     setStep(next);
     setError('');
     setMessage('');
-    supplierScroll.current?.scrollTo({ y: 0, animated: true });
+    supplierScroll.current?.scrollTo({ y: 0, animated: !reduceMotion });
   }
   function addSupplierLine() {
     if (lines.length >= 50) throw new Error('Une réception peut contenir au maximum 50 produits.');
@@ -594,9 +579,11 @@ export function InventoryManager({
     resetProductFields();
     Keyboard.dismiss();
     setMessage(`${nextProduct.name} ajouté. Ajoutez un autre produit ou vérifiez la réception.`);
-    supplierScroll.current?.scrollTo({ y: 0, animated: true });
+    supplierScroll.current?.scrollTo({ y: 0, animated: !reduceMotion });
   }
   async function saveSupplierReceipt() {
+    const scope=await captureAccountScope();
+    if(saved)throw new Error('Réception déjà enregistrée. Ouvrez « Opérations à vérifier » pour envoyer les pièces jointes initiales.');
     validateSupplier();
     if (!lines.length) throw new Error('Ajoutez au moins un produit avant de valider.');
     let result = saved;
@@ -606,27 +593,13 @@ export function InventoryManager({
         reference,
         occurredAt: timestamp(date),
         lines: lines.map(({ photos, ...l }) => l),
-      });
+      },{files:[...(invoice?[{target:'supplierReceiptId' as const,file:invoice,operationId:Crypto.randomUUID()}]:[]),...lines.flatMap((line,index)=>line.photos.map(file=>({target:'itemId' as const,index,file,operationId:Crypto.randomUUID()})))]});
       result = response.result;
+      scope.assertActive();
       setSaved(result);
     }
-    const done = [...uploaded];
-    const send = async (
-      key: string,
-      target: 'itemId' | 'supplierReceiptId',
-      id: string,
-      file: AttachmentFile,
-    ) => {
-      if (done.includes(key)) return;
-      await upload(target, id, file);
-      done.push(key);
-      setUploaded([...done]);
-    };
-    if (invoice) await send('invoice', 'supplierReceiptId', result!.id, invoice);
-    for (const [i, line] of lines.entries())
-      for (const [j, file] of line.photos.entries())
-        await send(`${i}:${j}`, 'itemId', result!.itemIds[i], file);
-    await onChanged();
+    await uploadCurrentFinancialFiles('/supplier-receipts',scope);
+    scope.assertActive();
     setMessage('Stock et pièces jointes enregistrés.');
     setLines([]);
     setSaved(null);
@@ -638,8 +611,11 @@ export function InventoryManager({
     setSupplier('');
     setDate(today());
     resetProductFields();
+    await finishFinancialAttempt('/supplier-receipts',scope);
+    await onChanged().catch(()=>{scope.assertActive();setMessage('Réception enregistrée. Actualisez le stock pour charger les dernières données.');});
+    scope.assertActive();
     Keyboard.dismiss();
-    supplierScroll.current?.scrollTo({ y: 0, animated: true });
+    supplierScroll.current?.scrollTo({ y: 0, animated: !reduceMotion });
   }
   const activeItem = details?.item ?? item;
   return (
@@ -696,7 +672,7 @@ export function InventoryManager({
                 setMode('gift');
               }}
             />
-          )}{' '}
+          )}
           {item.origin === 'supplier' && item.format === 'display' && (
             <InventoryButton
               label="Ouvrir un display"
@@ -716,11 +692,6 @@ export function InventoryManager({
           {item.origin === 'supplier' && (
             <>
               <Copy>{activeItem?.quantity ?? 0} exemplaire(s) disponibles</Copy>
-              <InventoryButton
-                secondary
-                label="Lots et provenance"
-                onPress={() => setMode('photos')}
-              />
             </>
           )}
         </Panel>
@@ -729,7 +700,7 @@ export function InventoryManager({
         visible={!!mode}
         animationType="slide"
         presentationStyle="fullScreen"
-        onRequestClose={close}
+        onRequestClose={goBack}
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
           <KeyboardAvoidingView
@@ -746,9 +717,8 @@ export function InventoryManager({
                   minHeight: 52,
                 }}
               >
-                <Text style={{ color: colors.text, fontWeight: '600', fontSize: 17 }}>
-                  Entrée en stock
-                </Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={step>0&&!saved?'Retour à l’étape précédente':'Retour au stock'} disabled={busy} onPress={goBack} style={{minHeight:44,justifyContent:'center',paddingRight:12}}><Text style={{color:colors.accent,fontSize:17}}>‹ Retour</Text></Pressable>
+                <Text style={{color:colors.text,fontWeight:'600',fontSize:17,flex:1}}>Entrée en stock</Text>
                 <Pressable
                   accessibilityRole="button"
                   disabled={busy}
@@ -787,7 +757,7 @@ export function InventoryManager({
                       ],
                       gift: 'Donner / Offrir',
                       opening: 'Ouvrir un display',
-                      photos: 'Photos et lots',
+                      photos: 'Photos et justificatifs',
                       gifts: 'Dons et cadeaux',
                       receipts: 'Achats fournisseurs',
                     } as Record<string, string>
@@ -838,7 +808,7 @@ export function InventoryManager({
                           value={reference}
                           onChangeText={setReference}
                         />
-                        <Field label="Date (AAAA-MM-JJ)" value={date} onChangeText={setDate} />
+                        <DateField label="Date" value={date} onChange={setDate} />
                       </Panel>
                       <Panel>
                         <SectionHeading
@@ -974,19 +944,7 @@ export function InventoryManager({
                                     />
                                   ))}
                                 </View>
-                                <Copy>Gradation (facultatif)</Copy>
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                  {([undefined, 'PSA', 'CollectAura', 'PCA', 'CCC'] as const).map(
-                                    (c) => (
-                                      <InventoryButton
-                                        key={c ?? 'none'}
-                                        secondary={gradingCompany !== c}
-                                        label={c ?? 'Non gradée'}
-                                        onPress={() => setGradingCompany(c)}
-                                      />
-                                    ),
-                                  )}
-                                </View>
+                                <GradingCompanyPicker value={gradingCompany} onChange={value => setGradingCompany(value || undefined)} />
                                 {gradingCompany && (
                                   <>
                                     <Field label="Note" value={grade} onChangeText={setGrade} />
@@ -1014,7 +972,7 @@ export function InventoryManager({
                           keyboardType="decimal-pad"
                         />
                         <Field
-                          label="Coût unitaire HT (€)"
+                          label={`Coût unitaire HT (${shopCurrency()})`}
                           value={cost}
                           onChangeText={setCost}
                           keyboardType="decimal-pad"
@@ -1022,7 +980,7 @@ export function InventoryManager({
                         {!existing && (
                           <>
                             <Field
-                              label="Prix de vente unitaire TTC (€)"
+                              label={`Prix de vente unitaire TTC (${shopCurrency()})`}
                               value={price}
                               onChangeText={setPrice}
                               keyboardType="decimal-pad"
@@ -1078,7 +1036,7 @@ export function InventoryManager({
                                       setError('');
                                       setMessage('');
                                       Keyboard.dismiss();
-                                      supplierScroll.current?.scrollTo({ y: 0, animated: true });
+                                      supplierScroll.current?.scrollTo({ y: 0, animated: !reduceMotion });
                                     },
                                   },
                                 ],
@@ -1252,17 +1210,6 @@ export function InventoryManager({
                         </View>
                       ))}
                   </Panel>
-                  {details?.lots.map((l) => (
-                    <Panel key={l._id}>
-                      <Copy>
-                        {l.receipt?.supplier ?? 'Lot issu d’une ouverture'} ·{' '}
-                        {l.receipt?.reference ?? ''}
-                      </Copy>
-                      <Copy>
-                        {l.remaining} restant(s) · coût HT restant {money(l.remainingCostCents)}
-                      </Copy>
-                    </Panel>
-                  ))}
                 </>
               )}
               {mode === 'gift' && item && (
@@ -1270,7 +1217,7 @@ export function InventoryManager({
                   <Copy>
                     {item.name} · {activeItem?.quantity ?? 1} disponible(s)
                   </Copy>
-                  <Field label="Date (AAAA-MM-JJ)" value={date} onChangeText={setDate} />
+                  <DateField label="Date" value={date} onChange={setDate} />
                   <Field
                     label="Quantité offerte"
                     value={quantity}
@@ -1291,7 +1238,9 @@ export function InventoryManager({
                     label={savedGift ? 'Réessayer le justificatif' : 'Confirmer le don'}
                     onPress={() =>
                       void run(async () => {
+                        const scope=await captureAccountScope();
                         let id = savedGift;
+                        if(id)throw new Error('Don déjà enregistré. Ouvrez « Opérations à vérifier » pour envoyer le justificatif initial.');
                         if (!id) {
                           id = (
                             await operation('/stock/donate', {
@@ -1301,15 +1250,19 @@ export function InventoryManager({
                               recipient,
                               reason,
                               note,
-                            })
+                            },{files:giftAttachment?[{target:'giftId',file:giftAttachment,operationId:Crypto.randomUUID()}]:[]})
                           ).result;
+                          scope.assertActive();
                           setSavedGift(id);
                         }
-                        if (giftAttachment) await upload('giftId', id!, giftAttachment);
-                        await onChanged();
-                        await loadDetails();
+                        await uploadCurrentFinancialFiles('/stock/donate',scope);
+                        scope.assertActive();
                         setMessage('Don enregistré et disponible dans l’export comptable.');
                         setGiftAttachment(null);
+                        setMode(null);
+                        await finishFinancialAttempt('/stock/donate',scope);
+                        await onChanged().catch(()=>{scope.assertActive();setMessage('Don enregistré. Actualisez le stock.');});
+                        scope.assertActive();await loadDetails().catch(()=>{scope.assertActive();setMessage('Don enregistré. Actualisation des lots indisponible.');});
                       })
                     }
                   />
@@ -1333,7 +1286,7 @@ export function InventoryManager({
                       onChangeText={setPack}
                       keyboardType="decimal-pad"
                     />
-                    <Field label="Date (AAAA-MM-JJ)" value={date} onChangeText={setDate} />
+                    <DateField label="Date" value={date} onChange={setDate} />
                     <InventoryButton
                       secondary
                       label="Ajouter à un produit booster existant"
@@ -1358,7 +1311,7 @@ export function InventoryManager({
                       <>
                         <Field label="Nom du booster" value={name} onChangeText={setName} />
                         <Field
-                          label="Prix de vente unitaire TTC (€)"
+                          label={`Prix de vente unitaire TTC (${shopCurrency()})`}
                           value={price}
                           onChangeText={setPrice}
                           keyboardType="decimal-pad"
@@ -1375,6 +1328,7 @@ export function InventoryManager({
                       label="Confirmer l’ouverture"
                       onPress={() =>
                         void run(async () => {
+                          const scope=await captureAccountScope();
                           await operation('/stock/open', {
                             itemId: item._id,
                             ...(existing
@@ -1392,11 +1346,15 @@ export function InventoryManager({
                             packSize: count(pack),
                             occurredAt: timestamp(date),
                           });
-                          await loadDetails();
-                          await onChanged();
+                          scope.assertActive();
+                          setMode(null);
+                          await finishFinancialAttempt('/stock/open',scope);
                           setMessage(
                             'Ouverture enregistrée. Les boosters sont disponibles dans le panier habituel.',
                           );
+                          await loadDetails().catch(()=>{scope.assertActive();setMessage('Ouverture enregistrée. Actualisation des lots indisponible.');});
+                          scope.assertActive();
+                          await onChanged().catch(()=>{scope.assertActive();setMessage('Ouverture enregistrée. Actualisez le stock.');});
                         })
                       }
                     />
@@ -1407,10 +1365,11 @@ export function InventoryManager({
                         {o.quantity} display(s) → {o.quantity * o.packSize} boosters ·{' '}
                         {o.cancelledAt ? 'Annulée' : 'Enregistrée'}
                       </Copy>
+                      {!o.cancelledAt && o.reversalAvailable === false && <Copy>Annulation indisponible : l’historique des allocations doit être réconcilié avant de restaurer le stock.</Copy>}
                       {!o.cancelledAt && (
                         <InventoryButton
                           secondary
-                          disabled={busy}
+                          disabled={busy || o.reversalAvailable === false}
                           label="Annuler si tous les boosters sont disponibles"
                           onPress={() =>
                             void run(async () => {
@@ -1428,8 +1387,8 @@ export function InventoryManager({
               {mode === 'gifts' && (
                 <>
                   <Panel>
-                    <Field label="Du (AAAA-MM-JJ)" value={from} onChangeText={setFrom} />
-                    <Field label="Au (AAAA-MM-JJ)" value={to} onChangeText={setTo} />
+                    <DateField label="Du" value={from} onChange={setFrom} />
+                    <DateField label="Au" value={to} onChange={setTo} />
                     <InventoryButton
                       disabled={busy}
                       label="Appliquer la période"
@@ -1454,18 +1413,19 @@ export function InventoryManager({
                         {g.quantity} × {g.itemName}
                       </Copy>
                       <Copy>
-                        {new Date(g.occurredAt).toLocaleDateString()} · {g.reason} ·{' '}
+                        {formatShopDate(g.occurredAt)} · {g.reason} ·{' '}
                         {g.recipient ?? 'Bénéficiaire non renseigné'}
                       </Copy>
                       <Copy>
                         Coût connu :{' '}
-                        {g.costCents === undefined ? 'Non renseigné' : money(g.costCents)} ·{' '}
+                        {money(g.costCents)} ·{' '}
                         {g.cancelledAt ? 'Annulé' : 'Actif'}
                       </Copy>
+                      {!g.cancelledAt && g.reversalAvailable === false && <Copy>Annulation indisponible : l’historique des allocations doit être réconcilié avant de restaurer le stock.</Copy>}
                       {!g.cancelledAt && (
                         <InventoryButton
                           secondary
-                          disabled={busy}
+                          disabled={busy || g.reversalAvailable === false}
                           label="Annuler et remettre en stock"
                           onPress={() =>
                             void run(async () => {
@@ -1606,14 +1566,6 @@ export function InventoryManager({
                     })
                   }
                 />
-                {!saved && step > 0 && (
-                  <InventoryButton
-                    secondary
-                    disabled={busy}
-                    label={step === 2 ? 'Modifier les produits' : 'Modifier la facture'}
-                    onPress={() => void run(async () => supplierStep(step - 1))}
-                  />
-                )}
               </View>
             )}
           </KeyboardAvoidingView>

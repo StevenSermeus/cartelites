@@ -130,7 +130,7 @@ export function registerSaleTicketRoutes(app: OpenAPIHono<{ Variables: Variables
       });
       return c.json({ status: 'accepted' });
     } catch (e) {
-      const status = e instanceof EmailDeliveryError && e.status ? 'failed' : 'unknown';
+      const status = e instanceof EmailDeliveryError && e.status && e.status < 500 ? 'failed' : 'unknown';
       await call('ticketEmailResult', { id: attempt.id, status });
       return c.json(
         { status, error: status === 'unknown' ? 'EMAIL_RESULT_UNKNOWN' : 'EMAIL_DELIVERY_FAILED' },

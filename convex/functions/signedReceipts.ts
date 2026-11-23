@@ -1,6 +1,6 @@
+import {internalMutation} from './itemActivity';
 import { v } from 'convex/values';
 import {
-  internalMutation,
   internalQuery,
   type MutationCtx,
   type QueryCtx,
@@ -139,9 +139,11 @@ export const list = internalQuery({
       .withIndex('by_target', (q) => q.eq('kind', args.kind).eq('targetId', args.targetId))
       .collect();
     return rows
+      .map((r, index) => ({ ...r, version: index + 1 }))
       .filter((r) => r.signedAt)
       .map((r) => ({
         id: r._id,
+        version: r.version,
         signedAt: r.signedAt,
         archived: !!r.objectKey,
         emailStatus: r.snapshot.client.email ? (r.emailStatus ?? 'pending') : 'no_email',

@@ -25,6 +25,11 @@ export const authMiddleware = (repo: ConvexAccountRepository) =>
     // Keep it outside the JWT catch so clients don't discard a valid session.
     if (!(await repo.isSessionValid(session.subject, session.jti, session.sessionVersion)))
       return c.json({ error: 'INVALID_SESSION' }, 401);
+    // A queued operation belongs to the account that submitted it. A different
+    // cookie after login in another tab must not replay it under a new actor.
+    const expectedAccount = c.req.header('x-expected-account-id');
+    if (expectedAccount !== undefined && expectedAccount !== session.subject)
+      return c.json({ error: 'ACCOUNT_MISMATCH' }, 403);
     if (!bearer && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method)) {
       const origin = c.req.header('origin');
       if (origin !== env.WEB_ORIGIN) return c.json({ error: 'CSRF_ORIGIN' }, 403);
@@ -47,6 +52,7 @@ export const authMiddleware = (repo: ConvexAccountRepository) =>
       try {
         if (!await repo.isSessionValid(session.subject, session.jti, session.sessionVersion)) return;
         const replacement = await issueToken(session.subject, session.sessionVersion, session.jti);
+        if (env.DATA_MODEL === 'canonical') await repo.registerSession(await verifyToken(replacement));
         if (bearer) c.header('X-Access-Token', replacement);
         else setSessionCookies(c, replacement, getCookie(c, 'csrf'));
         c.header('Cache-Control', 'private, no-store');

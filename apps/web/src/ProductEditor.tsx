@@ -1,7 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
+import { SeriesInput } from './SeriesInput';
+import './product-workspace.css';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from './components/ui/dialog';
+import { Button } from './components/ui/button';
+import { Input } from './components/ui/input';
+import { MarketPrices } from './MarketPrices';
+import {
+  attributeRows,
+  attributesRecord,
+  unchangedMetadata,
+  type AttributeRow,
+} from './lib/productMetadata';
+import { currencySymbol } from './shopFormat';
+import { GradingCompanyPicker } from './GradingCompanies';
+import { useEffect, useId, useRef, useState } from 'react';
 
 type Photo = { _id: string; filename: string; contentType: string };
 type Product = {
+  revision?: number;
+  productRevision?: number;
+  variant?: string;
+  serialNumber?: string;
+  privateNotes?: string;
+  publicAttributes?: Record<string, string>;
+  privateAttributes?: Record<string, string>;
   tcg?: 'pokemon' | 'riftbound' | 'other';
   _id: string;
   name: string;
@@ -14,6 +35,7 @@ type Product = {
   gradingGrade?: string;
   gradingCertificate?: string;
   askingPriceCents?: number;
+  priceVisible?: boolean;
   hiddenFromCatalogue?: boolean;
   coverPhotoId?: string;
 };
@@ -44,8 +66,11 @@ export function ProductEditor({
   onChanged: () => Promise<void>;
   onClose: () => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null),
+  const opener = useRef(document.activeElement as HTMLElement | null),
+    baseline = useRef<Product | null>(null),
     lock = useRef(false);
+  const [publicRows, setPublicRows] = useState<AttributeRow[]>([]),
+    [privateRows, setPrivateRows] = useState<AttributeRow[]>([]);
   const [details, setDetails] = useState<Detail | null>(null),
     [draft, setDraft] = useState<Product | null>(null);
   const [price, setPrice] = useState(''),
@@ -54,25 +79,54 @@ export function ProductEditor({
     [error, setError] = useState(''),
     [message, setMessage] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [gradingBusy, setGradingBusy] = useState(false);
+  const [priceError, setPriceError] = useState('');
+  const priceErrorId = useId();
+  const errorSummary = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (error) errorSummary.current?.focus(); }, [error]);
   const photos = (details?.photos ?? []).filter((p) => p.contentType.startsWith('image/'));
-  async function reload() {
-    const value = await request<Detail>(`/stock/${encodeURIComponent(itemId)}/lots`);
+  function accept(value: Detail) {
+    baseline.current = value.item;
     setDetails(value);
+    setDraft(value.item);
+    setPrice(
+      value.item.askingPriceCents === undefined
+        ? ''
+        : (value.item.askingPriceCents / 100).toFixed(2),
+    );
+    setPublicRows(attributeRows(value.item.publicAttributes));
+    setPrivateRows(attributeRows(value.item.privateAttributes));
+    setDirty(false);
+  }
+  async function reload(saved = false) {
+    const value = await request<Detail>(`/stock/${encodeURIComponent(itemId)}/lots`);
+    if (saved) accept(value);
+    else {
+      setDetails(value);
+      if (baseline.current && unchangedMetadata(baseline.current, value.item)) {
+        baseline.current = value.item;
+        setDraft((current) =>
+          current
+            ? {
+                ...current,
+                revision: value.item.revision,
+                productRevision: value.item.productRevision,
+              }
+            : current,
+        );
+      } else
+        setError(
+          'La fiche a changé dans une autre session. Vos modifications sont conservées ; rechargez la fiche avant de réessayer.',
+        );
+    }
     return value;
   }
   useEffect(() => {
-    dialog.current?.showModal();
     let active = true;
     void request<Detail>(`/stock/${encodeURIComponent(itemId)}/lots`)
       .then((value) => {
         if (!active) return;
-        setDetails(value);
-        setDraft(value.item);
-        setPrice(
-          value.item.askingPriceCents === undefined
-            ? ''
-            : (value.item.askingPriceCents / 100).toFixed(2),
-        );
+        accept(value);
       })
       .catch((e) => {
         if (active) setError(e instanceof Error ? e.message : 'Chargement impossible.');
@@ -97,7 +151,7 @@ export function ProductEditor({
     }
   }
   function close() {
-    if (busy) return;
+    if (busy || gradingBusy) return;
     if (
       (dirty || pending.length) &&
       !window.confirm('Fermer sans enregistrer les modifications et photos en attente ?')
@@ -123,295 +177,458 @@ export function ProductEditor({
     });
   }
   return (
-    <dialog
-      ref={dialog}
-      className="product-editor"
-      aria-labelledby="product-editor-title"
-      onCancel={(e) => {
-        e.preventDefault();
-        close();
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) close();
       }}
     >
-      <div className="product-editor-heading">
-        <h2 id="product-editor-title">Modifier la fiche produit</h2>
-        <button type="button" className="secondary" disabled={busy} onClick={close}>
-          Fermer
-        </button>
-      </div>
-      {!!error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {!!message && <p role="status">{message}</p>}
-      {!draft && !error && <p>Chargement de la fiche…</p>}
-      {draft && (
-        <>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void run(async () => {
-                if (!/^\d+(?:[.,]\d{1,2})?$/.test(price.trim()))
-                  throw new Error('Saisissez un prix valide avec deux décimales au maximum.');
+      <DialogContent
+        className="product-workspace-dialog"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (opener.current?.isConnected && opener.current !== document.body)
+            opener.current.focus();
+          else
+            document
+              .querySelector<HTMLElement>(`[data-product-id="${CSS.escape(itemId)}"]`)
+              ?.focus();
+        }}
+        onEscapeKeyDown={(event) => {
+          if (busy) event.preventDefault();
+        }}
+        onInteractOutside={(event) => event.preventDefault()}
+      >
+        <div className="product-editor-heading">
+          <DialogTitle>Modifier la fiche produit</DialogTitle>
+          <DialogDescription>
+            Identité, présentation publique, informations internes et photos de cet exemplaire.
+          </DialogDescription>
+        </div>
+        {!!error && (
+          <div role="alert" tabIndex={-1} ref={errorSummary} aria-label="Erreur dans la fiche">
+            <p className="error">
+              {error.includes('REVISION_CONFLICT')
+                ? 'Cette fiche a été modifiée ailleurs. Vos valeurs sont conservées. Rechargez la version récente avant de corriger.'
+                : error}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  !dirty ||
+                  window.confirm(
+                    'Recharger la fiche et remplacer les modifications non enregistrées ?',
+                  )
+                )
+                  void run(() => reload(true).then(() => {}));
+              }}
+            >
+              Recharger la fiche
+            </Button>
+          </div>
+        )}
+        {!!message && <p role="status">{message}</p>}
+        {!draft && !error && <p role="status">Chargement de la fiche…</p>}
+        {draft && (
+          <>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (gradingBusy) return;
                 const askingPriceCents = Math.round(Number(price.replace(',', '.')) * 100);
-                if (!Number.isSafeInteger(askingPriceCents)) throw new Error('Prix trop élevé.');
-                await request('/stock/product', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    itemId,
-                    tcg: draft.tcg ?? 'pokemon',
-                    name: draft.name,
-                    description: draft.description ?? '',
-                    series: draft.series ?? '',
-                    identifier: draft.identifier ?? '',
-                    language: draft.language || undefined,
-                    condition: draft.condition || undefined,
-                    gradingCompany: draft.gradingCompany || undefined,
-                    gradingGrade: draft.gradingGrade ?? '',
-                    gradingCertificate: draft.gradingCertificate ?? '',
-                    askingPriceCents,
-                    hiddenFromCatalogue: draft.hiddenFromCatalogue ?? false,
-                  }),
+                const invalidPrice = !/^\d+(?:[.,]\d{1,2})?$/.test(price.trim())
+                  ? 'Saisissez un prix valide avec deux décimales au maximum.'
+                  : !Number.isSafeInteger(askingPriceCents) ? 'Prix trop élevé.' : '';
+                setPriceError(invalidPrice);
+                if (invalidPrice) { setError(invalidPrice); requestAnimationFrame(() => errorSummary.current?.focus()); return; }
+                void run(async () => {
+                  await request('/stock/product', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      itemId,
+                      expectedRevision: draft.revision ?? 0,
+                      expectedProductRevision: draft.productRevision,
+                      variant: draft.variant ?? '',
+                      serialNumber: draft.serialNumber ?? '',
+                      privateNotes: draft.privateNotes ?? '',
+                      publicAttributes: attributesRecord(publicRows),
+                      privateAttributes: attributesRecord(privateRows),
+                      tcg: draft.tcg ?? 'pokemon',
+                      name: draft.name,
+                      description: draft.description ?? '',
+                      series: draft.series ?? '',
+                      identifier: draft.identifier ?? '',
+                      language: draft.language || undefined,
+                      condition: draft.condition || undefined,
+                      gradingCompany: draft.gradingCompany || undefined,
+                      gradingGrade: draft.gradingGrade ?? '',
+                      gradingCertificate: draft.gradingCertificate ?? '',
+                      askingPriceCents,
+                      priceVisible: draft.priceVisible ?? true,
+                      hiddenFromCatalogue: draft.hiddenFromCatalogue ?? false,
+                    }),
+                  });
+                  setDirty(false);
+                  setMessage('Fiche produit enregistrée.');
+                  await reload(true);
+                  await onChanged();
                 });
-                setDirty(false);
-                await reload();
-                await onChanged();
-                setMessage('Fiche produit enregistrée.');
-              });
-            }}
-          >
-            <fieldset disabled={busy}>
-              <div className="form-grid">
+              }}
+            >
+              <fieldset disabled={busy}>
+                <div className="form-grid">
+                  <label>
+                    Jeu de cartes
+                    <select
+                      value={draft.tcg ?? 'pokemon'}
+                      onChange={(e) => change('tcg', e.target.value)}
+                    >
+                      <option value="pokemon">Pokémon</option>
+                      <option value="riftbound">Riftbound</option>
+                      <option value="other">Autre</option>
+                    </select>
+                  </label>
+                  <label>
+                    Nom du produit
+                    <Input
+                      required
+                      maxLength={300}
+                      value={draft.name}
+                      onChange={(e) => change('name', e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Prix de vente TTC ({currencySymbol})
+                    <Input
+                      required
+                      inputMode="decimal"
+                      aria-invalid={!!priceError}
+                      aria-describedby={priceError ? priceErrorId : undefined}
+                      value={price}
+                      onChange={(e) => {
+                        setPrice(e.target.value);
+                        setPriceError('');
+                        setDirty(true);
+                      }}
+                    />
+                    {priceError && <span id={priceErrorId} className="error">{priceError}</span>}
+                  </label>
+                  <label>
+                    Série
+                    <SeriesInput tcg={draft.tcg} value={draft.series ?? ''} onChange={value => change('series', value)} />
+                  </label>
+                  <label>
+                    Numéro / identifiant
+                    <Input
+                      maxLength={100}
+                      value={draft.identifier ?? ''}
+                      onChange={(e) => change('identifier', e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Langue
+                    <select
+                      value={draft.language ?? ''}
+                      onChange={(e) => change('language', e.target.value)}
+                    >
+                      <option value="">Non renseignée</option>
+                      <option value="fr">Français</option>
+                      <option value="en">Anglais</option>
+                      <option value="ja">Japonais</option>
+                      <option value="zh">Chinois</option>
+                    </select>
+                  </label>
+                  <label>
+                    État
+                    <select
+                      value={draft.condition ?? ''}
+                      onChange={(e) => change('condition', e.target.value)}
+                    >
+                      <option value="">Non renseigné</option>
+                      {['M', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'].map((v) => (
+                        <option key={v}>{v}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <GradingCompanyPicker
+                    request={request}
+                    onBusyChange={setGradingBusy}
+                    value={draft.gradingCompany}
+                    onChange={(value) => change('gradingCompany', value)}
+                  />
+                  {!!draft.gradingCompany && (
+                    <>
+                      <label>
+                        Note
+                        <Input
+                          maxLength={32}
+                          value={draft.gradingGrade ?? ''}
+                          onChange={(e) => change('gradingGrade', e.target.value)}
+                        />
+                      </label>
+                      <label>
+                        Certificat
+                        <Input
+                          maxLength={100}
+                          value={draft.gradingCertificate ?? ''}
+                          onChange={(e) => change('gradingCertificate', e.target.value)}
+                        />
+                      </label>
+                    </>
+                  )}
+                </div>
+                <div className="form-grid">
+                  <label>
+                    Variante publique
+                    <Input
+                      maxLength={100}
+                      value={draft.variant ?? ''}
+                      onChange={(e) => change('variant', e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Numéro de série interne
+                    <Input
+                      maxLength={100}
+                      value={draft.serialNumber ?? ''}
+                      onChange={(e) => change('serialNumber', e.target.value)}
+                    />
+                  </label>
+                </div>
                 <label>
-                  Jeu de cartes
-                  <select
-                    value={draft.tcg ?? 'pokemon'}
-                    onChange={(e) => change('tcg', e.target.value)}
-                  >
-                    <option value="pokemon">Pokémon</option>
-                    <option value="riftbound">Riftbound</option>
-                    <option value="other">Autre</option>
-                  </select>
-                </label>
-                <label>
-                  Nom du produit
-                  <input
-                    required
-                    maxLength={300}
-                    value={draft.name}
-                    onChange={(e) => change('name', e.target.value)}
+                  Description
+                  <textarea
+                    maxLength={3000}
+                    rows={4}
+                    value={draft.description ?? ''}
+                    onChange={(e) => change('description', e.target.value)}
                   />
                 </label>
-                <label>
-                  Prix de vente TTC (€)
-                  <input
-                    required
-                    inputMode="decimal"
-                    value={price}
-                    onChange={(e) => {
-                      setPrice(e.target.value);
+                <AttributesEditor
+                  title="Caractéristiques publiques"
+                  rows={publicRows}
+                  onChange={(rows) => {
+                    setPublicRows(rows);
+                    setDirty(true);
+                  }}
+                />
+                <div className="product-private-fields">
+                  <p className="product-private-note">
+                    Informations internes, absentes du catalogue public.
+                  </p>
+                  <label>
+                    Notes privées
+                    <textarea
+                      rows={3}
+                      maxLength={3000}
+                      value={draft.privateNotes ?? ''}
+                      onChange={(e) => change('privateNotes', e.target.value)}
+                    />
+                  </label>
+                  <AttributesEditor
+                    title="Caractéristiques privées"
+                    rows={privateRows}
+                    onChange={(rows) => {
+                      setPrivateRows(rows);
                       setDirty(true);
                     }}
                   />
+                </div>
+                <label className="product-check">
+                  <Input type="checkbox" checked={draft.priceVisible ?? true} onChange={(e) => change('priceVisible', e.target.checked)} />{' '}
+                  Afficher le prix sur le catalogue public
                 </label>
-                <label>
-                  Série
-                  <input
-                    maxLength={300}
-                    value={draft.series ?? ''}
-                    onChange={(e) => change('series', e.target.value)}
-                  />
+                <label className="product-check">
+                  <Input
+                    type="checkbox"
+                    checked={draft.hiddenFromCatalogue ?? false}
+                    onChange={(e) => change('hiddenFromCatalogue', e.target.checked)}
+                  />{' '}
+                  Masquer du catalogue public
                 </label>
-                <label>
-                  Numéro / identifiant
-                  <input
-                    maxLength={100}
-                    value={draft.identifier ?? ''}
-                    onChange={(e) => change('identifier', e.target.value)}
-                  />
-                </label>
-                <label>
-                  Langue
-                  <select
-                    value={draft.language ?? ''}
-                    onChange={(e) => change('language', e.target.value)}
-                  >
-                    <option value="">Non renseignée</option>
-                    <option value="fr">Français</option>
-                    <option value="en">Anglais</option>
-                    <option value="ja">Japonais</option>
-                    <option value="zh">Chinois</option>
-                  </select>
-                </label>
-                <label>
-                  État
-                  <select
-                    value={draft.condition ?? ''}
-                    onChange={(e) => change('condition', e.target.value)}
-                  >
-                    <option value="">Non renseigné</option>
-                    {['M', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'].map((v) => (
-                      <option key={v}>{v}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Gradation
-                  <select
-                    value={draft.gradingCompany ?? ''}
-                    onChange={(e) => change('gradingCompany', e.target.value)}
-                  >
-                    <option value="">Non gradé</option>
-                    {['PSA', 'CollectAura', 'PCA', 'CCC'].map((v) => (
-                      <option key={v}>{v}</option>
-                    ))}
-                  </select>
-                </label>
-                {!!draft.gradingCompany && (
-                  <>
-                    <label>
-                      Note
-                      <input
-                        maxLength={32}
-                        value={draft.gradingGrade ?? ''}
-                        onChange={(e) => change('gradingGrade', e.target.value)}
+                <Button disabled={busy || gradingBusy || !dirty} type="submit">
+                  Enregistrer la fiche
+                </Button>
+              </fieldset>
+            </form>
+            <MarketPrices request={request} item={draft} />
+            <section aria-labelledby="product-photos-title">
+              <h3 id="product-photos-title">Photos · {photos.length}/6</h3>
+              <div className="product-photo-grid">
+                {photos.map((photo) => (
+                  <div key={photo._id}>
+                    <a
+                      href={`${apiBase}/attachments/${encodeURIComponent(photo._id)}/download`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <img
+                        src={`${apiBase}/attachments/${encodeURIComponent(photo._id)}/download?size=thumbnail`}
+                        alt={photo.filename}
                       />
-                    </label>
-                    <label>
-                      Certificat
-                      <input
-                        maxLength={100}
-                        value={draft.gradingCertificate ?? ''}
-                        onChange={(e) => change('gradingCertificate', e.target.value)}
-                      />
-                    </label>
-                  </>
-                )}
+                    </a>
+                    <p>
+                      {details?.item.coverPhotoId === photo._id ? 'Couverture' : photo.filename}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={busy || details?.item.coverPhotoId === photo._id}
+                      onClick={() => void photoAction(photo, 'cover')}
+                    >
+                      En couverture
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void photoAction(photo, 'remove')}
+                    >
+                      Supprimer
+                    </Button>
+                  </div>
+                ))}
               </div>
               <label>
-                Description
-                <textarea
-                  maxLength={3000}
-                  rows={4}
-                  value={draft.description ?? ''}
-                  onChange={(e) => change('description', e.target.value)}
+                Ajouter plusieurs photos
+                <Input
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  disabled={busy || photos.length + pending.length >= 6}
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    e.target.value = '';
+                    if (photos.length + pending.length + files.length > 6) {
+                      setError('Six photos maximum par produit.');
+                      return;
+                    }
+                    setPending((p) => [
+                      ...p,
+                      ...files.map((file) => ({ file, operationId: crypto.randomUUID() })),
+                    ]);
+                    setError('');
+                  }}
                 />
               </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={draft.hiddenFromCatalogue ?? false}
-                  onChange={(e) => change('hiddenFromCatalogue', e.target.checked)}
-                />{' '}
-                Masquer du catalogue public
-              </label>
-              <button disabled={busy || !dirty} type="submit">
-                Enregistrer la fiche
-              </button>
-            </fieldset>
-          </form>
-          <section aria-labelledby="product-photos-title">
-            <h3 id="product-photos-title">Photos · {photos.length}/6</h3>
-            <div className="product-photo-grid">
-              {photos.map((photo) => (
-                <div key={photo._id}>
-                  <a
-                    href={`${apiBase}/attachments/${encodeURIComponent(photo._id)}/download`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <img
-                      src={`${apiBase}/attachments/${encodeURIComponent(photo._id)}/download?size=thumbnail`}
-                      alt={photo.filename}
-                    />
-                  </a>
-                  <p>{details?.item.coverPhotoId === photo._id ? 'Couverture' : photo.filename}</p>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy || details?.item.coverPhotoId === photo._id}
-                    onClick={() => void photoAction(photo, 'cover')}
-                  >
-                    En couverture
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => void photoAction(photo, 'remove')}
-                  >
-                    Supprimer
-                  </button>
-                </div>
-              ))}
-            </div>
-            <label>
-              Ajouter plusieurs photos
-              <input
-                type="file"
-                multiple
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                disabled={busy || photos.length + pending.length >= 6}
-                onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []);
-                  e.target.value = '';
-                  if (photos.length + pending.length + files.length > 6) {
-                    setError('Six photos maximum par produit.');
-                    return;
-                  }
-                  setPending((p) => [
-                    ...p,
-                    ...files.map((file) => ({ file, operationId: crypto.randomUUID() })),
-                  ]);
-                  setError('');
-                }}
-              />
-            </label>
-            <div className="product-photo-grid">
-              {pending.map((p) => (
-                <div key={p.operationId}>
-                  <PendingPhoto file={p.file} />
-                  <p>{p.file.name}</p>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() =>
-                      setPending((list) => list.filter((f) => f.operationId !== p.operationId))
-                    }
-                  >
-                    Retirer
-                  </button>
-                </div>
-              ))}
-            </div>
-            {!!pending.length && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    try {
-                      for (const next of pending) {
-                        await upload(itemId, next.file, next.operationId);
-                        setPending((list) =>
-                          list.filter((f) => f.operationId !== next.operationId),
-                        );
+              <div className="product-photo-grid">
+                {pending.map((p) => (
+                  <div key={p.operationId}>
+                    <PendingPhoto file={p.file} />
+                    <p>{p.file.name}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() =>
+                        setPending((list) => list.filter((f) => f.operationId !== p.operationId))
                       }
-                      setMessage('Photos enregistrées.');
-                    } finally {
-                      await reload();
-                      await onChanged();
-                    }
-                  })
-                }
-              >
-                {busy ? 'Envoi en cours…' : `Enregistrer ${pending.length} photo(s)`}
-              </button>
-            )}
-          </section>
-        </>
-      )}
-    </dialog>
+                    >
+                      Retirer
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              {!!pending.length && (
+                <Button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      try {
+                        for (const next of pending) {
+                          await upload(itemId, next.file, next.operationId);
+                          setPending((list) =>
+                            list.filter((f) => f.operationId !== next.operationId),
+                          );
+                        }
+                        setMessage('Photos enregistrées.');
+                      } finally {
+                        await reload();
+                        await onChanged();
+                      }
+                    })
+                  }
+                >
+                  {busy ? 'Envoi en cours…' : `Enregistrer ${pending.length} photo(s)`}
+                </Button>
+              )}
+            </section>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AttributesEditor({
+  title,
+  rows,
+  onChange,
+}: {
+  title: string;
+  rows: AttributeRow[];
+  onChange: (rows: AttributeRow[]) => void;
+}) {
+  return (
+    <div className="product-attributes">
+      <div className="product-attributes-heading">
+        <h3>{title}</h3>
+        <span>{rows.length}/20</span>
+      </div>
+      <p>Nom de 60 caractères maximum · valeur de 500 caractères maximum.</p>
+      {rows.map((row, index) => (
+        <div className="product-attribute-row" key={row.id}>
+          <label>
+            Nom {index + 1}
+            <Input
+              required
+              maxLength={60}
+              value={row.key}
+              onChange={(e) =>
+                onChange(
+                  rows.map((value) =>
+                    value.id === row.id ? { ...value, key: e.target.value } : value,
+                  ),
+                )
+              }
+            />
+          </label>
+          <label>
+            Valeur {index + 1}
+            <Input
+              maxLength={500}
+              value={row.value}
+              onChange={(e) =>
+                onChange(
+                  rows.map((value) =>
+                    value.id === row.id ? { ...value, value: e.target.value } : value,
+                  ),
+                )
+              }
+            />
+          </label>
+          <Button
+            type="button"
+            variant="ghost"
+            aria-label={`Supprimer ${title.toLowerCase()} ${index + 1}`}
+            onClick={() => onChange(rows.filter((value) => value.id !== row.id))}
+          >
+            Retirer
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        disabled={rows.length >= 20}
+        onClick={() => onChange([...rows, { id: crypto.randomUUID(), key: '', value: '' }])}
+      >
+        Ajouter une caractéristique
+      </Button>
+    </div>
   );
 }

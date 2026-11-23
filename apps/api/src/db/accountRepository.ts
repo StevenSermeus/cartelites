@@ -1,3 +1,4 @@
+import { serverShopConfig } from '../generated/serverShopConfig.js';
 import type { Signature } from '../receipts/signature.js';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
@@ -13,6 +14,7 @@ export type Account = {
   createdAt: number;
 };
 type AuthOperation =
+  | 'startSession'
   | 'accountByEmail'
   | 'accountById'
   | 'signatoryProfile'
@@ -78,15 +80,15 @@ export class ConvexAccountRepository {
   }
 
   async isSignupEnabled(): Promise<boolean> {
-    return this.call<boolean>('signupEnabled', {});
+    return serverShopConfig.registrationPolicy === 'open';
   }
 
   async setSignupEnabled(enabled: boolean): Promise<void> {
-    await this.call('setSignupEnabled', { enabled, now: Date.now() });
+    if (enabled !== (serverShopConfig.registrationPolicy === 'open')) throw new Error('REGISTRATION_CONFIG_MANAGED');
   }
 
   async create(email: string, passwordHash: string): Promise<Account> {
-    const row = await this.call<Account>('createAccount', { email, passwordHash });
+    const row = await this.call<Account>('createAccount', { email, passwordHash, registrationPolicy: serverShopConfig.registrationPolicy });
     return row;
   }
 
@@ -96,6 +98,11 @@ export class ConvexAccountRepository {
 
   async clearLoginFailures(emailHash: string): Promise<void> {
     await this.call('clearLoginAttempts', { emailHash });
+  }
+
+  async registerSession(session: { subject: string; jti: string; sessionVersion: number; expiresAt: number }): Promise<void> {
+    if (env.DATA_MODEL !== 'canonical') return;
+    await this.call('startSession', { id: session.subject, jti: session.jti, sessionVersion: session.sessionVersion, expiresAt: session.expiresAt, now: Date.now() });
   }
 
   async revokeJti(jti: string, expiresAt: number): Promise<void> {

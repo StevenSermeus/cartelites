@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { purchaseValuation, applyPurchasePercent } from '../src/data/purchaseValuation';
 import { readPurchaseSnapshot, purchaseSnapshot } from '../src/data/localPurchaseDrafts';
+import {purchaseEditValuation} from '../src/data/inventoryCosts';
 import type { PurchaseDraft } from '../src/data/apiRepository';
 const rows = [
   {
@@ -29,6 +30,13 @@ const rows = [
     photo: null,
   },
 ] as PurchaseDraft[];
+test('unknown acquisition cost never becomes theoretical gain when editing a historical item',()=>{
+ const unknown={...rows[0],...purchaseEditValuation({purchasePriceCents:null,marketValueCents:10000,discountPercent:70})};
+ assert.equal(purchaseValuation([unknown]),null);
+ const zero={...rows[0],...purchaseEditValuation({purchasePriceCents:0,marketValueCents:10000,discountPercent:0})};
+ assert.equal(purchaseValuation([zero])?.purchaseCents,0);
+ assert.equal(purchaseValuation([zero])?.theoreticalGainCents,10000);
+});
 test('theoretical totals exclude unselected drafts and bulk percentage only changes chosen cards', () => {
   assert.deepEqual(purchaseValuation(rows), {
     marketCents: 15000,

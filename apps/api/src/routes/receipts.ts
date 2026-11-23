@@ -154,7 +154,7 @@ export function receiptRoutes(repo: ConvexAccountRepository) {
   });
   app.onError((error, c) => {
     const code = [
-      'SIGNATORY_REQUIRED',
+      'SIGNATORY_REQUIRED', 'PURCHASE_COST_UNKNOWN', 'RETURN_ALREADY_COMPLETED', 'ITEM_UNAVAILABLE',
       'RECEIPT_CHANGED',
       'RECEIPT_EXPIRED',
       'ALREADY_SIGNED',

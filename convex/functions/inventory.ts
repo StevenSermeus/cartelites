@@ -1,12 +1,16 @@
+import {readActivity} from '../shared/itemActivity';
+import {mutation} from './itemActivity';
+import {shopDay} from './shopCalendar';
 import { v } from 'convex/values';
 import { paginationOptsValidator } from 'convex/server';
-import { mutation, query } from './_generated/server';
+import { query } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import { productFields } from './inventoryValidators';
 import { stockOwner, checkReplay, integer, validDate, consume, restore } from './stockLedger';
 
 export const updateProduct = mutation({
   args: {
+    expectedProductRevision:v.optional(v.number()),expectedRevision:v.optional(v.number()),variant:v.optional(v.string()),serialNumber:v.optional(v.string()),privateNotes:v.optional(v.string()),publicAttributes:v.optional(v.record(v.string(),v.string())),privateAttributes:v.optional(v.record(v.string(),v.string())),
     tcg: productFields.tcg,
     itemId: v.id('items'),
     name: v.string(),
@@ -14,6 +18,7 @@ export const updateProduct = mutation({
     series: v.string(),
     identifier: v.string(),
     askingPriceCents: v.number(),
+    priceVisible: v.optional(v.boolean()),
     hiddenFromCatalogue: v.boolean(),
     language: productFields.language,
     condition: productFields.condition,
@@ -21,10 +26,13 @@ export const updateProduct = mutation({
     gradingGrade: v.string(),
     gradingCertificate: v.string(),
   },
-  handler: async (ctx, { itemId, ...fields }) => {
+  handler: async (ctx, { itemId, expectedRevision, expectedProductRevision, ...fields }) => {
     await stockOwner(ctx);
     const item = await ctx.db.get(itemId);
     if (!item) throw new Error('ITEM_NOT_FOUND');
+    if((expectedRevision!==undefined&&expectedRevision!==(item.revision??0))||(expectedProductRevision!==undefined&&expectedProductRevision!==(item.revision??0)))throw new Error('REVISION_CONFLICT');
+    for(const attributes of [fields.publicAttributes,fields.privateAttributes])if(attributes&&(Object.keys(attributes).length>20||Object.entries(attributes).some(([key,value])=>!key.trim()||key.length>60||value.length>500)))throw new Error('INVALID_METADATA');
+    if((fields.privateNotes?.length??0)>3000||(fields.variant?.length??0)>100||(fields.serialNumber?.length??0)>100)throw new Error('INVALID_METADATA');
     if (
       !fields.name.trim() ||
       fields.name.length > 300 ||
@@ -42,7 +50,8 @@ export const updateProduct = mutation({
     )
       throw new Error('PRICE_BELOW_AGREEMENT');
     await ctx.db.patch(itemId, {
-      ...fields,
+      ...fields,revision:(item.revision??0)+1,
+      priceVisible: fields.priceVisible ?? item.priceVisible ?? true,
       tcg: fields.tcg ?? item.tcg,
       name: fields.name.trim(),
       language: fields.language,
@@ -345,8 +354,8 @@ export const donate = mutation({
     if (!item || item.status !== 'available' || item.origin === 'consignment' || item.consignmentId)
       throw new Error('ITEM_UNAVAILABLE');
     if (
-      new Date(args.occurredAt).toISOString().slice(0, 10) <
-      new Date(item.purchaseOccurredAt).toISOString().slice(0, 10)
+      shopDay(args.occurredAt) <
+      shopDay(item.purchaseOccurredAt)
     )
       throw new Error('INVALID_DATE');
     let allocations: Awaited<ReturnType<typeof consume>> = [];
@@ -499,3 +508,5 @@ export const evidence = query({
           .collect();
   },
 });
+
+export const activity=query({args:{itemId:v.id('items'),size:v.number(),cursor:v.union(v.string(),v.null())},handler:async(ctx,args)=>{await stockOwner(ctx);if(!await ctx.db.get(args.itemId))throw new Error('ITEM_NOT_FOUND');return readActivity(ctx,args.itemId,args.size,args.cursor);}});

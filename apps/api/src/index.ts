@@ -1,3 +1,5 @@
+import { assertBackendModel } from './db/backendModel.js';
+import { publicConfigRoutes } from './routes/publicConfig.js';
 import { receiptRoutes } from './routes/receipts.js';
 import { serve } from '@hono/node-server';
 import { OpenAPIHono } from '@hono/zod-openapi';
@@ -9,6 +11,7 @@ import { attachmentRoutes } from './routes/attachments.js';
 import { authRoutes } from './routes/auth.js';
 import { catalogueRoutes } from './routes/catalogue.js';
 import { operationRoutes } from './routes/operations.js';
+import { marketPriceRoutes } from './routes/marketPrices.js';
 
 const repo = new ConvexAccountRepository();
 const app = new OpenAPIHono();
@@ -17,16 +20,18 @@ app.use(
   cors({
     origin: env.WEB_ORIGIN,
     credentials: true,
-    allowHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Platform', 'X-Session-Activity'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Platform', 'X-Session-Activity', 'X-Market-Research', 'X-Expected-Account-ID'],
     exposeHeaders: ['X-CSRF-Token', 'X-Access-Token'],
     allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
   }),
 );
+app.route('/',publicConfigRoutes());
 app.get('/.well-known/jwks.json', async (c) => c.json(await jwks()));
 app.get('/api/v1/instance', (c) => c.json({ service: 'tcg-marge-api', apiVersion: 1, imageUploadFormats: ['image/jpeg', 'image/png', 'image/webp'], convexUrl: env.CONVEX_URL }));
 app.route('/api/v1/auth', authRoutes(repo));
 app.route('/', catalogueRoutes());
 app.route('/api/v1/receipts', receiptRoutes(repo));
+app.route('/api/v1', marketPriceRoutes(repo));
 app.route('/api/v1', attachmentRoutes(repo));
 app.route('/api/v1', operationRoutes(repo));
 app.doc('/openapi.json', {
@@ -34,4 +39,5 @@ app.doc('/openapi.json', {
   info: { title: 'TVA sur marge API', version: '1.0.0' },
 });
 app.get('/health', (c) => c.json({ status: 'ok' }));
+await assertBackendModel(env.DATA_MODEL, env.CONVEX_URL);
 serve({ fetch: app.fetch, port: env.PORT });

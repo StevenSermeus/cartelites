@@ -1,3 +1,4 @@
+import { authenticated } from './helpers/session';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { convexTest } from 'convex-test';
@@ -10,7 +11,7 @@ const modules = {
 const base = { page: 1, size: 3, search: '', status: 'all' as const };
 test('history authenticates, searches and filters before server pagination', async () => {
   const t = convexTest(schema, modules),
-    user = t.withIdentity({ subject: 'owner' });
+    user = (await authenticated(t, 'owner'));
   await assert.rejects(t.query(api.operations.purchaseHistoryPage, base), /UNAUTHENTICATED/);
   await t.run(async (ctx) => {
     const sellerId = await ctx.db.insert('sellers', {

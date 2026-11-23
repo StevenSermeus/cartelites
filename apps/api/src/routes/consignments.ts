@@ -31,7 +31,7 @@ export const consignmentSchema = z
           identifier: z.string().trim().max(200).optional(),
           language: z.enum(['fr', 'en', 'ja', 'zh']).optional(),
           condition: z.enum(['M', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO']).optional(),
-          gradingCompany: z.enum(['PSA', 'CollectAura', 'PCA', 'CCC']).optional(),
+          gradingCompany: z.string().trim().min(1).max(100).optional(),
           gradingGrade: z.string().trim().max(32).optional(),
           gradingCertificate: z.string().trim().max(64).optional(),
           gradingNotes: z.string().trim().max(500).optional(),

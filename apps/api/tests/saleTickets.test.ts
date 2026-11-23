@@ -154,3 +154,27 @@ test('ticket PDF paginates long mixed baskets and explicitly marks cancellation 
   assert.match(text, /Paiement non renseign/);
   assert.match(text, /Article 79/);
 });
+
+test('ticket email preserves uncertain provider failures and never resends an existing attempt',async t=>{
+ const bytes=Buffer.from(createSaleTicketPdf(snapshot,receiptIdentity),'ascii');
+ const row={_id:'ticket',snapshot,identity:receiptIdentity,objectKey:'sale-tickets/ticket/original.pdf',filename:'ticket.pdf',sha256:createHash('sha256').update(bytes).digest('hex')};
+ let providerStatus:number|null=503,emails=0;
+ const attempts=new Map<string,{id:string;status:string}>();
+ t.mock.method(ConvexHttpClient.prototype,'query',async()=>row);
+ t.mock.method(ConvexHttpClient.prototype,'action',async(_ref,args)=>{
+  if(args.operation==='ticketIdentity')return row;
+  if(args.operation==='ticketClaimEmail'){const key=args.payload.operationId,prior=attempts.get(key);if(prior)return {...prior,send:false};const value={id:key,status:'sending'};attempts.set(key,value);return {...value,send:true};}
+  if(args.operation==='ticketEmailResult'){const prior=attempts.get(args.payload.id)!;prior.status=args.payload.status;return;}
+  assert.fail(args.operation);
+ });
+ t.mock.method(globalThis,'fetch',async(url,init)=>{
+  if(String(url).includes('api.brevo.com')){emails++;if(providerStatus===null)throw new Error('connection lost');return Response.json({code:'test'}, {status:providerStatus});}
+  assert.equal(init?.method,'GET','historical original must not be regenerated');return new Response(bytes);
+ });
+ for(const [status,expected]of [[503,'unknown'],[400,'failed'],[null,'unknown']] as const){
+  providerStatus=status;const input={operationId:randomUUID(),recipient:'client@example.test'};
+  const first=await app().request('/sale-tickets/ticket/email',post(input));assert.equal(first.status,502);assert.equal((await first.json()).status,expected);
+  const sent=emails,retry=await app().request('/sale-tickets/ticket/email',post(input));assert.equal(retry.status,200);assert.equal((await retry.json()).status,expected);assert.equal(emails,sent,'checking an attempt never sends again');
+ }
+ assert.equal(emails,3);
+});

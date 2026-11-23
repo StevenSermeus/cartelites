@@ -1,3 +1,6 @@
+import {getSessionScope} from '../auth/session';
+import {lookupSelectedContact} from '../data/selectedContact';
+import {MotionModal as Modal} from './MotionModal';
 import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
@@ -11,7 +14,6 @@ import {
   Text,
   TextInput,
   View,
-  Modal,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -80,6 +82,7 @@ export function ClientPicker({
   };
   const [search, setSearch] = useState('');
   const [resolved, setResolved] = useState<Seller | null>(null);
+  const [lookup,setLookup]=useState({id:'',loading:false,error:''}),[lookupRetry,setLookupRetry]=useState(0);
   const data = usePagedData<Seller>(
     '/sellers',
     { search: search.trim(), size: 10 },
@@ -88,20 +91,15 @@ export function ClientPicker({
   const selected =
     clients.find((client) => client._id === value) ?? (resolved?._id === value ? resolved : null);
   useEffect(() => {
-    let active = true;
-    if (value && !selected)
-      void readRecord<Seller>('/sellers', value)
-        .then((client) => {
-          if (active) {
-            setResolved(client);
-            onResolved?.(client);
-          }
-        })
-        .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [value]);
+    let active=true;const epoch=getSessionScope();
+    if(!value||selected){setLookup({id:value,loading:false,error:''});return;}
+    setLookup({id:value,loading:true,error:''});
+    void lookupSelectedContact(value,id=>readRecord<Seller|null>('/sellers',id),()=>active&&epoch===getSessionScope(),result=>{
+      if(result.status==='ready'){setResolved(result.contact);onResolved?.(result.contact);setLookup({id:value,loading:false,error:''});}
+      else setLookup({id:value,loading:false,error:result.message});
+    });
+    return()=>{active=false;};
+  },[value,selected?._id,lookupRetry]);
   const matches = data.items;
   return (
     <View>
@@ -222,7 +220,7 @@ export function ClientPicker({
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Changer de déposant"
+            accessibilityLabel="Changer de contact"
             style={styles.change}
             onPress={() => {
               onChange('');
@@ -231,6 +229,13 @@ export function ClientPicker({
           >
             <Text style={[{ color: colors.text }, styles.actionText]}>Changer</Text>
           </Pressable>
+        </View>
+      ) : value ? (
+        <View style={{gap:8,padding:12,borderWidth:1,borderColor:colors.border,borderRadius:12}}>
+          <Text style={{color:colors.text,fontWeight:'600'}}>Contact sélectionné conservé</Text>
+          {lookup.id!==value||lookup.loading?<Text accessibilityLiveRegion="polite" style={{color:colors.secondary}}>Chargement du contact…</Text>:<Text accessibilityRole="alert" style={{color:colors.danger}}>{lookup.error||'Le contact n’a pas pu être chargé.'}</Text>}
+          <Pressable accessibilityRole="button" disabled={lookup.id===value&&lookup.loading} onPress={()=>setLookupRetry(retry=>retry+1)} style={{minHeight:44,justifyContent:'center'}}><Text style={{color:colors.accent}}>Réessayer le contact</Text></Pressable>
+          <Pressable accessibilityRole="button" onPress={()=>{onChange('');setSearch('');}} style={{minHeight:44,justifyContent:'center'}}><Text style={{color:colors.accent}}>Choisir un autre contact</Text></Pressable>
         </View>
       ) : (
         <>

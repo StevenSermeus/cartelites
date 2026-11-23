@@ -36,7 +36,7 @@ async function fixture() {
       },
     }),
   );
-  const user = t.withIdentity({ subject: ownerId });
+  const user = t.withIdentity({ subject: ownerId, sv:0, sessionJti:`session-${ownerId}` });
   const sellerId = await user.mutation(api.operations.createSeller, {
     operationId: "seller",
     name: "Déposant",

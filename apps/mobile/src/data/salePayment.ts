@@ -1,4 +1,5 @@
 import type { SaleSettlement } from './apiRepository';
+import {shopDay,shopDayTimestamp} from './shopCalendar';
 
 export type PaymentDraft = {
   mode: '' | 'cash' | 'transfer' | 'mixed' | 'pending';
@@ -7,10 +8,7 @@ export type PaymentDraft = {
   date: string;
   reference: string;
 };
-export const paymentDay = (value = Date.now()) => {
-  const d = new Date(value);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+export const paymentDay = shopDay;
 export const emptyPaymentDraft = (): PaymentDraft => ({
   mode: '',
   cash: '',
@@ -28,10 +26,10 @@ function cents(value: string) {
 export function buildSaleSettlement(draft: PaymentDraft, total: number): SaleSettlement {
   if (!draft.mode) throw new Error('Choisissez le mode d’encaissement ou « À encaisser ».');
   if (draft.mode === 'pending') return { paymentStatus: 'pending' };
-  const receivedAt = new Date(`${draft.date}T12:00:00`).getTime();
+  const receivedAt = shopDayTimestamp(draft.date);
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(draft.date) ||
-    !Number.isFinite(receivedAt) ||
+    receivedAt === undefined ||
     paymentDay(receivedAt) !== draft.date
   )
     throw new Error('Date d’encaissement invalide.');

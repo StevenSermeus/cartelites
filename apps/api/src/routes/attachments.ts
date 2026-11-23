@@ -95,7 +95,9 @@ export function attachmentRoutes(repo: ConvexAccountRepository) {
       if (thumbnail) {
         const result = await requestR2('PUT', `${objectKey}.thumb.webp`, thumbnail, 'image/webp');
         if (!result.ok) {
-          await requestR2('DELETE', objectKey).catch(() => undefined);
+          // A retry can address an already committed upload whose response was lost.
+          // Its deterministic original must survive a temporary thumbnail failure.
+          if (!operationId) await requestR2('DELETE', objectKey).catch(() => undefined);
           return c.json({ error: 'ATTACHMENT_STORAGE_UNAVAILABLE' }, 502);
         }
       }

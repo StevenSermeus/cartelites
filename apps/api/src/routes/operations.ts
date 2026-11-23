@@ -1,3 +1,4 @@
+import {registerHistoryRoutes} from './history.js';
 import { registerInventoryRoutes } from './inventory.js';
 import { registerSaleTicketRoutes } from './saleTickets.js';
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
@@ -34,9 +35,10 @@ const purchase = z.object({
         identifier: z.string().optional(),
         serialNumber: z.string().optional(),
         catalogueImageUrl: z.string().url().optional(),
+        catalogueCardId:z.string().max(100).optional(),catalogueSetId:z.string().max(100).optional(),
         language: z.enum(['fr', 'en', 'ja', 'zh']).optional(),
         condition: z.enum(['M', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO']).optional(),
-        gradingCompany: z.enum(['PSA', 'CollectAura', 'PCA', 'CCC']).optional(),
+        gradingCompany: z.string().trim().min(1).max(100).optional(),
         gradingGrade: z.string().trim().min(1).max(32).optional(),
         gradingCertificate: z.string().trim().max(64).optional(),
         gradingNotes: z.string().trim().max(500).optional(),
@@ -96,10 +98,30 @@ const saleConflictQuery = makeFunctionReference<'query'>('operations:getSaleConf
 const resolveSaleConflictMutation = makeFunctionReference<'mutation'>(
   'operations:resolveSaleConflict',
 );
+import {registerExportRoutes} from './exports.js';
 export function operationRoutes(repo: ConvexAccountRepository) {
   const app = new OpenAPIHono<{ Variables: Variables }>();
   app.use('*', authMiddleware(repo));
+  registerExportRoutes(app);
+  registerHistoryRoutes(app);
   registerPaginatedReads(app);
+  app.get('/grading-companies', async c => {
+    const client = new ConvexHttpClient(env.CONVEX_URL); client.setAuth(c.get('accessToken'));
+    return c.json(await client.query(makeFunctionReference<'query'>('gradingCompanies:list'), {}));
+  });
+  const gradingCompanyInput = z.object({name:z.string().trim().min(1).max(100), abbreviation:z.string().max(30).optional(), website:z.string().url().optional(), archived:z.boolean().optional(), expectedRevision:z.number().int().positive().optional()}).strict();
+  app.post('/grading-companies', async c => {
+    const input = gradingCompanyInput.safeParse(await c.req.json());
+    if (!input.success) return c.json({error:'INVALID_GRADING_COMPANY'},400);
+    const client = new ConvexHttpClient(env.CONVEX_URL); client.setAuth(c.get('accessToken'));
+    return c.json({id:await client.mutation(makeFunctionReference<'mutation'>('gradingCompanies:save'), input.data)});
+  });
+  app.patch('/grading-companies/:id', async c => {
+    const input = gradingCompanyInput.safeParse(await c.req.json());
+    if (!input.success) return c.json({error:'INVALID_GRADING_COMPANY'},400);
+    const client = new ConvexHttpClient(env.CONVEX_URL); client.setAuth(c.get('accessToken'));
+    return c.json({id:await client.mutation(makeFunctionReference<'mutation'>('gradingCompanies:save'), {...input.data,id:c.req.param('id')})});
+  });
   app.get('/purchases/:purchaseId/edit', async c => {
     const client = new ConvexHttpClient(env.CONVEX_URL); client.setAuth(c.get('accessToken'));
     return c.json(await client.query(makeFunctionReference<'query'>('purchaseEditing:detail'), { purchaseId: c.req.param('purchaseId') }));
@@ -118,7 +140,9 @@ export function operationRoutes(repo: ConvexAccountRepository) {
   app.onError((error, c) => {
     if (/\b(INVALID_CURSOR|INVALID_PAGINATION|INVALID_FILTER|INVALID_RESOURCE)\b/.test(error.message)) return c.json({ error: 'INVALID_QUERY' }, 400);
     const codes = [
-      'UNAUTHENTICATED',
+      'UNAUTHENTICATED', 'INVALID_SESSION', 'ACCOUNT_DISABLED', 'READ_ONLY_TOKEN',
+      'CONSIGNMENT_SIGNATURE_REQUIRED', 'CONTRACT_SIGNATURE_REQUIRED', 'CONTRACT_TERMS_REQUIRED', 'RETURN_SIGNATURE_REQUIRED', 'CONSIGNMENT_TERMS_UNKNOWN', 'PURCHASE_NOT_ACTIVE', 'PAYMENT_TOTAL_MISMATCH', 'PAYMENT_BEFORE_SALE', 'PENDING_STOCK_CHANGED', 'ITEM_UNAVAILABLE_AT_DATE', 'STOCK_LEDGER_MISMATCH', 'LOT_OVERFLOW', 'ALLOCATION_LEDGER_MISMATCH', 'OWNERSHIP_MISMATCH', 'MIXED_TAX_LOTS_REQUIRE_SEPARATE_ITEM',
+      'REVISION_CONFLICT', 'GRADING_COMPANY_EXISTS', 'GRADING_COMPANY_NOT_FOUND', 'INVALID_GRADING_COMPANY', 'INVALID_GRADING_WEBSITE',
       'SELLER_NOT_FOUND',
       'ITEM_NOT_FOUND',
       'CONSIGNMENT_NOT_FOUND',
@@ -158,7 +182,8 @@ export function operationRoutes(repo: ConvexAccountRepository) {
       'PURCHASE_CHANGED', 'PURCHASE_NOT_EDITABLE', 'PURCHASE_ITEM_LOCKED', 'PURCHASE_TOO_LARGE', 'INVALID_PURCHASE', 'INVALID_STOCK_SELECTION', 'INVALID_INVENTORY', 'PRODUCT_MISMATCH', 'OPENING_ALREADY_USED', 'GIFT_NOT_FOUND', 'OPENING_NOT_FOUND', 'TICKET_NOT_FOUND', 'INVALID_TICKET', 'TICKET_STALE', 'INVALID_ATTACHMENT',
     ];
     const code = codes.find((value) => new RegExp(`\\b${value}\\b`).test(error.message));
-    if (code === 'UNAUTHENTICATED') return c.json({ error: code }, 401);
+    if (code === 'READ_ONLY_TOKEN') return c.json({ error: code }, 403);
+    if (code === 'UNAUTHENTICATED' || code === 'INVALID_SESSION' || code === 'ACCOUNT_DISABLED') return c.json({ error: code }, 401);
     if (code?.endsWith('_NOT_FOUND')) return c.json({ error: code }, 404);
     if (code) return c.json({ error: code }, 409);
     console.error('Operation failed', error);

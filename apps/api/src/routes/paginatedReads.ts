@@ -13,12 +13,20 @@ export const readPageQuery = z.object({
   sellerId: z.string().max(100).optional(), purchaseId: z.string().max(100).optional(),
   consignmentId: z.string().max(100).optional(), itemId: z.string().max(100).optional(),
   from: z.coerce.number().finite().optional(), to: z.coerce.number().finite().optional(),
+  tcg: z.enum(['all', 'pokemon', 'riftbound', 'other']).optional(), series: z.string().max(300).optional(),
   productType: z.enum(['all', 'card', 'sealed', 'other']).optional(),
-  gradingStatus: z.enum(['all', 'graded', 'ungraded']).optional(), gradingCompany: z.string().max(40).optional(), gradingText: z.string().max(100).optional(),
+  gradingStatus: z.enum(['all', 'graded', 'ungraded']).optional(), gradingCompany: z.string().max(100).optional(), gradingText: z.string().max(100).optional(),
 }).refine(value => value.from === undefined || value.to === undefined || value.from <= value.to);
 
 /** Extends the existing GET routes. No parameters preserves their legacy response. */
 export function registerPaginatedReads(app: OpenAPIHono<{ Variables: Variables }>) {
+  app.get('/stock/series', async c => {
+    const parsed = z.object({ tcg: z.enum(['all', 'pokemon', 'riftbound', 'other']).optional(), includeUnavailable: z.enum(['true', 'false']).transform(value => value === 'true').optional() }).safeParse(c.req.query());
+    if (!parsed.success) return c.json({ error: 'INVALID_FILTER' }, 400);
+    const client = new ConvexHttpClient(env.CONVEX_URL);
+    client.setAuth(c.get('accessToken'));
+    return c.json(await client.query(makeFunctionReference<'query'>('readModels:stockSeries'), parsed.data));
+  });
   const routes = [
     ['/sellers', 'sellers'], ['/stock', 'stock'], ['/sales', 'sales'], ['/purchases', 'purchases'],
     ['/consignments', 'consignments'], ['/consignments/balances', 'balances'], ['/conflicts', 'conflicts'],
@@ -37,7 +45,7 @@ export function registerPaginatedReads(app: OpenAPIHono<{ Variables: Variables }
   }
   for (const [path, resource] of routes.filter(([, resource]) => !['conflicts', 'payments', 'attachments', 'events'].includes(resource))) {
     app.get(`${path}/:id`, async (c, next) => {
-      if (['page', 'balances', 'payments', 'events'].includes(c.req.param('id'))) return next();
+      if (['page', 'balances', 'payments', 'events', 'documents', 'returns'].includes(c.req.param('id'))) return next();
       const client = new ConvexHttpClient(env.CONVEX_URL);
       client.setAuth(c.get('accessToken'));
       const result = await client.query(makeFunctionReference<'query'>('readModels:record'), { resource, id: c.req.param('id') });

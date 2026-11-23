@@ -1,6 +1,7 @@
+import {MotionModal as Modal} from './MotionModal';
+import { formatShopMoney } from '../theme/shopFormatting';
 import { useState, type Dispatch, type SetStateAction } from 'react';
 import {
-  Modal,
   Pressable,
   ScrollView,
   Switch,
@@ -14,7 +15,7 @@ import { Field } from './Field';
 import { useTheme } from '../theme/ThemeProvider';
 import { purchaseValuation, applyPurchasePercent } from '../data/purchaseValuation';
 import type { PurchaseDraft } from '../data/apiRepository';
-const money = (n: number) => `${(n / 100).toFixed(2).replace('.', ',')} €`;
+const money = (n: number) => formatShopMoney(n / 100);
 export function PurchaseValuation({
   rows,
   setRows,

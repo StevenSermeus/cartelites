@@ -22,6 +22,10 @@ const signupSetting = z.object({ enabled: z.boolean() });
 const dummyPasswordHash = argon2.hash(randomUUID(), { type: argon2.argon2id });
 export function authRoutes(repo: ConvexAccountRepository) {
   const app = new OpenAPIHono<{ Variables: Variables }>();
+  app.use('*', async (c, next) => {
+    c.header('Cache-Control', 'private, no-store');
+    await next();
+  });
   app.get('/realtime', authMiddleware(repo), async c => {
     c.header('Cache-Control', 'no-store');
     return c.json({ url: env.CONVEX_URL, token: await issueRealtimeToken(c.get('accessToken')) });
@@ -92,6 +96,7 @@ export function authRoutes(repo: ConvexAccountRepository) {
       responses: {
         204: { description: 'Mot de passe remplacé' },
         400: { description: 'Jeton invalide ou expiré' },
+        503: { description: 'Service de compte momentanément indisponible' },
       },
     }),
     async (c) => {
@@ -102,8 +107,10 @@ export function authRoutes(repo: ConvexAccountRepository) {
           tokenHash,
           await argon2.hash(password, { type: argon2.argon2id }),
         );
-      } catch {
-        return c.json({ error: 'RESET_TOKEN_INVALID' }, 400);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('RESET_TOKEN_INVALID'))
+          return c.json({ error: 'RESET_TOKEN_INVALID' }, 400);
+        return c.json({ error: 'AUTH_SERVICE_UNAVAILABLE' }, 503);
       }
       return c.body(null, 204);
     },
@@ -128,24 +135,31 @@ export function authRoutes(repo: ConvexAccountRepository) {
     createRoute({
       method: 'get',
       path: '/status',
-      responses: { 200: { description: 'État de la session et de la création de compte' } },
+      responses: { 200: { description: 'État de la session et de la création de compte' }, 503: { description: 'Service de compte momentanément indisponible' } },
     }),
     async (c) => {
       const signupEnabled = await repo.isSignupEnabled();
       const token = getCookie(c, 'session');
       if (!token) return c.json({ authenticated: false, signupEnabled });
+      let session: Awaited<ReturnType<typeof verifyToken>>;
       try {
-        const session = await verifyToken(token);
+        session = await verifyToken(token);
+      } catch {
+        return c.json({ authenticated: false, signupEnabled });
+      }
+      try {
         const authenticated = await repo.isSessionValid(
           session.subject,
           session.jti,
           session.sessionVersion,
         );
         return c.json({ authenticated, signupEnabled, ...(authenticated ? {
+          accountId: session.subject,
           issuedAt: session.issuedAt, expiresAt: session.expiresAt, refreshAfterSeconds: env.SESSION_REFRESH_INTERVAL_SECONDS,
         } : {}) });
       } catch {
-        return c.json({ authenticated: false, signupEnabled });
+        // Failure to reach the account store is not evidence of session revocation.
+        return c.json({ error: 'AUTH_SERVICE_UNAVAILABLE' }, 503);
       }
     },
   );
@@ -159,6 +173,7 @@ export function authRoutes(repo: ConvexAccountRepository) {
     }),
     async (c) => {
       const { enabled } = c.req.valid('json');
+      if (enabled !== await repo.isSignupEnabled()) return c.json({error:'REGISTRATION_CONFIG_MANAGED'},409);
       await repo.setSignupEnabled(enabled);
       return c.json({ enabled });
     },
@@ -191,6 +206,7 @@ export function authRoutes(repo: ConvexAccountRepository) {
         return c.json({ error: 'INVALID_CREDENTIALS' }, 400 as const);
       }
       const token = await issueToken(account.id, account.sessionVersion);
+      if (env.DATA_MODEL === 'canonical') await repo.registerSession(await verifyToken(token));
       setSessionCookies(c, token);
       return c.json(
         {
@@ -232,6 +248,7 @@ export function authRoutes(repo: ConvexAccountRepository) {
       }
       await repo.clearLoginFailures(emailHash);
       const token = await issueToken(account.id, account.sessionVersion);
+      if (env.DATA_MODEL === 'canonical') await repo.registerSession(await verifyToken(token));
       setSessionCookies(c, token);
       return c.json(
         {

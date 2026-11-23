@@ -18,6 +18,8 @@ test('restart round trip preserves multiple drafts and photo references, clears 
   const a = draft('a', 'alice');
   a.rows[0].photo = { uri: 'file:///documents/photo', name: 'carte.jpg', mimeType: 'image/jpeg' };
   a.rows[0].searching = true;
+  a.rows[0].catalogueCardId = 'xy6-60';
+  a.rows[0].catalogueSetId = 'xy6';
   const original = { activeId: 'b', drafts: [a, draft('b', 'bob'), draft('empty')] };
   const saved = purchaseSnapshot(original);
   const restored = readPurchaseSnapshot(JSON.stringify({ version: 1, revision: 8, state: saved }));
@@ -26,6 +28,8 @@ test('restart round trip preserves multiple drafts and photo references, clears 
   assert.equal(restored.state.drafts.length, 2);
   assert.equal(restored.state.drafts[0].rows[0].photo?.uri, 'file:///documents/photo');
   assert.equal(restored.state.drafts[0].rows[0].searching, false);
+  assert.equal(restored.state.drafts[0].rows[0].catalogueCardId, 'xy6-60');
+  assert.equal(restored.state.drafts[0].rows[0].catalogueSetId, 'xy6');
   assert.equal(a.rows[0].searching, true);
 });
 test('removing one draft from a persisted collection leaves the other intact', () => {

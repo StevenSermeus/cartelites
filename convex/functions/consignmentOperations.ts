@@ -1,15 +1,11 @@
+import {mutation} from './itemActivity';
+import {shopDay} from './shopCalendar';
 import { v } from 'convex/values';
 import { snapshotPayment } from './consignmentDocuments';
 import type { Id } from './_generated/dataModel';
-import { mutation, type QueryCtx, query } from './_generated/server';
+import { type QueryCtx, query } from './_generated/server';
 
-// Like purchases, consignments belong to the deployment's company, not an employee.
-async function requireOwner(ctx: Pick<QueryCtx, 'auth'>) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error('UNAUTHENTICATED');
-  if (identity.scope === 'realtime:read') throw new Error('READ_ONLY_TOKEN');
-  return identity.subject;
-}
+import { requireLiveSession as requireOwner } from './sessionGuard';
 function replay<T extends { operationDigest: string }>(prior: T | null, args: unknown) {
   if (prior && prior.operationDigest !== JSON.stringify(args))
     throw new Error('IDEMPOTENCY_KEY_REUSED');
@@ -62,7 +58,7 @@ export const createConsignment = mutation({
           ),
         ),
         gradingCompany: v.optional(
-          v.union(v.literal('PSA'), v.literal('CollectAura'), v.literal('PCA'), v.literal('CCC')),
+          v.string(),
         ),
         gradingGrade: v.optional(v.string()),
         gradingCertificate: v.optional(v.string()),
@@ -262,7 +258,7 @@ export const recordConsignmentPayment = mutation({
     const { balances } = await readBalances(ctx);
     const balance = balances.find((row) => row.sellerId === args.sellerId)?.balanceCents ?? 0;
     if (args.amountCents > balance) throw new Error('PAYMENT_EXCEEDS_BALANCE');
-    const paymentDay = new Date(args.occurredAt).toISOString().slice(0, 10);
+    const paymentDay = shopDay(args.occurredAt);
     const [sales, payments] = await Promise.all([
       ctx.db.query('sales').collect(),
       ctx.db
@@ -277,12 +273,12 @@ export const recordConsignmentPayment = mutation({
           sale.status === 'active' &&
           sale.paymentStatus !== 'pending' &&
           sale.sellerId === args.sellerId &&
-          new Date(sale.payment?.receivedAt ?? sale.occurredAt).toISOString().slice(0, 10) <=
+          shopDay(sale.payment?.receivedAt ?? sale.occurredAt) <=
             paymentDay,
       )
       .reduce((sum, sale) => sum + BigInt(sale.depositorAmountCents ?? 0), 0n);
     const paidAtDate = payments
-      .filter((payment) => new Date(payment.occurredAt).toISOString().slice(0, 10) <= paymentDay)
+      .filter((payment) => shopDay(payment.occurredAt) <= paymentDay)
       .reduce((sum, payment) => sum + BigInt(payment.amountCents), 0n);
     if (BigInt(args.amountCents) > earnedAtDate - paidAtDate)
       throw new Error('INVALID_PAYMENT_DATE');
@@ -320,8 +316,8 @@ export const returnConsignmentItem = mutation({
     if (
       !args.operationId ||
       !validDate(args.occurredAt) ||
-      new Date(args.occurredAt).toISOString().slice(0, 10) <
-        new Date(item.purchaseOccurredAt).toISOString().slice(0, 10)
+      shopDay(args.occurredAt) <
+        shopDay(item.purchaseOccurredAt)
     )
       throw new Error('INVALID_RETURN_DATE');
     await ctx.db.patch(item._id, { status: 'returned', returnedAt: args.occurredAt });
@@ -377,6 +373,7 @@ export const updateConsignmentTerms = mutation({
       contractRevision: (dossier.contractRevision ?? 1) + 1, contractStatus: 'awaiting_signature',
     });
     await ctx.db.patch(item._id, {
+      revision:(item.revision??0)+1,
       askingPriceCents: args.askingPriceCents,
       agreedPriceCents: args.askingPriceCents,
       commissionRateBps: args.commissionRateBps,

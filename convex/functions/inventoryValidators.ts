@@ -27,7 +27,7 @@ export const productFields = {
     ),
   ),
   gradingCompany: v.optional(
-    v.union(v.literal('PSA'), v.literal('CollectAura'), v.literal('PCA'), v.literal('CCC')),
+    v.string(),
   ),
   gradingGrade: v.optional(v.string()),
   gradingCertificate: v.optional(v.string()),

@@ -21,7 +21,7 @@ const product = z.object({
   identifier: z.string().max(100).optional(),
   language: z.enum(['fr', 'en', 'ja', 'zh']).optional(),
   condition: z.enum(['M', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO']).optional(),
-  gradingCompany: z.enum(['PSA', 'CollectAura', 'PCA', 'CCC']).optional(),
+  gradingCompany: z.string().trim().min(1).max(100).optional(),
   gradingGrade: z.string().max(32).optional(),
   gradingCertificate: z.string().max(100).optional(),
   askingPriceCents: money,
@@ -45,6 +45,7 @@ export function registerInventoryRoutes(app: OpenAPIHono<{ Variables: Variables 
       'updateProduct',
       z
         .object({
+          expectedProductRevision:z.number().int().nonnegative().optional(),expectedRevision:z.number().int().nonnegative().optional(),variant:z.string().max(100).optional(),serialNumber:z.string().max(100).optional(),privateNotes:z.string().max(3000).optional(),publicAttributes:z.record(z.string().trim().min(1).max(60),z.string().max(500)).refine(v=>Object.keys(v).length<=20).optional(),privateAttributes:z.record(z.string().trim().min(1).max(60),z.string().max(500)).refine(v=>Object.keys(v).length<=20).optional(),
           tcg: product.shape.tcg,
           itemId: z.string(),
           name: z.string().trim().min(1).max(300),
@@ -52,6 +53,7 @@ export function registerInventoryRoutes(app: OpenAPIHono<{ Variables: Variables 
           series: z.string().max(300),
           identifier: z.string().max(100),
           askingPriceCents: money,
+          priceVisible: z.boolean().optional(),
           hiddenFromCatalogue: z.boolean(),
           language: product.shape.language,
           condition: product.shape.condition,
@@ -126,6 +128,12 @@ export function registerInventoryRoutes(app: OpenAPIHono<{ Variables: Variables 
       );
       return c.json({ result }, 201);
     });
+  app.get('/stock/:id/activity',async c=>{
+    const input=z.object({size:z.coerce.number().int().min(1).max(50).default(25),cursor:z.string().max(10000).optional()}).safeParse(c.req.query());
+    if(!input.success)return c.json({error:'INVALID_ACTIVITY_QUERY'},400);
+    const client=new ConvexHttpClient(env.CONVEX_URL);client.setAuth(c.get('accessToken'));
+    return c.json(await client.query(makeFunctionReference<'query'>('inventory:activity'),{itemId:c.req.param('id'),size:input.data.size,cursor:input.data.cursor??null}));
+  });
   app.get('/stock/:id/lots', async (c) => {
     const client = new ConvexHttpClient(env.CONVEX_URL);
     client.setAuth(c.get('accessToken'));
@@ -134,6 +142,22 @@ export function registerInventoryRoutes(app: OpenAPIHono<{ Variables: Variables 
         itemId: c.req.param('id'),
       }),
     );
+  });
+  for(const [path,fn] of [['/inventory/products','products'],['/stock-openings','openings']] as const) app.get(path,async c=>{
+    const client=new ConvexHttpClient(env.CONVEX_URL);client.setAuth(c.get('accessToken'));
+    return c.json(await client.query(makeFunctionReference<'query'>(`workspaceReads:${fn}`),{paginationOpts:{numItems:25,cursor:c.req.query('cursor')||null}}));
+  });
+  app.get('/stock/:id/open-preview',async c=>{
+    const parsed=z.object({quantity:z.coerce.number().int().min(1).max(100000),packSize:z.coerce.number().int().min(1).max(1000),occurredAt:z.coerce.number().int().nonnegative().optional()}).safeParse(c.req.query());
+    if(!parsed.success)return c.json({error:'INVALID_INVENTORY'},400);
+    const client=new ConvexHttpClient(env.CONVEX_URL);client.setAuth(c.get('accessToken'));
+    return c.json(await client.query(makeFunctionReference<'query'>('workspaceReads:openPreview'),{itemId:c.req.param('id'),...parsed.data}));
+  });
+  app.get('/documents',async c=>{
+    const parsed=z.object({kind:z.enum(['all','receipt','consignment','ticket']).default('all'),cursor:z.string().max(10000).optional(),search:z.string().max(200).optional(),status:z.enum(['all','archived','signed','prepared']).optional(),from:z.coerce.number().int().nonnegative().optional(),to:z.coerce.number().int().nonnegative().optional()}).safeParse(c.req.query());
+    if(!parsed.success)return c.json({error:'INVALID_QUERY'},400);
+    const client=new ConvexHttpClient(env.CONVEX_URL);client.setAuth(c.get('accessToken'));
+    return c.json(await client.query(makeFunctionReference<'query'>('workspaceReads:documents'),parsed.data));
   });
   app.get('/supplier-receipts', async (c) => {
     const client = new ConvexHttpClient(env.CONVEX_URL);
@@ -173,8 +197,8 @@ export function registerInventoryRoutes(app: OpenAPIHono<{ Variables: Variables 
     const result = (await client.mutation(
       makeFunctionReference<'mutation'>('inventory:photo'),
       input.data,
-    )) as { objectKey: string };
-    if (input.data.action === 'remove') {
+    )) as { objectKey: string; deleteObject?: boolean };
+    if (input.data.action === 'remove' && result.deleteObject !== false) {
       await requestR2('DELETE', result.objectKey).catch(() => undefined);
       await requestR2('DELETE', `${result.objectKey}.thumb.webp`).catch(() => undefined);
     }

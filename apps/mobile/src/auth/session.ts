@@ -95,6 +95,18 @@ export async function saveInstanceUrl(input: string): Promise<void> {
 export function getApiBaseUrl() {
   return apiBaseUrl;
 }
+/** Opaque in-memory scope for UI caches; changes even when a different account uses the same shop. */
+export function getSessionScope() { return `${generation}:${apiBaseUrl ?? ''}`; }
+export async function captureAccountScope() {
+  const epoch=getSessionScope(), base=apiBaseUrl, token=await readSession();
+  const assertActive=()=>{if(epoch!==getSessionScope())throw new Error('La session a changé.');};
+  assertActive();
+  if(!base || !token)throw new Error('Reconnectez-vous pour retrouver vos opérations.');
+  const part=token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
+  const accountId=JSON.parse(atob(part.padEnd(Math.ceil(part.length/4)*4,'='))).sub;
+  if(typeof accountId!=='string'||!accountId)throw new Error('Compte de l’opération introuvable.');
+  return {owner:JSON.stringify([base,accountId]),accountId,assertActive};
+}
 export async function readSession(): Promise<string | null> {
   const [token, origin] = await Promise.all([SecureStore.getItemAsync(TOKEN_KEY), SecureStore.getItemAsync(TOKEN_INSTANCE_KEY)]);
   return origin === apiBaseUrl ? token : null;
@@ -151,12 +163,14 @@ export async function authenticate(mode: AuthMode, email: string, password: stri
   }
   if (!payload.accessToken) throw new Error('Le serveur n’a pas retourné de jeton pour iOS.');
   if (base !== apiBaseUrl || revision !== generation) throw new Error('L’instance a changé. Reconnectez-vous.');
+  invalidateRequests();
+  const authenticatedRevision=generation;
   await SecureStore.setItemAsync(TOKEN_KEY, payload.accessToken, {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
   await SecureStore.setItemAsync(TOKEN_INSTANCE_KEY, base);
   markUserActivity();
-  if (base !== apiBaseUrl || revision !== generation) { await clearSession(); throw new Error('L’instance a changé. Reconnectez-vous.'); }
+  if (base !== apiBaseUrl || authenticatedRevision !== generation) { await clearSession(); throw new Error('L’instance a changé. Reconnectez-vous.'); }
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {

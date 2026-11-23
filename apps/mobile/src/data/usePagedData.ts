@@ -1,10 +1,12 @@
 import { browseArgs } from '@tcg-marge/realtime';
 import { realtime } from './realtime';
-import { useEffect, useState } from 'react';
+import {getSessionScope} from '../auth/session';
+import { useEffect, useMemo, useState } from 'react';
 import { type ReadPage } from './apiRepository';
+import {visiblePage} from './pagedSnapshot';
 
 export function usePagedData<T>(path: string, params: Record<string, string | number | undefined>, enabled = true, revision = 0) {
-  const key = JSON.stringify([path, params]);
+  const key = JSON.stringify([getSessionScope(),path, params]);
   const [position, setPosition] = useState<{ key: string; cursors: (string | undefined)[] }>({ key, cursors: [undefined] });
   const cursors = position.key === key ? position.cursors : [undefined];
   const cursor = cursors.at(-1);
@@ -14,7 +16,9 @@ export function usePagedData<T>(path: string, params: Record<string, string | nu
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
-    if (!enabled) { setResult({ key, cursor, page: { items: [], nextCursor: null, isDone: true } }); return; }
+    // Keep the same scoped page mounted behind a native detail/basket route.
+    // A new session/query key remains invisible through `current` below.
+    if (!enabled) { setLoading(false); return; }
     setLoading(true); setError('');
     let unsubscribe: (() => void) | undefined;
     const timer = setTimeout(() => {
@@ -24,7 +28,7 @@ export function usePagedData<T>(path: string, params: Record<string, string | nu
     }, 250);
     return () => { active = false; clearTimeout(timer); unsubscribe?.(); };
   }, [key, cursor, enabled, revision, retry]);
-  const current = result.key === key && result.cursor === cursor ? result.page : { items: [] as T[], nextCursor: null, isDone: true };
+  const current = useMemo(() => visiblePage(result,key,cursor), [result, key, cursor]);
   return { ...current, loading, error, page: cursors.length, hasPrevious: cursors.length > 1,
     previous: () => setPosition({ key, cursors: cursors.slice(0, -1) }),
     next: () => { if (current.nextCursor) setPosition({ key, cursors: [...cursors, current.nextCursor] }); },

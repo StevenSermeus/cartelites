@@ -1,3 +1,4 @@
+import {shopDay} from './shopCalendar';
 import { v } from 'convex/values';
 
 export const salePaymentValidator = v.object({
@@ -40,8 +41,8 @@ export function validateSalePayment(
     !Number.isFinite(new Date(payment.receivedAt).getTime()) ||
     !Number.isSafeInteger(occurredAt) ||
     !Number.isFinite(new Date(occurredAt).getTime()) ||
-    new Date(payment.receivedAt).toISOString().slice(0, 10) <
-      new Date(occurredAt).toISOString().slice(0, 10)
+    shopDay(payment.receivedAt) <
+      shopDay(occurredAt)
   )
     throw new Error('INVALID_SALE_PAYMENT_DATE');
 }

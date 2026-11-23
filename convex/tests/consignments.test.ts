@@ -1,3 +1,4 @@
+import { authenticated } from './helpers/session';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { convexTest } from 'convex-test';
@@ -12,7 +13,7 @@ const modules = {
 };
 async function fixture() {
   const t = convexTest(schema, modules);
-  const user = t.withIdentity({ subject: 'employee' });
+  const user = (await authenticated(t, 'employee'));
   const sellerId = await user.mutation(api.operations.createSeller, {
     operationId: 'seller',
     name: 'Depositor',
@@ -55,7 +56,7 @@ test('deposit persists without fake purchase; replay, auth and company collabora
   assert.equal((await t.run((ctx) => ctx.db.query('purchases').collect())).length, 0);
   assert.equal((await user.query(api.operations.stock, {}))[0].origin, 'consignment');
   assert.equal(
-    (await t.withIdentity({ subject: 'colleague' }).query(api.operations.consignmentHistory, {}))
+    (await (await authenticated(t, 'colleague')).query(api.operations.consignmentHistory, {}))
       .length,
     1,
   );
@@ -205,7 +206,7 @@ test('payments partial, replay and overpayment protection; cancellation preserve
   );
 });
 test('returns remove availability and catalogue, validate date and preserve audit/idempotency', async () => {
-  const { user, itemId } = await fixture();
+  const { t, user, itemId } = await fixture();
   await assert.rejects(
     user.mutation(api.operations.returnConsignmentItem, {
       operationId: 'return',
@@ -221,6 +222,7 @@ test('returns remove availability and catalogue, validate date and preserve audi
   const history = await user.query(api.operations.consignmentHistory, {});
   assert.equal(history[0].items[0].status, 'returned');
   assert.equal(history[0].items[0].events.length, 1);
+  const activity=await t.run(ctx=>ctx.db.query('itemActivity').withIndex('by_item_date',q=>q.eq('itemId',itemId)).collect());assert.deepEqual(activity.map(e=>[e.kind,e.quantityDelta]).sort(),[['acquisition',1],['consignment-return',-1]].sort());
   const sale = await user.mutation(api.operations.createSale, {
     operationId: 'sold-return',
     itemId,

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Animated, PanResponder, Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
@@ -11,7 +11,7 @@ export function SwipeToDelete({ children, onDelete, label, enabled = true, disab
   enabled?: boolean;
   disabled?: boolean;
 }) {
-  const { colors } = useTheme();
+  const { colors,reduceMotion } = useTheme();
   const x = useRef(new Animated.Value(0)).current;
   const opened = useRef(false);
   const origin = useRef(0);
@@ -19,8 +19,11 @@ export function SwipeToDelete({ children, onDelete, label, enabled = true, disab
   const settle = (next: boolean) => {
     opened.current = next;
     setOpen(next);
-    Animated.spring(x, { toValue: next ? -76 : 0, useNativeDriver: true, bounciness: 0 }).start();
+    x.stopAnimation();
+    if(reduceMotion)x.setValue(next?-76:0);
+    else Animated.spring(x, { toValue: next ? -76 : 0, useNativeDriver: true, bounciness: 0 }).start();
   };
+  useEffect(()=>{if(reduceMotion){x.stopAnimation();x.setValue(opened.current?-76:0);}},[reduceMotion,x]);
   const pan = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => enabled && !disabled && opened.current,
     onMoveShouldSetPanResponder: (_, g) => enabled && !disabled &&
@@ -30,7 +33,7 @@ export function SwipeToDelete({ children, onDelete, label, enabled = true, disab
     onPanResponderRelease: (_, g) => settle(Math.abs(g.dx) > 4 && origin.current + g.dx < -32),
     onPanResponderTerminate: () => settle(false),
     onPanResponderTerminationRequest: () => false,
-  }), [enabled, disabled, x]);
+  }), [enabled, disabled, x,reduceMotion]);
   if (!enabled) return <>{children}</>;
   return <View style={{ overflow: 'hidden', backgroundColor: colors.danger }}>
     <Pressable

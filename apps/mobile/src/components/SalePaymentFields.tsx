@@ -1,3 +1,6 @@
+import {SalePaymentRevisions} from './SalePaymentRevisions';
+import {DateField} from './DateField';
+import { formatShopMoney, shopCurrency, shopTimezone } from '../theme/shopFormatting';
 import { useTheme, type ThemeColors } from '../theme/ThemeProvider';
 import {
   buildSaleSettlement,
@@ -11,9 +14,9 @@ export { buildSaleSettlement, emptyPaymentDraft } from '../data/salePayment';
 import * as Crypto from 'expo-crypto';
 import { useRef, useState, type ComponentProps } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { recordSalePayment, type Sale } from '../data/apiRepository';
+import { finishFinancialAttempt, recordSalePayment, type Sale } from '../data/apiRepository';
 import type { Field as StandardField } from './Field';
-import { markUserActivity } from '../auth/session';
+import { captureAccountScope,getSessionScope,markUserActivity } from '../auth/session';
 function Field({
   label,
   value,
@@ -46,7 +49,7 @@ function Field({
   );
 }
 
-const money = (value: number) => `${(value / 100).toFixed(2)} €`;
+const money = (value: number) => formatShopMoney(value / 100);
 export function SalePaymentFields({
   value,
   onChange,
@@ -99,7 +102,7 @@ export function SalePaymentFields({
             {value.mode === 'mixed' ? (
               <>
                 <Field
-                  label="Reçu en espèces (€)"
+                  label={`Reçu en espèces (${shopCurrency()})`}
                   value={value.cash}
                   editable={!disabled}
                   keyboardType="decimal-pad"
@@ -119,7 +122,7 @@ export function SalePaymentFields({
                   }}
                 />
                 <Field
-                  label="Reçu par virement (€)"
+                  label={`Reçu par virement (${shopCurrency()})`}
                   value={value.transfer}
                   editable={!disabled}
                   keyboardType="decimal-pad"
@@ -134,7 +137,7 @@ export function SalePaymentFields({
             {value.mode === 'cash' && (
               <>
                 <Field
-                  label="Montant tendu (€), facultatif"
+                  label={`Montant tendu (${shopCurrency()}), facultatif`}
                   keyboardType="decimal-pad"
                   value={tendered}
                   onChangeText={setTendered}
@@ -156,11 +159,11 @@ export function SalePaymentFields({
             </Pressable>
             {details && (
               <>
-                <Field
-                  label="Date de réception (AAAA-MM-JJ)"
+                <DateField
+                  label="Date de réception"
                   value={value.date}
-                  editable={!disabled}
-                  onChangeText={(date) => onChange({ ...value, date })}
+                  disabled={disabled}
+                  onChange={(date) => onChange({ ...value, date })}
                 />
                 <Field
                   label="Référence ou note facultative"
@@ -190,36 +193,42 @@ export function SalePaymentHistory({
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   const [draft, setDraft] = useState<PaymentDraft>(emptyPaymentDraft);
-  const attempt = useRef<{ signature: string; operationId: string } | null>(null);
+  const locked = useRef(false);
+  const [revision,setRevision]=useState(0);
   const payment = sale.payment;
   async function save() {
+    if(locked.current)return;
+    locked.current=true;
+    const epoch=getSessionScope();
     setBusy(true);
     setError('');
     try {
+      const scope=await captureAccountScope();
       const settlement = buildSaleSettlement(draft, sale.salePriceCents);
       if (!settlement.payment) throw new Error('Choisissez un encaissement reçu.');
       const input = { saleId: sale._id, ...settlement.payment };
-      const signature = JSON.stringify(input);
-      if (attempt.current?.signature !== signature)
-        attempt.current = { signature, operationId: Crypto.randomUUID() };
       await recordSalePayment({
         ...input,
-        operationId: attempt.current.operationId,
+        operationId: Crypto.randomUUID(),
       });
+      scope.assertActive();
       setEditing(false);
-      attempt.current = null;
-      await onChanged();
+      setRevision(value=>value+1);
+      setDraft(emptyPaymentDraft());
+      await finishFinancialAttempt('/sales/payment',scope);
+      await onChanged().catch(()=>{scope.assertActive();setError('Encaissement enregistré. Actualisez la vente pour afficher les dernières données.');});
     } catch (error) {
+      if(epoch!==getSessionScope())return;
       setError(error instanceof Error ? error.message : String(error));
     } finally {
-      setBusy(false);
+      if(epoch===getSessionScope()){locked.current=false;setBusy(false);}
     }
   }
   return (
     <View>
       <Text style={[{ color: colors.text }, styles.hint]}>
         {payment
-          ? `Reçu : espèces ${money(payment.cashCents)} · virement ${money(payment.transferCents)} · ${new Date(payment.receivedAt).toLocaleDateString('fr-BE')}${payment.reference ? ` · ${payment.reference}` : ''}`
+          ? `Reçu : espèces ${money(payment.cashCents)} · virement ${money(payment.transferCents)} · ${new Date(payment.receivedAt).toLocaleDateString('fr-BE', {timeZone: shopTimezone()})}${payment.reference ? ` · ${payment.reference}` : ''}`
           : sale.paymentStatus === 'pending'
             ? 'À encaisser'
             : 'Encaissement non renseigné'}
@@ -290,6 +299,7 @@ export function SalePaymentHistory({
           </Pressable>
         </>
       )}
+      <SalePaymentRevisions saleId={sale._id} revision={JSON.stringify([revision,sale.status,sale.paymentStatus,sale.payment])}/>
     </View>
   );
 }

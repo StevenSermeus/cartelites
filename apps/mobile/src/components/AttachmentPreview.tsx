@@ -1,6 +1,7 @@
+import {MotionModal as Modal} from './MotionModal';
 import { useTheme } from '../theme/ThemeProvider';
 import { useRef, useState } from 'react';
-import { Image, Modal, Pressable, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 import type { AttachmentFile } from '../data/apiRepository';
 import { pickAttachment } from '../data/pickAttachment';
 

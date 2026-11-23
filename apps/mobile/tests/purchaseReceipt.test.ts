@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { completePurchaseItems, mapPurchaseReceipt } from '../src/data/purchaseReceipt';
+import {loadReceiptDocument} from '../src/data/receiptDocument';
 import type { Purchase, PurchaseItem } from '../src/data/apiRepository';
 const item = (id: string): PurchaseItem => ({ _id: id, name: `Carte ${id}`, language: 'ja', condition: 'NM', purchasePriceCents: 1234, marketValueCents: 2468, discountPercent: 50, vatRegime: 'margin', gradingCompany: 'PSA', gradingGrade: '10', gradingCertificate: 'ABC' });
 const purchase: Purchase = { _id: 'p', sellerId: 's', sellerName: 'Client', reference: 'R-1', occurredAt: 123456, status: 'active', items: [item('1')] };
@@ -31,4 +32,11 @@ test('incomplete pagination and failed pages never produce a partial receipt', a
 });
 test('bounded complete receipt needs no extra pages', async () => {
   assert.deepEqual(await completePurchaseItems(purchase, async () => { throw new Error('Unexpected request'); }), purchase.items);
+});
+test('unknown costs block new PDF inputs while archived originals retain their exact bytes',async()=>{
+ const unknown={...purchase,items:[{...item('unknown'),purchasePriceCents:null}]};
+ assert.throws(()=>mapPurchaseReceipt(unknown,{_id:'s',name:'Client'}),/Coût d’achat non renseigné/);
+ const original=await loadReceiptDocument(async()=>[{id:'original',signedAt:1}],async()=>({pdfBase64:'ARCHIVED-EXACT-BYTES'}),async()=>{mapPurchaseReceipt(unknown,{_id:'s',name:'Client'});return 'wrong';});
+ assert.deepEqual(original,{pdf:'ARCHIVED-EXACT-BYTES',archived:true});
+ assert.equal(mapPurchaseReceipt({...purchase,items:[{...item('zero'),purchasePriceCents:0}]},{_id:'s',name:'Client'}).items[0].purchasePriceCents,0);
 });

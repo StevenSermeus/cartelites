@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, Animated, Easing, type StyleProp, type ViewStyle } from 'react-native';
+import {useTheme} from '../theme/ThemeProvider';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { Animated, Easing, type StyleProp, type ViewStyle } from 'react-native';
 
 /** Animate content without remounting forms or moving navigation controls. */
 export function PageTransition({
@@ -13,20 +14,7 @@ export function PageTransition({
 }) {
   const progress = useRef(new Animated.Value(1)).current;
   const previous = useRef(transitionKey);
-  const [reduceMotion, setReduceMotion] = useState(true);
-  useEffect(() => {
-    let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((value) => {
-        if (active) setReduceMotion(value);
-      })
-      .catch(() => undefined);
-    const listener = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
-    return () => {
-      active = false;
-      listener.remove();
-    };
-  }, []);
+  const {reduceMotion}=useTheme();
   useLayoutEffect(() => {
     const changed = previous.current !== transitionKey;
     previous.current = transitionKey;

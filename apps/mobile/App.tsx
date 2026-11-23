@@ -1,3 +1,17 @@
+import {SaleConflictFeedback} from './src/components/SaleConflictFeedback';
+import {saleConflictIssue,canCorrectSaleAttempt,type SaleConflictIssue} from './src/data/saleConflict';
+import {submittedAttempts} from './src/data/purchaseAttemptStorage';
+import {GradingCompanies} from './src/screens/GradingCompanies';
+import {BasketQuantityControl} from './src/components/BasketQuantityControl';
+import {basketMaximum,nextBasketQuantity} from './src/data/basketQuantity';
+import {formatCost,totalKnownCost,purchaseEditValuation} from './src/data/inventoryCosts';
+import {MotionModal as Modal} from './src/components/MotionModal';
+import {shopDay,shopDayAtTime} from './src/data/shopCalendar';
+import {NativeDetail} from './src/navigation/NativeDetail';
+import {ActivityScreen} from './src/screens/ActivityScreen';
+import {HistoryFilters} from './src/components/HistoryFilters';
+import {emptyHistoryFilters,salesHistoryQuery,saleHistoryOptions} from './src/data/historyFilters';
+import {DateField} from './src/components/DateField';
 import { ItemThumbnail } from './src/components/ItemThumbnail';
 import { SaleTicket } from './src/components/SaleTicket';
 import { NativeTabs, type RootTab } from "./src/navigation/NativeTabs";
@@ -23,7 +37,10 @@ import {
 } from "./src/components/ReceiptPdfViewer";
 import { ReceiptSigning } from "./src/components/ReceiptSigning";
 import { SignatorySettings } from "./src/components/SignatorySettings";
-import { markUserActivity, setSessionForeground } from "./src/auth/session";
+import { captureAccountScope, getSessionScope, markUserActivity, setSessionForeground } from "./src/auth/session";
+import {FinancialRecovery} from './src/components/FinancialRecovery';
+import {PreservedScrollView} from './src/components/PreservedScrollView';
+import {ScrollPositions,sceneScrollKey} from './src/navigation/scrollPositions';
 import * as Crypto from "expo-crypto";
 import {
   SalePaymentFields,
@@ -36,6 +53,8 @@ import {
   PurchaseEditor,
   PurchaseSummary,
 } from "./src/components/PurchaseEditor";
+import { acceptsCatalogueReply } from "./src/data/catalogueSearchState";
+import { searchTcgdex } from "../../packages/domain/src/tcgdexSearch";
 import { searchRiftbound, type Tcg } from "../../packages/domain/src/riftbound";
 import { pickAttachment } from "./src/data/pickAttachment";
 import { StatusBar } from "expo-status-bar";
@@ -44,7 +63,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   AppState,
   Image,
   Pressable,
@@ -55,8 +73,9 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView,useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   clearSession,
   readSession,
@@ -78,6 +97,8 @@ import {
   createSales,
   createSeller,
   request,
+  finishFinancialAttempt,
+  uploadCurrentFinancialFiles,
   type Item,
   type Purchase,
   type PurchaseDraft,
@@ -91,7 +112,7 @@ import {
   listStock,
   onSessionExpired,
   openAttachment,
-  sharePurchaseReceipt,
+  shareReceiptPdf,
   purchaseReceiptPdf,
   updatePurchaseDate,
   validatePurchase,
@@ -110,18 +131,14 @@ import { StockScreen } from "./src/screens/StockScreen";
 
 type CardLanguage = "fr" | "en" | "ja" | "zh";
 type CardCondition = "M" | "NM" | "EX" | "GD" | "LP" | "PL" | "PO";
-const gradingCompanies: { id: GradingCompany; label: string }[] = [
-  { id: "PSA", label: "PSA" },
-  { id: "CollectAura", label: "Collect Aura" },
-  { id: "PCA", label: "PCA" },
-  { id: "CCC", label: "CCC Grading" },
-];
 type CardResult = {
   id: string;
   localId: string;
+  printedNumber?: string;
   name: string;
   image?: string;
   setName?: string;
+  setId?: string;
   language: CardLanguage;
   availableLanguages?: CardLanguage[];
 };
@@ -160,34 +177,20 @@ const emptyDraft = (): PurchaseDraft => ({
   cardResults: [],
   availableLanguages: ["fr"],
 });
-function localDateValue(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-function formatEuros(value: number) {
-  return new Intl.NumberFormat("fr-BE", {
-    style: "currency",
-    currency: "EUR",
-  }).format(value);
-}
-function dateAtCurrentTime(value: string, timeSource = new Date()) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(
-    year,
-    month - 1,
-    day,
-    timeSource.getHours(),
-    timeSource.getMinutes(),
-    timeSource.getSeconds(),
-    timeSource.getMilliseconds(),
-  ).getTime();
-}
+function localDateValue(date = new Date()) { return shopDay(date.getTime()); }
+function dateAtCurrentTime(value: string, timeSource = new Date()) { return shopDayAtTime(value,timeSource.getTime()); }
 function freshDraft() {
   return [emptyDraft()];
 }
 
 export default function App() {
-  const { colors, dark } = useTheme();
+  const {fontScale}=useWindowDimensions();
+  const largeText=fontScale>=1.6;
+  const insets=useSafeAreaInsets();
+  const [navigationHeight,setNavigationHeight]=useState(68);
+  const { currency, timezone, colors, dark, reduceMotion,shopName, brandingReady, brandingError, loadBranding, clearBranding } = useTheme();
   const styles = createStyles(colors);
+  const formatEuros = (value: number) => new Intl.NumberFormat('fr-BE', {style: 'currency', currency}).format(value);
 
   const catalogRequests = useRef(new Map<string, number>());
   function beginCatalog(key: string) {
@@ -211,6 +214,7 @@ export default function App() {
               cardResults: [],
               searching: false,
               catalogueCardId: undefined,
+              catalogueSetId: undefined,
               catalogueImageUrl: "",
               availableLanguages: undefined,
               language: tcg === "riftbound" ? "en" : "fr",
@@ -239,7 +243,7 @@ export default function App() {
   const [instanceBusy, setInstanceBusy] = useState(false);
   const [instanceSettings, setInstanceSettings] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [page, setPage] = useState<Page>("stock");
+  const [page, setPage] = useState<Page>("history");
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false);
   type FilterControl = { open: () => void; count: number } | null;
   const [stockFilterControl, setStockFilterControl] = useState<FilterControl>(null);
@@ -251,11 +255,10 @@ export default function App() {
   const [clientEditorOpen, setClientEditorOpen] = useState(false);
   const [accountEditing, setAccountEditing] = useState(false);
   const [accountDetailsOpen, setAccountDetailsOpen] = useState(false);
+  const [gradingOpen,setGradingOpen]=useState(false);
   const [focusedSale, setFocusedSale] = useState<string | null>(null);
+  const scrollPositions = useRef(new ScrollPositions());
   const contentScroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
-  useEffect(() => {
-    contentScroll.current?.scrollTo({ y: 0, animated: false });
-  }, [page]);
   const [items, setItems] = useState<Item[]>([]);
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
@@ -287,6 +290,9 @@ export default function App() {
   const [clientPhone, setClientPhone] = useState("");
   const [clientAddress, setClientAddress] = useState("");
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [saleConflict,setSaleConflict]=useState<SaleConflictIssue|null>(null);
+  const [saleReviewTarget,setSaleReviewTarget]=useState<string|null>(null);
+  const [saleReviewMessage,setSaleReviewMessage]=useState('');
   const [saleQuantities, setSaleQuantities] = useState<Record<string, string>>({});
   const [completedSaleIds, setCompletedSaleIds] = useState<string[]>([]);
   const [salePrices, setSalePrices] = useState<Record<string, string>>({});
@@ -297,25 +303,22 @@ export default function App() {
   const [saleResultPage, setSaleResultPage] = useState(1);
   const [saleDate, setSaleDate] = useState(localDateValue());
   const [salePayment, setSalePayment] = useState(emptyPaymentDraft);
-  const saleAttempt = useRef<{
-    signature: string;
-    operationId: string;
-    occurredAt: number;
-  } | null>(null);
+  const [workspaceRecoveryRevision,setWorkspaceRecoveryRevision]=useState(0);
   const [purchaseDateEdits, setPurchaseDateEdits] = useState<
     Record<string, string>
   >({});
 
+  const [saleHistoryFilters,setSaleHistoryFilters]=useState(emptyHistoryFilters);
   const [historySearch, setHistorySearch] = useState("");
   const [historyStatus, setHistoryStatus] = useState("all");
   const [historyFrom, setHistoryFrom] = useState("");
   const [historyTo, setHistoryTo] = useState("");
   const [historyRevision, setHistoryRevision] = useState(0);
+  const [activityConsignment, setActivityConsignment] = useState<{id?: string; revision: number}>({revision:0});
+  const [purchaseDetail, setPurchaseDetail] = useState<Purchase | null>(null);
+  const [saleDetail, setSaleDetail] = useState<Sale | null>(null);
   const [expandedPurchase, setExpandedPurchase] = useState<string | null>(null);
-  useEffect(() => {
-    contentScroll.current?.scrollTo({ y: 0, animated: false });
-  }, [expandedPurchase, clientEditorOpen]);
-  const [receipt, setReceipt] = useState<ReceiptInput | null>(null);
+  const [receipt, setReceipt] = useState<Pick<ReceiptInput, "reference" | "client" | "status"> | null>(null);
   const [receiptPurchase, setReceiptPurchase] = useState<Purchase | null>(null);
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [receiptError, setReceiptError] = useState("");
@@ -343,8 +346,31 @@ export default function App() {
     setReceiptError("");
     setReceiptNotice("");
   };
+  function clearWorkspaceSession() {
+    purchaseLock.current=false;saleLock.current=false;setBusy(false);
+    closeReceipt();
+    setGradingOpen(false);setSaleConflict(null);setSaleReviewTarget(null);setSaleReviewMessage('');
+    setAuthenticated(false);
+    setPage('history');
+    setItems([]);setSellers([]);setSales([]);setPurchases([]);
+    setPurchaseDetail(null);setSaleDetail(null);setExpandedPurchase(null);setFocusedSale(null);
+    setPurchaseEdit(null);setEditRows([]);setEditSaved(null);setEditError('');setEditBusy(false);
+    editAttempts.current.clear();editUploads.current.clear();editLock.current=false;
+    setPurchaseAttachments({});setPurchaseDateEdits({});setAskingPriceEdits({});
+    setSelectedItemIds([]);setSaleQuantities({});setCompletedSaleIds([]);setSalePrices({});
+    setSalePayment(emptyPaymentDraft());setSaleDate(localDateValue());
+    setSaleCompleted({count:0,cents:0,pending:false});
+    setPurchaseDateEditing(false);setPurchaseOperationsOpen(false);setSaleDateEditing(false);
+    setClientEditorOpen(false);setAccountEditing(false);setAccountDetailsOpen(false);clearClient();
+    setClientSearch('');setPurchaseClientSearch('');setSaleSearch('');setSaleResultPage(1);
+    setSaleHistoryFilters(emptyHistoryFilters());
+    setHistorySearch('');setHistoryStatus('all');setHistoryFrom('');setHistoryTo('');setHistoryFiltersOpen(false);
+    setActivityConsignment({revision:0});setStockFilterControl(null);setDepositFilterControl(null);
+    scrollPositions.current.clear();setError('');
+  }
   const [tabResetVersion, setTabResetVersion] = useState<Partial<Record<Page, number>>>({});
   const resetTab = (target: Page) => {
+    setGradingOpen(false);
     setAccountDetailsOpen(false);
     setExpandedPurchase(null);
     setPurchaseDateEditing(false);
@@ -352,8 +378,9 @@ export default function App() {
     setHistoryFiltersOpen(false);
     setFocusedSale(null);
     setTabResetVersion((current) => ({ ...current, [target]: (current[target] ?? 0) + 1 }));
-    setPage(target === "sales" ? "saleSummary" : target);
-    contentScroll.current?.scrollTo({ y: 0, animated: true });
+    setPage(target);
+    scrollPositions.current.record(target,0);
+    if(page===target)contentScroll.current?.scrollTo({ y: 0, animated: !reduceMotion });
   };
   const clientData = usePagedData<Seller>(
     "/sellers",
@@ -361,10 +388,11 @@ export default function App() {
     authenticated && page === "clients",
     historyRevision,
   );
+  const saleHistoryQuery=salesHistoryQuery(saleHistoryFilters);
   const saleData = usePagedData<Sale>(
     "/sales",
-    {},
-    authenticated && page === "salesHistory",
+    saleHistoryQuery.params??{},
+    authenticated && !saleHistoryQuery.error && ["salesHistory", "saleDetail"].includes(page),
     historyRevision,
   );
   const saleStockData = usePagedData<Item>(
@@ -382,13 +410,20 @@ export default function App() {
       from: historyDates.from,
       to: historyDates.to,
     },
-    authenticated && page === "history",
+    authenticated && ["history", "purchaseDetail"].includes(page),
     historyRevision,
   );
   useEffect(() => setPurchases(purchaseHistory.items), [purchaseHistory.items]);
   useEffect(() => {
-    if (page === "salesHistory") setSales(saleData.items);
+    if (["salesHistory", "saleDetail"].includes(page)) setSales(saleData.items);
   }, [saleData.items, page]);
+
+  useEffect(() => {
+    let current = true;
+    if (page === 'purchaseDetail' && expandedPurchase) void readRecord<Purchase>('/purchases', expandedPurchase).then(record => {if(current)setPurchaseDetail(record);}).catch(reason => {if(current)setError(String(reason));});
+    if (page === 'saleDetail' && focusedSale) void readRecord<Sale>('/sales', focusedSale).then(record => {if(current)setSaleDetail(record);}).catch(reason => {if(current)setError(String(reason));});
+    return () => {current=false;};
+  }, [page, expandedPurchase, focusedSale, historyRevision]);
 
   const historyBusy = purchaseHistory.loading;
   const historyError = purchaseHistory.error;
@@ -402,6 +437,7 @@ export default function App() {
       const saved = await readInstanceUrl();
       setInstanceUrl(saved ?? "");
       setInstanceReady(Boolean(saved));
+      if (saved) await loadBranding();
       setAuthenticated(Boolean(saved && (await readSession())));
       setReady(true);
     })().catch((reason) => {
@@ -413,16 +449,7 @@ export default function App() {
   useEffect(
     () =>
       onSessionExpired(() => {
-        closeReceipt();
-        setAuthenticated(false);
-        setItems([]);
-        setSellers([]);
-        setSales([]);
-        setPurchases([]);
-        setSelectedItemIds([]);
-        setSaleQuantities({});
-        setCompletedSaleIds([]);
-        setError("");
+        clearWorkspaceSession();
       }),
     [],
   );
@@ -468,7 +495,7 @@ export default function App() {
   const saleResultPageSize = 25;
   const saleResultPageCount = saleStockData.page;
   const selectedItems = selectedItemIds
-    .map((id) => items.find((item) => item._id === id))
+    .map((id) => saleStockData.items.find((item) => item._id === id) ?? items.find((item) => item._id === id))
     .filter((item): item is Item => Boolean(item));
 
   const saveClient = async () => {
@@ -517,7 +544,7 @@ export default function App() {
     setClientAddress("");
   };
 
-  const searchCards = async (draft: PurchaseDraft) => {
+  const searchCards = async (draft: PurchaseDraft, nextPage = 1) => {
     const term = draft.cardSearch.trim();
     if (!term)
       return setError(
@@ -545,59 +572,13 @@ export default function App() {
           setError(`Aucune carte Riftbound trouvée pour « ${term} » (FR/EN).`);
         return;
       }
-      const localized = await Promise.all(
-        languages.map(async ({ id: language }) => {
-          const filters = [`name=${encodeURIComponent(term)}`];
-          const localNumber =
-            term.match(
-              /^(?:[A-Za-z0-9-]+\s+)?([A-Za-z0-9-]+)\/(?:[A-Za-z0-9-]+)$/,
-            )?.[1] ?? (/^\d+$/.test(term) ? term : undefined);
-          if (localNumber)
-            filters.push(`localId=${encodeURIComponent(localNumber)}`);
-          const responses = await Promise.all(
-            filters.map((filter) =>
-              fetch(
-                `https://api.tcgdex.net/v2/${language}/cards?${filter}&pagination:page=1&pagination:itemsPerPage=10`,
-              ),
-            ),
-          );
-          if (responses.some((response) => !response.ok))
-            throw new Error(
-              "Le catalogue Pokémon est momentanément indisponible.",
-            );
-          const resultLists = await Promise.all(
-            responses.map(
-              (response) =>
-                response.json() as Promise<Omit<CardResult, "language">[]>,
-            ),
-          );
-          const unique = new Map(
-            resultLists.flat().map((result) => [result.id, result]),
-          );
-          return [...unique.values()]
-            .slice(0, 15)
-            .map((result) => ({ ...result, language }));
-        }),
-      );
-      const results = localized.flat();
-      const availableById = new Map<string, CardLanguage[]>();
-      for (const result of results) {
-        const found = availableById.get(result.id) ?? [];
-        if (!found.includes(result.language)) found.push(result.language);
-        availableById.set(result.id, found);
-      }
+      const result = await searchTcgdex({query: term, language: draft.language, page: nextPage, pageSize: 24});
       if (!current()) return;
-      const matches = results.map((result) => ({
-        ...result,
-        availableLanguages: availableById.get(result.id) ?? [result.language],
-      }));
-      setPurchaseDrafts((rows) =>
-        rows.map((row) =>
-          row.key === draft.key
-            ? { ...row, cardResults: matches, searching: false }
-            : row,
-        ),
-      );
+      const matches = result.cards.map(card => ({...card, language: draft.language, availableLanguages: [draft.language]}));
+      setPurchaseDrafts(rows => rows.map(row => row.key === draft.key && acceptsCatalogueReply(row, {query: term, language: draft.language, tcg: draft.tcg}) ? {
+        ...row, cardResults: nextPage > 1 ? [...row.cardResults, ...matches] : matches,
+        searching: false, searchPage: result.page, searchHasMore: result.hasMore, searchMessage: result.message,
+      } : row));
     } catch (reason) {
       if (!current()) return;
       setPurchaseDrafts((rows) =>
@@ -625,6 +606,7 @@ export default function App() {
                 identifier: result.localId,
                 language: result.language,
                 catalogueCardId: result.id,
+                catalogueSetId: result.setId,
                 catalogueImageUrl: result.image ?? "",
                 availableLanguages: [result.language],
                 cardResults: [],
@@ -642,7 +624,7 @@ export default function App() {
     );
     let name = result.name;
     let series = result.setName ?? draft.series;
-    let identifier = result.localId;
+    let identifier = result.printedNumber ?? result.localId;
     let image = result.image;
     const localizedDetails = await Promise.all(
       languages.map(async ({ id: language }) => {
@@ -673,7 +655,7 @@ export default function App() {
     )?.card;
     if (!current()) return;
     name = selected?.name ?? name;
-    identifier = selected?.localId ?? identifier;
+    identifier = result.printedNumber ?? selected?.localId ?? identifier;
     series = selected?.set?.name ?? series;
     image = selected?.image ?? image;
     setPurchaseDrafts((rows) =>
@@ -687,6 +669,7 @@ export default function App() {
               identifier,
               language: result.language,
               catalogueCardId: result.id,
+                catalogueSetId: result.setId,
               availableLanguages: availableLanguages.length
                 ? availableLanguages
                 : [result.language],
@@ -721,7 +704,7 @@ export default function App() {
         name: string;
         localId: string;
         image?: string;
-        set?: { name?: string };
+        set?: { name?: string; cardCount?: {official?: number} };
       };
       if (!current()) return;
       setPurchaseDrafts((rows) =>
@@ -732,7 +715,7 @@ export default function App() {
                 language,
                 name: card.name,
                 series: card.set?.name ?? row.series,
-                identifier: card.localId,
+                identifier: card.set?.cardCount?.official && /\/\d+$/.test(draft.identifier) ? `${card.localId}/${card.set.cardCount.official}` : card.localId,
                 catalogueImageUrl: card.image ? `${card.image}/low.webp` : "",
               }
             : row,
@@ -756,10 +739,9 @@ export default function App() {
       const editable = result.items.filter(item => !result.lockedIds.includes(item._id));
       setEditRows([...editable.map(item => ({ ...emptyDraft(), key: item._id, included: true, name: item.name, tcg: item.tcg,
         series: item.series ?? '', identifier: item.identifier ?? '', language: item.language ?? 'fr', condition: item.condition ?? 'NM',
-        catalogueImageUrl: item.catalogueImageUrl ?? '', availableLanguages: undefined, gradingCompany: item.gradingCompany, gradingGrade: item.gradingGrade,
+        catalogueImageUrl: item.catalogueImageUrl ?? '', catalogueCardId: item.catalogueCardId, catalogueSetId: item.catalogueSetId, availableLanguages: undefined, gradingCompany: item.gradingCompany, gradingGrade: item.gradingGrade,
         gradingCertificate: item.gradingCertificate, gradingNotes: item.gradingNotes,
-        marketValue: ((item.marketValueCents ?? item.purchasePriceCents) / 100).toFixed(2),
-        discountPercent: String(item.marketValueCents === undefined ? 100 : item.discountPercent ?? (item.marketValueCents ? item.purchasePriceCents / item.marketValueCents * 100 : 100)),
+        ...purchaseEditValuation(item),
         askingPrice: item.askingPriceCents === undefined ? '' : (item.askingPriceCents / 100).toFixed(2), askingPriceTouched: true,
       })), emptyDraft()]);
       setEditSaved(null); setEditError(''); editAttempts.current.clear(); editUploads.current.clear();
@@ -776,11 +758,14 @@ export default function App() {
   }
   async function savePurchaseEdit() {
     if (!purchaseEdit || editLock.current) return;
+    const epoch=getSessionScope(),path=`/purchases/${purchaseEdit.purchase._id}/edit`;
     editLock.current = true; setEditBusy(true); setEditError('');
     const selected = editRows.filter(row => row.included);
     const keyFor = (key: string) => { if (!editAttempts.current.has(key)) editAttempts.current.set(key, Crypto.randomUUID()); return editAttempts.current.get(key)!; };
     try {
-      let result = editSaved;
+      const scope=await captureAccountScope();
+      if(editSaved)throw new Error('Correction enregistrée. Fermez cette fenêtre puis ouvrez « Opérations à vérifier » pour envoyer les photos initiales.');
+      let result: {itemIds:string[]}|null = editSaved;
       if (!result) {
         if (editRows.some(row => !row.included && (row.name.trim() || row.cardSearch.trim() || row.marketValue.trim()))) throw new Error('Ajoutez ou annulez la carte en cours avant d’enregistrer.');
         const money = (value: string) => { if (!/^\d+(?:[.,]\d{1,2})?$/.test(value.trim())) throw new Error('Vérifiez les valeurs et pourcentages : deux décimales maximum.'); const n = Math.round(Number(value.replace(',', '.')) * 100); if (!Number.isSafeInteger(n)) throw new Error('Montant trop élevé.'); return n; };
@@ -789,24 +774,29 @@ export default function App() {
           if (discountPercent > 100 || !row.name.trim()) throw new Error('Vérifiez le nom et le pourcentage de chaque carte.');
           return { itemId: purchaseEdit.originalIds.includes(row.key) ? row.key : undefined, operationId: keyFor(row.key), name: row.name, tcg: row.tcg,
             series: row.series, identifier: row.identifier, language: row.language, condition: row.condition,
-            catalogueImageUrl: row.catalogueImageUrl || undefined, gradingCompany: row.gradingCompany, gradingGrade: row.gradingCompany ? row.gradingGrade || undefined : undefined,
+            catalogueImageUrl: row.catalogueImageUrl || undefined,
+          catalogueCardId: row.catalogueCardId, catalogueSetId: row.catalogueSetId, gradingCompany: row.gradingCompany, gradingGrade: row.gradingCompany ? row.gradingGrade || undefined : undefined,
             gradingCertificate: row.gradingCertificate || undefined, gradingNotes: row.gradingNotes || undefined,
             marketValueCents: money(row.marketValue), discountPercent, askingPriceCents: row.askingPrice.trim() ? money(row.askingPrice) : undefined };
         });
         const body = { expectedDigest: purchaseEdit.expectedDigest, items, removedIds: purchaseEdit.originalIds.filter(id => !selected.some(row => row.key === id)) };
-        result = await request<{ itemIds: string[] }>(`/purchases/${purchaseEdit.purchase._id}/edit`, { ...body, operationId: keyFor(JSON.stringify(body)) });
+        result = await request<{ itemIds: string[] }>(path, { ...body, operationId: Crypto.randomUUID() },'POST',{files:selected.flatMap((row,index)=>row.photo?[{target:'itemId' as const,index,file:row.photo,operationId:keyFor('photo:'+row.key)}]:[])});
+        scope.assertActive();
         setEditSaved(result);
       }
-      for (const [index, row] of selected.entries()) if (row.photo && !editUploads.current.has(row.key)) {
-        await uploadAttachment('itemId', result.itemIds[index], row.photo, keyFor('photo:' + row.key)); editUploads.current.add(row.key);
-      }
-      await refresh(); setPurchaseEdit(null); setEditRows([]); setEditSaved(null);
+      await uploadCurrentFinancialFiles(path,scope);scope.assertActive();
+      setPurchaseEdit(null); setEditRows([]); setEditSaved(null);
+      await finishFinancialAttempt(path,scope);
+      await refresh().catch(()=>{scope.assertActive();setError('Correction enregistrée. Actualisez l’historique.');});
     } catch (e) {
+      if(epoch!==getSessionScope())return;
       const message = e instanceof Error ? e.message : 'Modification impossible.';
       setEditError(message.includes('PURCHASE_CHANGED') ? 'Le rachat a changé depuis son ouverture. Fermez puis rouvrez la modification pour charger la dernière version.' : message.includes('PURCHASE_ITEM_LOCKED') ? 'Une carte a déjà été vendue ou donnée et ne peut plus être modifiée.' : message);
-    } finally { setEditBusy(false); editLock.current = false; }
+    } finally {if(epoch===getSessionScope()){setEditBusy(false);editLock.current=false;}}
   }
   const submitPurchase = async () => {
+    const epoch=getSessionScope();
+    const submittedDraftId=localPurchases.active.id;
     if (purchaseLock.current) return;
     if (!clientId) return setError("Sélectionnez le client dans la liste.");
     const client = sellers.find((row) => row._id === clientId);
@@ -817,6 +807,7 @@ export default function App() {
     setBusy(true);
     setError("");
     try {
+      const scope=await captureAccountScope();
       const entries = rows.map((row) => {
         if (!row.name.trim())
           throw new Error("Renseignez le nom de chaque carte ajoutée.");
@@ -850,6 +841,7 @@ export default function App() {
           gradingCertificate: row.gradingCertificate?.trim() || undefined,
           gradingNotes: row.gradingNotes?.trim() || undefined,
           catalogueImageUrl: row.catalogueImageUrl || undefined,
+          catalogueCardId: row.catalogueCardId, catalogueSetId: row.catalogueSetId,
         };
       });
       const occurredAt = dateAtCurrentTime(purchaseDate);
@@ -862,20 +854,17 @@ export default function App() {
         occurredAt,
         reference,
         { buyerNote, sellerNote },
+        {purchaseDraftId:submittedDraftId,files:rows.flatMap((row,index)=>row.photo?[{target:'itemId' as const,index,file:row.photo,operationId:Crypto.randomUUID()}]:[])},
       );
-      const failedPhotos: string[] = [];
-      for (const [index, row] of rows.entries()) {
-        if (!row.photo || !result.itemIds[index]) continue;
-        try {
-          await uploadItemAttachment(result.itemIds[index], row.photo);
-        } catch {
-          failedPhotos.push(row.name);
-        }
-      }
-      localPurchases.remove(localPurchases.active.id);
+      scope.assertActive();
+      await uploadCurrentFinancialFiles('/purchases',scope);
+      scope.assertActive();
+      localPurchases.remove(submittedDraftId);
       setPurchaseClientSearch("");
       setPage("history");
-      await refresh();
+      await finishFinancialAttempt('/purchases',scope);
+      await refresh().catch(()=>{scope.assertActive();setError('Rachat enregistré. Actualisez l’historique pour charger les dernières données.');});
+      scope.assertActive();
       const createdPurchase: Purchase = {
         buyerNote, sellerNote,
         _id: result.purchaseId,
@@ -905,22 +894,18 @@ export default function App() {
         })),
       };
       await openPurchaseReceipt(createdPurchase);
-      const photoFailure = failedPhotos.length
-        ? `Photo non envoyée : ${failedPhotos.join(", ")}.`
-        : "";
       setError(
         [
           `Rachat ${reference} en attente de validation du client. Consultez le bordereau pour le voir ou le partager.`,
-          photoFailure,
         ]
           .filter(Boolean)
           .join(" "),
       );
     } catch (reason) {
+      if(epoch!==getSessionScope())return;
       setError(reason instanceof Error ? reason.message : "Rachat impossible.");
     } finally {
-      purchaseLock.current = false;
-      setBusy(false);
+      if(epoch===getSessionScope()){purchaseLock.current = false;setBusy(false);}
     }
   };
 
@@ -986,18 +971,17 @@ export default function App() {
           }),
         ),
       ]);
-      const mapped = mapPurchaseReceipt(full, client, allItems);
       const document = await loadReceiptDocument(
         () =>
           request(
             `/receipts?kind=purchase&targetId=${encodeURIComponent(purchase._id)}`,
           ),
         (id) => request(`/receipts/${id}/pdf`),
-        () => purchaseReceiptPdf(mapped),
+        () => purchaseReceiptPdf(mapPurchaseReceipt(full, client, allItems)),
       );
       if (requestId === receiptRequest.current) {
         setReceiptPurchase(full);
-        setReceipt(mapped);
+        setReceipt({reference:full.reference,client,status:full.status});
         setReceiptPdf(document.pdf);
         setReceiptArchived(document.archived);
       }
@@ -1013,13 +997,13 @@ export default function App() {
     }
   };
   const shareReceipt = async () => {
-    if (!receipt || receiptShareLock.current) return;
+    if (!receipt || !receiptPdf || receiptShareLock.current) return;
     const requestId = receiptRequest.current;
     receiptShareLock.current = true;
     setReceiptSharing(true);
     setReceiptError("");
     try {
-      await sharePurchaseReceipt(receipt, receiptPdf ?? undefined);
+      await shareReceiptPdf(receipt.reference, receiptPdf);
     } catch (reason) {
       if (requestId === receiptRequest.current)
         setReceiptError(
@@ -1078,15 +1062,41 @@ export default function App() {
       return [...ids, item._id];
     });
   };
+  const changeBasketQuantity = (item: Item, delta: 1|-1) => {
+    const selected = selectedItemIds.includes(item._id);
+    const quantity = selected ? Number(saleQuantities[item._id] ?? '1') : 0;
+    const next=nextBasketQuantity(selected,saleQuantities[item._id],basketMaximum(item.origin,item.quantity),delta);
+    if (next === quantity) return;
+    if (!selected || next === 0) toggleSale(item);
+    setSaleQuantities(current => ({ ...current, [item._id]: String(next || 1) }));
+  };
+  const basketUnitCount = selectedItems.reduce((sum, item) => sum + (Number(saleQuantities[item._id] ?? '1') || 0), 0);
   const saleTotalCents = selectedItems.reduce((sum, item) => sum + Math.round((Number((salePrices[item._id] ?? '').replace(',', '.')) || 0) * 100) * (Number(saleQuantities[item._id] ?? '1') || 0), 0);
+  async function reviewSaleConflict(itemId?:string,summary?:string) {
+    const epoch=getSessionScope();
+    const openLine=()=>{setSaleReviewMessage(summary??'');setSaleReviewTarget(itemId??null);scrollPositions.current.record('saleSummary',0);setPage('saleSummary');if(page==='saleSummary')contentScroll.current?.scrollTo({y:0,animated:false});};
+    if(itemId){openLine();return;}
+    try{
+      const scope=await captureAccountScope();scope.assertActive();
+      const attempt=submittedAttempts.list(scope.owner).find(row=>row.path==='/sales/bulk');
+      if(!canCorrectSaleAttempt(attempt))throw new Error('Le résultat n’est pas un refus confirmé. Vérifiez la demande initiale dans « Opérations à vérifier » avant tout nouvel envoi.');
+      Alert.alert('Corriger puis confirmer à nouveau ?','La demande a été refusée. Votre panier et vos montants restent conservés. Aucun nouvel envoi ne sera effectué avant votre prochaine confirmation.',[{text:'Annuler',style:'cancel'},{text:'Corriger le panier',onPress:()=>{
+        try{scope.assertActive();const current=submittedAttempts.list(scope.owner).find(row=>row.path==='/sales/bulk');if(current!==attempt||!canCorrectSaleAttempt(current))throw new Error('La demande doit encore être vérifiée.');submittedAttempts.release(scope,'/sales/bulk');setSaleConflict(null);setError('');openLine();}
+        catch(reason){if(epoch===getSessionScope())setError(reason instanceof Error?reason.message:'Vérifiez la demande initiale.');}
+      }}]);
+    }catch(reason){if(epoch===getSessionScope())setError(reason instanceof Error?reason.message:'Vérifiez la demande initiale.');}
+  }
   const submitSales = async () => {
+    const epoch=getSessionScope();
     if (saleLock.current) return;
     if (!selectedItems.length)
       return setError("Ajoutez des articles au panier.");
     saleLock.current = true;
+    const conflictLines=selectedItems.map(item=>({itemId:item._id,name:item.name,quantity:Number(saleQuantities[item._id]??'1')}));
     setBusy(true);
     setError("");
     try {
+      const scope=await captureAccountScope();
       const saleRows = selectedItems.map((item) => {
         const value = (salePrices[item._id] ?? "").trim();
         const price = Number(value.replace(",", "."));
@@ -1112,36 +1122,30 @@ export default function App() {
         salePayment,
         saleRows.reduce((sum, row) => sum + row.salePriceCents, 0),
       );
-      const signature = JSON.stringify({ saleRows, saleDate, settlement });
-      if (saleAttempt.current?.signature !== signature)
-        saleAttempt.current = {
-          signature,
-          operationId: Crypto.randomUUID(),
-          occurredAt: dateAtCurrentTime(saleDate),
-        };
       const saleResult = await createSales(
         saleRows,
-        saleAttempt.current.occurredAt,
+        dateAtCurrentTime(saleDate),
         settlement,
-        saleAttempt.current.operationId,
       );
+      scope.assertActive();
       setCompletedSaleIds(saleResult.ids);
       setSaleCompleted({
         pending: salePayment.mode === "pending",
         count: saleRows.reduce((n,row)=>n+row.quantity,0),
         cents: saleRows.reduce((sum, row) => sum + row.salePriceCents, 0),
       });
-      setPage("saleComplete");
-      saleAttempt.current = null;
+      setPage("saleComplete");setSaleConflict(null);setSaleReviewTarget(null);setSaleReviewMessage('');
       setSalePayment(emptyPaymentDraft());
       setSelectedItemIds([]);
       setSaleQuantities({});
-      await refresh();
+      await finishFinancialAttempt('/sales/bulk',scope);
+      await refresh().catch(()=>{scope.assertActive();setError('Vente enregistrée. Actualisez l’historique pour charger les dernières données.');});
     } catch (reason) {
+      if(epoch!==getSessionScope())return;
+      const issue=saleConflictIssue(reason,conflictLines);if(issue)setSaleConflict(issue);
       setError(reason instanceof Error ? reason.message : "Vente impossible.");
     } finally {
-      saleLock.current = false;
-      setBusy(false);
+      if(epoch===getSessionScope()){saleLock.current = false;setBusy(false);}
     }
   };
   const saveAskingPrice = async (itemId: string) => {
@@ -1194,15 +1198,7 @@ export default function App() {
       await revokeSession();
     } finally {
       await clearSession();
-      closeReceipt();
-      setAuthenticated(false);
-      setItems([]);
-      setSellers([]);
-      setSales([]);
-      setPurchases([]);
-      setSelectedItemIds([]);
-      setSaleQuantities({});
-      setCompletedSaleIds([]);
+      clearWorkspaceSession();
       setBusy(false);
     }
   };
@@ -1213,6 +1209,11 @@ export default function App() {
         <ActivityIndicator />
       </SafeAreaView>
     );
+  if (instanceReady && !brandingReady)
+    return <SafeAreaView style={styles.page}><View style={{padding: 24, gap: 16}}>
+      <Text style={{color: colors.text}}>{brandingError || 'Connexion à la boutique…'}</Text>
+      {brandingError ? <><ActionButton label="Réessayer" onPress={() => void loadBranding()} /><ActionButton secondary label="Modifier l’instance" onPress={() => { clearBranding(); setInstanceReady(false); setAuthenticated(false); }} /></> : <ActivityIndicator />}
+    </View></SafeAreaView>;
   if (!authenticated)
     return (
       <SafeAreaView style={styles.page} onTouchStart={markUserActivity}>
@@ -1224,7 +1225,7 @@ export default function App() {
         >
           <View style={styles.header}>
             <Text style={[{ color: colors.text }, styles.title]}>
-              Espace vendeur
+              {shopName || "Espace vendeur"}
             </Text>
             <Text style={[{ color: colors.text }, styles.subtitle]}>
               Connectez-vous à votre instance
@@ -1253,7 +1254,8 @@ export default function App() {
                   setInstanceBusy(true);
                   setInstanceError("");
                   void changeInstance(instanceUrl)
-                    .then(() => {
+                    .then(async () => {
+                      await loadBranding();
                       setInstanceUrl(getApiBaseUrl() ?? instanceUrl);
                       setInstanceReady(true);
                     })
@@ -1271,12 +1273,13 @@ export default function App() {
           ) : (
             <>
               <AuthScreen
-                onAuthenticated={async () => setAuthenticated(true)}
+                onAuthenticated={async () => {setSaleDate(localDateValue());setSalePayment(emptyPaymentDraft());setAuthenticated(true);}}
               />
               <ActionButton
                 secondary
                 label="Modifier l’instance"
                 onPress={() => {
+                  clearBranding();
                   setInstanceReady(false);
                   setInstanceError("");
                 }}
@@ -1418,7 +1421,7 @@ export default function App() {
     );
   }
 
-  const renderPageContent = (page: Page, isActive: boolean) => (
+  const renderPageContent = (page: Page, isActive: boolean, purchaseStep = localPurchases.active.step) => (
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -1428,44 +1431,18 @@ export default function App() {
           {localPurchases.error || (!localPurchases.ready ? "Chargement des brouillons…" : localPurchases.saving ? "Sauvegarde sur cet appareil…" : "Brouillons sauvegardés sur cet appareil")}
         </Text>
       )}
-        <ScrollView
+        <PreservedScrollView
           automaticallyAdjustKeyboardInsets
           keyboardShouldPersistTaps="handled"
-          ref={(node) => { if (isActive && node) contentScroll.current = node; }}
+          positionKey={sceneScrollKey(page,purchaseStep,expandedPurchase,focusedSale)} active={isActive} positions={scrollPositions.current}
+          onActiveRef={node=>{contentScroll.current=node;}}
+          scrollEventThrottle={100}
           contentContainerStyle={{ paddingTop: 0, paddingBottom: 100 }}
         >
-          <PageTransition transitionKey={`${page}:${page === "purchase" ? purchaseStep : ""}:${expandedPurchase ?? ""}:${accountDetailsOpen}:${accountEditing}:${focusedSale ?? ""}`}>
+          <PageTransition transitionKey={`${page}:${page === "purchase" ? purchaseStep : ""}:${page === "purchaseDetail" ? expandedPurchase ?? "" : ""}:${accountDetailsOpen}:${accountEditing}:${page === "saleDetail" ? focusedSale ?? "" : ""}`}>
 
           {page === "purchase" ? (
             <>
-              <View style={[styles.flowNav, { paddingHorizontal: 0 }]}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Revenir à l’étape précédente"
-                  style={styles.navSide}
-                  onPress={() => {
-                    purchaseStep
-                      ? setPurchaseStep((step) => step - 1)
-                      : setPage("history");
-                    contentScroll.current?.scrollTo({ y: 0, animated: false });
-                  }}
-                >
-                  <Ionicons
-                    name="chevron-back"
-                    size={20}
-                    color={colors.accent}
-                  />
-                  <Text style={styles.navLink}>Retour</Text>
-                </Pressable>
-                <Text style={styles.navTitle}>Nouveau rachat</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  style={[styles.navSide, { justifyContent: "flex-end" }]}
-                  onPress={() => setPage("history")}
-                >
-                  <Text style={styles.navLink}>Fermer</Text>
-                </Pressable>
-              </View>
               <Text accessibilityRole="header" style={styles.flowTitle}>
                 {
                   [
@@ -1480,28 +1457,20 @@ export default function App() {
             <MobileHeader
               page={page}
               title={
-                page === "history" && expandedPurchase
+                page === "purchaseDetail" && expandedPurchase
                   ? "Dossier de rachat"
                   : undefined
               }
               subtitle={
                 page === "saleSummary"
-                  ? `Panier en cours · ${selectedItems.length} article(s)`
+                  ? `Panier en cours · ${basketUnitCount} article(s)`
                   : undefined
               }
             />
           )}
           {page === "clients" && (
             <View>
-              <ActionButton
-                secondary
-                label={clientEditorOpen ? "‹ Clients" : "‹ Compte"}
-                onPress={() =>
-                  clientEditorOpen
-                    ? setClientEditorOpen(false)
-                    : setPage("account")
-                }
-              />
+              {clientEditorOpen && <ActionButton secondary label="Fermer la fiche client" onPress={() => setClientEditorOpen(false)} />}
               {!clientEditorOpen && (
                 <>
                   <ActionButton
@@ -1597,7 +1566,7 @@ export default function App() {
           {page === "purchase" && (
             <View>
               <Text style={[{ color: colors.text }, styles.stepCaption]}>
-                {purchaseStep + 1} sur 5 ·{" "}
+                {purchaseStep + 1} sur 3 ·{" "}
                 {
                   ["Client", "Cartes et estimation", "Récapitulatif"][
                     purchaseStep
@@ -1629,11 +1598,10 @@ export default function App() {
                   </Text>
                 </Pressable>
                 {purchaseDateEditing && (
-                  <Field
+                  <DateField
                     label="Date du rachat"
                     value={purchaseDate}
-                    onChangeText={setPurchaseDate}
-                    placeholder="AAAA-MM-JJ"
+                    onChange={setPurchaseDate}
                   />
                 )}
               </View>
@@ -1738,6 +1706,8 @@ export default function App() {
 
           {page === "consignments" && <View>
             <ConsignmentScreen
+              openId={activityConsignment.id}
+              openVersion={activityConsignment.revision}
               resetVersion={tabResetVersion.consignments ?? 0}
               onFilterControlChange={setDepositFilterControl}
               active={isActive && page === "consignments"}
@@ -1758,6 +1728,8 @@ export default function App() {
               items={items}
               sellers={sellers}
               selectedIds={selectedItemIds}
+              quantities={saleQuantities}
+              onChangeQuantity={changeBasketQuantity}
               salePrices={salePrices}
               onChangeSalePrice={(id, value) =>
                 setSalePrices((prices) => ({ ...prices, [id]: value }))
@@ -1785,8 +1757,7 @@ export default function App() {
           {page === "sales" && (
             <View>
               <Text style={[{ color: colors.text }, styles.saleIntro]}>
-                Recherchez dans le stock et ajoutez les articles à vendre. Le
-                caddie flottant ouvre le récapitulatif.
+                Retrouvez une carte ou un produit, puis ajustez les quantités avant de passer au paiement.
               </Text>
               <SearchField
                 value={saleSearch}
@@ -1810,7 +1781,7 @@ export default function App() {
               {salePageItems.map((item) => {
                 const selected = selectedItemIds.includes(item._id);
                 return (
-                  <View key={item._id} style={styles.saleResultCard}>
+                  <View key={item._id} style={[styles.saleResultCard, selected && { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
                     <ItemThumbnail item={item} style={styles.saleThumb} />
                     <View style={styles.flex}>
                       <Text style={[{ color: colors.text }, styles.bold]}>
@@ -1831,35 +1802,10 @@ export default function App() {
                       <Text style={[{ color: colors.text }, styles.salePrice]}>
                         {item.askingPriceCents === undefined
                           ? "Prix à définir"
-                          : `${(item.askingPriceCents / 100).toFixed(2)} €`}
+                          : formatEuros(item.askingPriceCents / 100)}
                       </Text>
                     </View>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                      onPress={() => toggleSale(item)}
-                      style={[
-                        styles.addSaleButton,
-                        selected && styles.removeSaleButton,
-                      ]}
-                    >
-                      <Ionicons
-                        name={selected ? "checkmark" : "add"}
-                        size={20}
-                        color={selected ? colors.onAccent : colors.accent}
-                      />
-                      <Text
-                        style={[
-                          { color: colors.text },
-                          [
-                            styles.addSaleText,
-                            selected && styles.removeSaleText,
-                          ],
-                        ]}
-                      >
-                        {selected ? "Ajoutée" : "Ajouter"}
-                      </Text>
-                    </Pressable>
+                    <BasketQuantityControl name={item.name} selected={selected} value={saleQuantities[item._id]} maximum={basketMaximum(item.origin,item.quantity)} onChange={delta=>changeBasketQuantity(item,delta)}/>
                   </View>
                 );
               })}
@@ -1875,16 +1821,7 @@ export default function App() {
 
           {(page === "saleSummary" || page === "salePayment") && (
             <View>
-              {page === "salePayment" && (
-                <Pressable
-                  style={styles.inlineLink}
-                  onPress={() => setPage("saleSummary")}
-                >
-                  <Text style={[{ color: colors.text }, styles.link]}>
-                    ‹ Panier
-                  </Text>
-                </Pressable>
-              )}
+              {saleConflict&&(saleReviewTarget?<View style={{gap:8,marginBottom:12}}><Text style={{color:colors.secondary}}>Panier conservé. La ligne choisie est affichée en premier.</Text><ActionButton secondary label="Afficher la vérification du stock" onPress={()=>setSaleReviewTarget(null)}/><ActionButton secondary label="Corriger après refus confirmé" onPress={()=>void reviewSaleConflict()}/></View>:<SaleConflictFeedback issue={saleConflict} onReview={(itemId,summary)=>void reviewSaleConflict(itemId,summary)} onRefreshStock={()=>{saleStockData.reload();setPage('sales');}}/>)}
               {!selectedItems.length ? (
                 <View>
                   <View style={styles.emptyState}>
@@ -1929,8 +1866,9 @@ export default function App() {
                     />
                   )}
                   {page === "saleSummary" &&
-                    selectedItems.map((item) => (
-                      <View key={item._id} style={styles.saleCartCard}>
+                    [...selectedItems].sort((a,b)=>Number(b._id===saleReviewTarget)-Number(a._id===saleReviewTarget)).map((item) => (
+                      <View key={item._id} style={[styles.saleCartCard,item._id===saleReviewTarget&&{borderWidth:2,borderColor:colors.accent}]}>
+                        {item._id===saleReviewTarget&&<View style={{gap:4}}><Text style={{color:colors.accent,fontWeight:'600'}}>Ligne à vérifier</Text>{!!saleReviewMessage&&<Text style={{color:colors.secondary}}>Dernier contrôle : {saleReviewMessage}</Text>}</View>}
                         <View style={styles.saleCartHeader}>
                           <View style={styles.flex}>
                             <Text style={[{ color: colors.text }, styles.bold]}>
@@ -1957,7 +1895,7 @@ export default function App() {
                             />
                           </Pressable>
                         </View>
-                        {item.origin === 'supplier' && <Field label={`Quantité · ${item.quantity ?? 0} disponible(s)`} value={saleQuantities[item._id] ?? '1'} onChangeText={value => setSaleQuantities(current => ({...current, [item._id]: value}))} keyboardType="decimal-pad" />}
+                        {item.origin === 'supplier' && <Field label={item._id===saleReviewTarget?'Quantité à vendre · vérifiez le dernier contrôle':`Quantité · ${item.quantity ?? 0} disponible(s)`} value={saleQuantities[item._id] ?? '1'} onChangeText={value => setSaleQuantities(current => ({...current, [item._id]: value}))} keyboardType="decimal-pad" />}
                         <View style={styles.priceLine}>
                           <Text
                             style={[{ color: colors.text }, styles.rowSubtitle]}
@@ -1981,7 +1919,7 @@ export default function App() {
                           <Text
                             style={[{ color: colors.text }, styles.rowAmount]}
                           >
-                            €
+                            {currency}
                           </Text>
                         </View>
                         {item.origin === "consignment" &&
@@ -2023,11 +1961,10 @@ export default function App() {
                         </Text>
                       </Pressable>
                       {saleDateEditing && (
-                        <Field
+                        <DateField
                           label="Date de vente"
                           value={saleDate}
-                          onChangeText={setSaleDate}
-                          placeholder="AAAA-MM-JJ"
+                          onChange={setSaleDate}
                         />
                       )}
 
@@ -2073,9 +2010,9 @@ export default function App() {
             </View>
           )}
 
-          {page === "history" && (
+          {(page === "history" || page === "purchaseDetail") && (
             <View>
-              {!expandedPurchase ? (
+              {page === "history" ? (
                 <>
                   <ActionButton
                     label="Nouveau rachat"
@@ -2152,10 +2089,12 @@ export default function App() {
                                   onPress={() => {
                                     setPurchaseDateEditing(false);
                                     setExpandedPurchase(purchase._id);
+                                    setPurchaseDetail(purchase);
+                                    setPage("purchaseDetail");
                                   }}
-                                  style={styles.compactRow}
+                                  style={[styles.compactRow,largeText&&{flexDirection:"column",alignItems:"stretch"}]}
                                 >
-                                  <View style={styles.avatar}>
+                                  {!largeText&&<View style={styles.avatar}>
                                     <Text
                                       style={[
                                         { color: colors.text },
@@ -2169,8 +2108,8 @@ export default function App() {
                                         .map((v) => v[0])
                                         .join("")}
                                     </Text>
-                                  </View>
-                                  <View style={styles.flex}>
+                                  </View>}
+                                  <View style={largeText?undefined:styles.flex}>
                                     <Text
                                       style={[
                                         { color: colors.text },
@@ -2189,13 +2128,14 @@ export default function App() {
                                       {new Date(
                                         purchase.occurredAt,
                                       ).toLocaleDateString("fr-BE", {
+                                        timeZone: timezone,
                                         day: "numeric",
                                         month: "short",
                                       })}
                                     </Text>
                                   </View>
                                   <View
-                                    style={{ alignItems: "flex-end", gap: 4 }}
+                                    style={{ alignItems: largeText?"flex-start":"flex-end", gap: 4 }}
                                   >
                                     <Text
                                       style={[
@@ -2203,13 +2143,7 @@ export default function App() {
                                         styles.rowAmount,
                                       ]}
                                     >
-                                      {formatEuros(
-                                        purchase.items.reduce(
-                                          (sum, item) =>
-                                            sum + item.purchasePriceCents,
-                                          0,
-                                        ) / 100,
-                                      )}
+                                      {formatCost(totalKnownCost(purchase.items.map(item => item.purchasePriceCents)))}
                                     </Text>
                                     {purchase.status === "pending" ? (
                                       <Text
@@ -2281,16 +2215,7 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <Pressable
-                    style={styles.inlineLink}
-                    onPress={() => setExpandedPurchase(null)}
-                  >
-                    <Text style={[{ color: colors.text }, styles.link]}>
-                      ‹ Tous les rachats
-                    </Text>
-                  </Pressable>
-                  {purchases
-                    .filter((p) => p._id === expandedPurchase)
+                  {[purchaseDetail ?? purchases.find(p => p._id === expandedPurchase)].filter((p): p is Purchase => Boolean(p))
                     .map((purchase) => (
                       <View key={purchase._id}>
                         <View style={styles.hero}>
@@ -2304,18 +2229,13 @@ export default function App() {
                           >
                             {purchase.reference} ·{" "}
                             {new Date(purchase.occurredAt).toLocaleDateString(
-                              "fr-BE",
+                              "fr-BE", {timeZone: timezone}
                             )}
                           </Text>
                           <Text
                             style={[{ color: colors.text }, styles.heroAmount]}
                           >
-                            {formatEuros(
-                              purchase.items.reduce(
-                                (sum, item) => sum + item.purchasePriceCents,
-                                0,
-                              ) / 100,
-                            )}
+                            {formatCost(totalKnownCost(purchase.items.map(item => item.purchasePriceCents)))}
                           </Text>
                           <Text
                             style={[{ color: colors.text }, styles.smallTag]}
@@ -2342,7 +2262,7 @@ export default function App() {
                           />
                         </View>
                         {purchaseOperationsOpen && (
-                          <View style={styles.card}>
+                          <NativeDetail id={`purchase-operations:${purchase._id}`} title="Cartes et opérations" onClose={() => setPurchaseOperationsOpen(false)}><ScrollView contentContainerStyle={{padding:20,gap:16}}>
                             {purchase.status === "pending" ? (
                               <View style={styles.inlineActions}>
                                 <ActionButton
@@ -2375,7 +2295,7 @@ export default function App() {
                             />
                             {purchaseDateEditing && (
                               <>
-                                <Field
+                                <DateField
                                   label="Date du rachat (heure actuelle conservée)"
                                   value={
                                     purchaseDateEdits[purchase._id] ??
@@ -2383,13 +2303,12 @@ export default function App() {
                                       new Date(purchase.occurredAt),
                                     )
                                   }
-                                  onChangeText={(value) =>
+                                  onChange={(value) =>
                                     setPurchaseDateEdits((dates) => ({
                                       ...dates,
                                       [purchase._id]: value,
                                     }))
                                   }
-                                  placeholder="AAAA-MM-JJ"
                                 />
                                 <ActionButton
                                   secondary
@@ -2408,7 +2327,7 @@ export default function App() {
                                 >
                                   {item.name} · {languageName(item.language)} ·{" "}
                                   {conditionName(item.condition)} ·{" "}
-                                  {(item.purchasePriceCents / 100).toFixed(2)} €
+                                  {formatCost(item.purchasePriceCents)}
                                 </Text>
                                 {(item.photos ?? []).map((photo) => (
                                   <Pressable
@@ -2469,7 +2388,7 @@ export default function App() {
                                 </Pressable>
                               ),
                             )}
-                          </View>
+                          </ScrollView></NativeDetail>
                         )}
                       </View>
                     ))}
@@ -2574,17 +2493,7 @@ export default function App() {
                         </View>
                         <View style={styles.sheetFormRow}>
                           <Text style={styles.sheetLabel}>Du</Text>
-                          <TextInput
-                            accessibilityLabel="Date de début"
-                            placeholder="AAAA-MM-JJ"
-                            placeholderTextColor={colors.placeholder}
-                            value={historyFrom}
-                            onChangeText={setHistoryFrom}
-                            autoCorrect={false}
-                            autoCapitalize="none"
-                            keyboardType="numbers-and-punctuation"
-                            style={styles.sheetDate}
-                          />
+                          <DateField optional label="Date de début" value={historyFrom} onChange={setHistoryFrom} />
                         </View>
                         <View
                           style={[
@@ -2593,17 +2502,7 @@ export default function App() {
                           ]}
                         >
                           <Text style={styles.sheetLabel}>Au</Text>
-                          <TextInput
-                            accessibilityLabel="Date de fin"
-                            placeholder="AAAA-MM-JJ"
-                            placeholderTextColor={colors.placeholder}
-                            value={historyTo}
-                            onChangeText={setHistoryTo}
-                            autoCorrect={false}
-                            autoCapitalize="none"
-                            keyboardType="numbers-and-punctuation"
-                            style={styles.sheetDate}
-                          />
+                          <DateField optional label="Date de fin" value={historyTo} onChange={setHistoryTo} />
                         </View>
                       </View>
                       <Pressable
@@ -2648,46 +2547,30 @@ export default function App() {
               </Modal>
             </View>
           )}
-          {page === "salesHistory" && (
+          {(page === "salesHistory" || page === "saleDetail") && (
             <View style={styles.card}>
-              <Pagination data={saleData} />
-              <ActionButton
-                secondary
-                label="‹ Vente"
-                onPress={() => setPage("saleSummary")}
-              />
-              {!saleData.loading && !saleData.error && !sales.length && (
+              {page === "salesHistory" && <><HistoryFilters value={saleHistoryFilters} onChange={setSaleHistoryFilters} options={saleHistoryOptions} searchLabel="Rechercher une vente" />{!!saleHistoryQuery.error?<Text accessibilityRole="alert" style={{color:colors.danger}}>{saleHistoryQuery.error}</Text>:<Pagination data={saleData} />}</>}
+              {page === "salesHistory" && !saleHistoryQuery.error && !saleData.loading && !saleData.error && !saleData.items.length && (
                 <Text style={[{ color: colors.text }, styles.muted]}>
-                  Aucune vente enregistrée.
+                  Aucune vente sur cette page pour ces critères. Si une page suivante est disponible, poursuivez la recherche.
                 </Text>
               )}
-              {sales.map((sale) => (
-                <View key={sale._id} style={styles.listRow}>
+              {(page === "saleDetail" ? [saleDetail ?? sales.find(sale => sale._id === focusedSale)].filter((sale): sale is Sale => Boolean(sale)) : saleHistoryQuery.error ? [] : saleData.items).map((sale) => (
+                <View key={sale._id} style={page === "saleDetail" ? {gap: 16} : styles.listRow}>
                   <View style={styles.flex}>
                     <Text style={[{ color: colors.text }, styles.bold]}>
-                      {sale.itemName} · {(sale.salePriceCents / 100).toFixed(2)}{" "}
-                      €
+                      {sale.itemName} · {formatEuros(sale.salePriceCents / 100)}
                     </Text>
                     <Text style={[{ color: colors.text }, styles.muted]}>
-                      {new Date(sale.occurredAt).toLocaleDateString("fr-BE")} ·{" "}
+                      {new Date(sale.occurredAt).toLocaleDateString("fr-BE", {timeZone: timezone})} ·{" "}
                       {sale.status === "active" ? "Vendue" : "Annulée"}
                     </Text>
-                    <Pressable
-                      onPress={() =>
-                        setFocusedSale(
-                          focusedSale === sale._id ? null : sale._id,
-                        )
-                      }
-                    >
-                      <Text style={[{ color: colors.text }, styles.link]}>
-                        {focusedSale === sale._id
-                          ? "Fermer le détail"
-                          : "Voir le règlement et les détails"}
-                      </Text>
-                    </Pressable>
-                    {focusedSale === sale._id && (
-                      <><SalePaymentHistory sale={sale} onChanged={refresh} /><SaleTicket saleIds={[sale._id]} /></>
-                    )}
+                    {page === "salesHistory" && <Pressable accessibilityRole="button" onPress={() => {
+                      setFocusedSale(sale._id); setSaleDetail(sale); setPage("saleDetail");
+                    }} style={{minHeight: 44, justifyContent: 'center'}}>
+                      <Text style={styles.link}>Voir le règlement et les détails ›</Text>
+                    </Pressable>}
+                    {page === "saleDetail" && <><SalePaymentHistory sale={sale} onChanged={refresh} /><SaleTicket saleIds={[sale._id]} /></>}
                     {sale.origin === "consignment" && (
                       <Text style={[{ color: colors.text }, styles.muted]}>
                         Dépôt-vente · Commission{" "}
@@ -2700,12 +2583,15 @@ export default function App() {
                       </Text>
                     )}
                   </View>
-                  {focusedSale === sale._id && sale.status === "active" ? (
+                  {page === "saleDetail" && sale.status === "active" ? (
                     <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Annuler cette vente"
                       disabled={busy}
-                      onPress={() =>
-                        void undoSale(sale._id, setBusy, setError, refresh)
-                      }
+                      onPress={() => Alert.alert('Annuler cette vente ?', 'Les allocations disponibles seront restaurées. L’historique et les documents sont conservés. Aucun remboursement bancaire n’est déclenché.',[
+                        {text:'Conserver la vente',style:'cancel'},
+                        {text:'Annuler la vente',style:'destructive',onPress:()=>void undoSale(sale._id,setBusy,setError,refresh,()=>setSaleDetail(current=>current?._id===sale._id?{...current,status:'cancelled'}:current))},
+                      ])}
                     >
                       <Text style={[{ color: colors.text }, styles.link]}>
                         Annuler
@@ -2716,8 +2602,22 @@ export default function App() {
               ))}
             </View>
           )}
+          {page === "activity" && <ActivityScreen active={isActive} onOpen={async(entry,isCurrent) => {
+            const scope=await captureAccountScope();scope.assertActive();if(!isCurrent())return;
+            if (entry.source === 'purchases') {
+              const record=await readRecord<Purchase>('/purchases',entry.record._id);scope.assertActive();if(!isCurrent())return;
+              if(!record)throw new Error('Ce rachat est indisponible. Actualisez l’activité.');
+              setPurchaseDetail(record);setExpandedPurchase(record._id);setPage('purchaseDetail');
+            } else if (entry.source === 'sales') {
+              const record=await readRecord<Sale>('/sales',entry.record._id);scope.assertActive();if(!isCurrent())return;
+              if(!record)throw new Error('Cette vente est indisponible. Actualisez l’activité.');
+              setSaleDetail(record);setFocusedSale(record._id);setPage('saleDetail');
+            } else if (['receipts','gifts','openings'].includes(entry.source)) setPage('stock');
+            else {setActivityConsignment(current => ({revision:current.revision+1,id:entry.source === 'consignments' ? entry.record._id : entry.record.consignmentId}));setPage('consignments');}
+          }} />}
           {page === "account" && (
             <View>
+              {gradingOpen&&<NativeDetail id="grading-companies" title="Sociétés de gradation" onClose={()=>setGradingOpen(false)}><GradingCompanies/></NativeDetail>}
               <SignatorySettings onEditingChange={setAccountEditing} />
               <AppearanceSettings />
               <View
@@ -2728,6 +2628,12 @@ export default function App() {
                   title="Clients"
                   subtitle="Coordonnées et historique"
                   onPress={() => setPage("clients")}
+                />
+                <MenuRow title="Sociétés de gradation" subtitle="Ajouter, modifier et archiver" onPress={()=>setGradingOpen(true)}/>
+                <MenuRow
+                  title="Dépôts-ventes"
+                  subtitle="Contrats, restitutions et versements"
+                  onPress={() => setPage("consignments")}
                 />
                 <MenuRow
                   title="Documents"
@@ -2772,7 +2678,8 @@ export default function App() {
                                   setPurchaseAttachments({});
                                   setSalePrices({});
                                   clearClient();
-                                  setPage("stock");
+                                  clearBranding();
+                                  setPage("history");
                                   setInstanceReady(false);
                                   setInstanceUrl("");
                                   setInstanceError("");
@@ -2803,7 +2710,7 @@ export default function App() {
             </View>
           )}
           </PageTransition>
-        </ScrollView>
+        </PreservedScrollView>
         {["saleSummary", "salePayment"].includes(page) &&
           selectedItems.length > 0 && (
             <View style={styles.flowFooter}>
@@ -2844,7 +2751,7 @@ export default function App() {
                   onPress={() =>
                     Alert.alert(
                       "Confirmer la vente ?",
-                      `${selectedItems.length} article(s) · ${formatEuros((saleTotalCents / 100))}`,
+                      `${basketUnitCount} article(s) · ${formatEuros((saleTotalCents / 100))}`,
                       [
                         { text: "Revoir le panier", style: "cancel" },
                         {
@@ -2919,20 +2826,31 @@ export default function App() {
           <Text style={[{ color: colors.text }, styles.error]}>{error}</Text>
         </View>
       )}
-      <NativeTabs active={activeTab(page) as RootTab} onChange={tab => setPage(tab === "sales" ? "saleSummary" : tab)} renderScene={tab => {
-        const scenePage = tab === activeTab(page) ? page : tab === "sales" ? "saleSummary" : tab;
-        return renderPageContent(scenePage, tab === activeTab(page));
+      <FinancialRecovery onRecovered={attempt=>{
+        if(attempt.context.purchaseDraftId)localPurchases.remove(attempt.context.purchaseDraftId);
+        setPurchaseEdit(null);setEditRows([]);setEditSaved(null);setEditError('');editAttempts.current.clear();editUploads.current.clear();
+        setSelectedItemIds([]);setSaleQuantities({});setSalePrices({});setSalePayment(emptyPaymentDraft());setSaleConflict(null);setSaleReviewTarget(null);setSaleReviewMessage('');
+        setPage('history');setPurchaseDetail(null);setSaleDetail(null);setWorkspaceRecoveryRevision(value=>value+1);
+        setError('Opération confirmée. Consultez son historique.');
+        const epoch=getSessionScope();void refresh().catch(()=>{if(epoch===getSessionScope())setError('Opération confirmée. Actualisation indisponible ; réessayez la lecture de l’historique.');});
       }} />
+      <NativeTabs key={workspaceRecoveryRevision} page={page} purchaseStep={purchaseStep} onChange={(next, step) => {setPage(next); if (step !== undefined) setPurchaseStep(step);}} renderScene={renderPageContent} />
+      {page === "sales" && <Pressable accessibilityRole="button" accessibilityState={{ disabled: basketUnitCount === 0 }} disabled={basketUnitCount === 0} onPress={() => setPage("saleSummary")} style={{ minHeight: 64, padding: 16, backgroundColor: colors.accentSoft, justifyContent: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}>
+        <Text style={{ color: colors.accent, fontWeight: '600' }}>{basketUnitCount} article(s) · {formatEuros(saleTotalCents / 100)}</Text>
+        <Text style={{ color: colors.secondary }}>{basketUnitCount ? 'Voir le panier et encaisser →' : 'Ajoutez un article pour commencer'}</Text>
+      </Pressable>}
       {busy ? <ActivityIndicator style={styles.spinner} /> : null}
       {page !== "purchase" && (
         <MobileNavigation
           page={page}
           onReset={resetTab}
-          onChange={(next) => setPage(next === "sales" ? "saleSummary" : next)}
+          basketCount={basketUnitCount}
+          onHeightChange={setNavigationHeight}
+          onChange={(next) => setPage(next)}
           disabled={busy || accountEditing}
         />
       )}
-      {((page === "history" && !expandedPurchase) ||
+      {((page === "history") ||
         (["stock", "consignments"].includes(page) && filterControl)) && (
         <Pressable
           accessibilityRole="button"
@@ -2942,7 +2860,7 @@ export default function App() {
               ? setHistoryFiltersOpen(true)
               : filterControl?.open()
           }
-          style={styles.filterDock}
+          style={[styles.filterDock,{bottom:navigationHeight+insets.bottom+12}]}
         >
           <Ionicons name="search-outline" size={20} color={colors.accent} />
           <Text style={[{ color: colors.text }, styles.filterDockText]}>
@@ -2969,12 +2887,12 @@ export default function App() {
       {authenticated &&
       selectedItemIds.length > 0 &&
       !["saleSummary", "salePayment", "saleComplete"].includes(page) &&
-      page !== "purchase" ? (
+      page !== "purchase" && page !== "sales" ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Ouvrir le résumé du panier, ${selectedItemIds.length} article(s)`}
           onPress={() => setPage("saleSummary")}
-          style={[styles.cartFab, { left: 20, right: undefined }]}
+          style={[styles.cartFab, { left: 20, right: undefined,bottom:navigationHeight+insets.bottom+12 }]}
         >
           <Ionicons name="cart-outline" size={25} color={colors.onAccent} />
           <View style={styles.cartFabCount}>
@@ -3148,17 +3066,23 @@ async function undoSale(
   setBusy: (value: boolean) => void,
   setError: (value: string) => void,
   refresh: () => Promise<void>,
+  onConfirmed:()=>void,
 ) {
+  const epoch=getSessionScope();
   setBusy(true);
   try {
+    const scope=await captureAccountScope();
     await cancelSale(saleId);
-    await refresh();
+    scope.assertActive();onConfirmed();
+    await finishFinancialAttempt('/sales/cancel',scope);
+    await refresh().catch(()=>{scope.assertActive();setError('Vente annulée. Actualisez l’historique pour charger les dernières données.');});
   } catch (reason) {
+    if(epoch!==getSessionScope())return;
     setError(
       reason instanceof Error ? reason.message : "Annulation impossible.",
     );
   } finally {
-    setBusy(false);
+    if(epoch===getSessionScope())setBusy(false);
   }
 }
 
@@ -3552,7 +3476,7 @@ const createStyles = (colors: ThemeColors) =>
     },
     label: { fontWeight: "600", marginBottom: 8, color: colors.text },
     action: {
-      backgroundColor: colors.accent,
+      backgroundColor: colors.primary,
       paddingVertical: 14,
       paddingHorizontal: 16,
       minHeight: 49,
@@ -3561,13 +3485,13 @@ const createStyles = (colors: ThemeColors) =>
       marginTop: 8,
     },
     actionText: {
-      color: colors.onAccent,
+      color: colors.onPrimary,
       fontSize: 16,
       fontWeight: "700",
       textAlign: "center",
     },
-    secondaryAction: { backgroundColor: colors.raised },
-    secondaryText: { color: colors.accent },
+    secondaryAction: { backgroundColor: colors.secondaryFill },
+    secondaryText: { color: colors.onSecondary },
     disabled: { opacity: 0.55 },
     choice: {
       padding: 9,

@@ -61,3 +61,43 @@ test('public photo route checks eligibility even on cache hits and keeps browser
   assert.equal((await app.request('/api/v1/catalogue/item/photo')).status, 200);
   assert.equal(storageReads, 2, 'replacement photo gets its own cache entry');
 });
+
+test('catalogue HTTP rejects unsafe prices, oversized pages and invalid filters before backend work',async t=>{
+ let calls=0;let payload:any;
+ t.mock.method(ConvexHttpClient.prototype,'query',async(_ref,args)=>{calls++;payload=args;return {page:[],totalCount:0,isDone:true,continueCursor:'0'};});
+ const app=catalogueRoutes();
+ for(const query of ['size=0','size=49','size=1.5','size=Infinity','min=NaN','min=-1','min=10&max=9','min=9007199254740992','cursor=-1','cursor=1.5','gradingStatus=private','language='+('x'.repeat(21)),'search='+('x'.repeat(201))]){
+  const result=await app.request(`/api/v1/catalogue?${query}`);assert.equal(result.status,400,query);assert.deepEqual(await result.json(),{error:'INVALID_CATALOGUE_QUERY'});
+ }
+ assert.equal(calls,0);
+ const valid=await app.request('/api/v1/catalogue?size=48&min=0.29&max=10.01&language=fr&gradingCompany=CGC&cursor=12');assert.equal(valid.status,200);assert.equal(calls,1);assert.equal(payload.minPrice,29);assert.equal(payload.maxPrice,1001);assert.equal(payload.language,'fr');assert.deepEqual(payload.paginationOpts,{numItems:48,cursor:'12'});
+});
+
+test('series routes validate, forward authenticated facets before stock IDs, and preserve public series', async t => {
+ const { OpenAPIHono } = await import('@hono/zod-openapi');
+ const { getFunctionName } = await import('convex/server');
+ const { registerPaginatedReads, readPageQuery } = await import('../src/routes/paginatedReads.js');
+ const calls: {name:string;args:any}[]=[];
+ t.mock.method(ConvexHttpClient.prototype,'query',async (ref:any,args:any)=>{calls.push({name:getFunctionName(ref),args});return ['Origines'];});
+ let token='';t.mock.method(ConvexHttpClient.prototype,'setAuth',(value:string)=>{token=value;});
+ const app = new OpenAPIHono<any>();
+ app.use('*',async(c,next)=>{c.set('accessToken','staff-token');await next();});
+ registerPaginatedReads(app);
+ const response=await app.request('/stock/series?tcg=riftbound');
+ assert.equal(response.status,200);assert.deepEqual(await response.json(),['Origines']);assert.equal(token,'staff-token');
+ assert.deepEqual(calls.pop(),{name:'readModels:stockSeries',args:{tcg:'riftbound'}});
+ for (const [value, expected] of [['true',true],['false',false]] as const) {
+  assert.equal((await app.request('/stock/series?tcg=pokemon&includeUnavailable='+value)).status,200);
+  assert.deepEqual(calls.pop(),{name:'readModels:stockSeries',args:{tcg:'pokemon',includeUnavailable:expected}});
+ }
+ assert.equal((await app.request('/stock/series?includeUnavailable=maybe')).status,400);
+ assert.equal((await app.request('/stock/series?tcg=unknown')).status,400);
+ assert.equal(readPageQuery.safeParse({tcg:'unknown'}).success,false);
+ assert.equal(readPageQuery.safeParse({series:'x'.repeat(301)}).success,false);
+ await app.request('/stock?tcg=riftbound&series=Origines');
+ assert.equal(calls.at(-1)?.args.series,'Origines');assert.equal(calls.at(-1)?.args.tcg,'riftbound');
+ const catalogue=catalogueRoutes();
+ assert.equal((await catalogue.request('/api/v1/catalogue?tcg=riftbound&series=Origines')).status,200);
+ assert.equal(calls.at(-1)?.args.series,'Origines');
+ assert.equal((await catalogue.request('/api/v1/catalogue?series='+ 'x'.repeat(301))).status,400);
+});

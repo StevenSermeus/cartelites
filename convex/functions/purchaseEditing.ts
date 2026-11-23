@@ -1,5 +1,6 @@
+import {mutation} from './itemActivity';
 import { v } from 'convex/values';
-import { query, mutation } from './_generated/server';
+import { query} from './_generated/server';
 import { stockOwner, checkReplay, integer } from './stockLedger';
 import { productFields } from './inventoryValidators';
 import type { Id } from './_generated/dataModel';
@@ -132,6 +133,8 @@ export const save = mutation({
     }
     const itemIds: Id<'items'>[] = [];
     for (const { itemId, operationId, ...item } of args.items) {
+      const original = itemId ? before.find(row=>row._id===itemId) : undefined;
+      const sameValuation = original && (original.marketValueCents ?? original.purchasePriceCents) === item.marketValueCents && (original.discountPercent ?? 100) === item.discountPercent;
       const values = {
         ...item,
         gradingCompany: item.gradingCompany,
@@ -139,10 +142,10 @@ export const save = mutation({
         gradingCertificate: item.gradingCompany ? item.gradingCertificate : undefined,
         gradingNotes: item.gradingCompany ? item.gradingNotes : undefined,
         name: item.name.trim(),
-        purchasePriceCents: Math.round((item.marketValueCents * item.discountPercent) / 100),
+        purchasePriceCents: sameValuation ? original.purchasePriceCents : Math.round((item.marketValueCents * item.discountPercent) / 100),
       };
       if (itemId) {
-        await ctx.db.patch(itemId, values);
+        await ctx.db.patch(itemId, {...values,revision:(original?.revision??0)+1});
         itemIds.push(itemId);
       } else
         itemIds.push(

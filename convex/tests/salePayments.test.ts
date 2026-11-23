@@ -1,3 +1,4 @@
+import { authenticated } from './helpers/session';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { convexTest } from 'convex-test';
@@ -12,7 +13,7 @@ const modules = {
 };
 async function setup(prices = [10000]) {
   const t = convexTest(schema, modules);
-  const user = t.withIdentity({ subject: 'employee' });
+  const user = (await authenticated(t, 'employee'));
   const sellerId = await user.mutation(api.operations.createSeller, {
     operationId: 'seller',
     name: 'Depositor',

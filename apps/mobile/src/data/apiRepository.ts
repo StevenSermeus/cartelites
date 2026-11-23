@@ -1,3 +1,4 @@
+import {shareScopedFile} from './scopedShare';
 import { optimizeAttachment } from './optimizeAttachment';
 import { attachmentForm } from './attachmentForm';
 import { createPurchaseReceiptPdf } from '../../../../packages/domain/src/purchaseReceipt';
@@ -6,9 +7,12 @@ import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { clearSession, getApiBaseUrl, readSession, instanceFetch } from '../auth/session';
+import { captureAccountScope, clearSession, getApiBaseUrl, readSession, instanceFetch } from '../auth/session';
+import {isFinancialPath,financialAttachmentTarget,type AttemptScope,type AttemptContext,type SubmittedAttempt} from './submittedAttempt';
+import {submittedAttempts} from './purchaseAttemptStorage';
+import {scopedJson} from './scopedResponse';
 
-export type GradingCompany = 'PSA' | 'CollectAura' | 'PCA' | 'CCC';
+export type GradingCompany = string;
 
 export type Seller = {
   _id: string;
@@ -18,8 +22,10 @@ export type Seller = {
   address?: string;
 };
 export type Item = {
+  productRevision?: number; revision?: number; variant?: string; privateNotes?: string; publicAttributes?: Record<string,string>; privateAttributes?: Record<string,string>; catalogueCardId?: string; catalogueSetId?: string;
   quantity?: number; format?: 'display' | 'booster' | 'box' | 'other'; packSize?: number; taxRateBps?: number; coverPhotoId?: string;
   hiddenFromCatalogue?: boolean;
+  priceVisible?: boolean;
   origin?: 'purchase' | 'consignment' | 'supplier';
   consignmentId?: string;
   agreedPriceCents?: number;
@@ -44,7 +50,7 @@ export type Item = {
   sellerId: string;
   sellerName: string;
   purchaseReference: string;
-  purchasePriceCents: number;
+  purchasePriceCents: number | null;
   purchaseOccurredAt: number;
   marketValueCents?: number;
   discountPercent?: number;
@@ -86,7 +92,7 @@ export type PurchaseItem = {
   serialNumber?: string;
   marketValueCents?: number;
   discountPercent?: number;
-  purchasePriceCents: number;
+  purchasePriceCents: number | null;
   askingPriceCents?: number;
   language?: 'fr' | 'en' | 'ja' | 'zh';
   condition?: 'M' | 'NM' | 'EX' | 'GD' | 'LP' | 'PL' | 'PO';
@@ -129,16 +135,22 @@ export type PurchaseDraft = {
   gradingNotes?: string;
   catalogueImageUrl: string;
   cardSearch: string;
+  searchPage?: number;
+  searchHasMore?: boolean;
+  searchMessage?: string;
   cardResults: {
     id: string;
     localId: string;
+    printedNumber?: string;
     name: string;
     image?: string;
     setName?: string;
+    setId?: string;
     language: 'fr' | 'en' | 'ja' | 'zh';
     availableLanguages?: ('fr' | 'en' | 'ja' | 'zh')[];
   }[];
   catalogueCardId?: string;
+  catalogueSetId?: string;
   availableLanguages?: ('fr' | 'en' | 'ja' | 'zh')[];
   searching?: boolean;
 };
@@ -155,9 +167,43 @@ export async function request<T = unknown>(
   path: string,
   body?: unknown,
   method: 'POST' | 'PATCH' = 'POST',
+  context: AttemptContext = {},
 ): Promise<T> {
+  const scope=await captureAccountScope();
+  if(body!==undefined && method==='POST' && isFinancialPath(path)) {
+    const attempt=await submittedAttempts.preparePersisted(scope,path,body,context);
+    return submittedAttempts.execute<T>(scope,attempt,(p,b,s)=>requestTransport<T>(p,JSON.parse(b),'POST',s));
+  }
+  return requestTransport<T>(path,body,method,scope);
+}
+export async function recoverFinancialAttempt(attempt: SubmittedAttempt) {
+  const scope=await captureAccountScope();
+  const result=await submittedAttempts.execute<unknown>(scope,attempt,(p,b,s)=>requestTransport(p,JSON.parse(b),'POST',s));
+  await uploadFinancialFiles(attempt,scope);
+  scope.assertActive();
+  return result;
+}
+export async function finishFinancialAttempt(path: string, scope: AttemptScope) { await submittedAttempts.releasePersisted(scope,path); }
+export async function uploadFinancialFiles(attempt: SubmittedAttempt, scope: AttemptScope) {
+  scope.assertActive();
+  if(attempt.owner!==scope.owner || attempt.state!=='confirmed')throw new Error('RECOVERY_ACCOUNT_MISMATCH');
+  for(const photo of attempt.context.files??[]) {
+    if(photo.uploaded)continue;
+    scope.assertActive();
+    const id=financialAttachmentTarget(attempt.result,photo);
+    await uploadAttachment(photo.target,id,photo.file,photo.operationId,scope);
+    photo.uploaded=true;await submittedAttempts.persist(attempt);submittedAttempts.changed();scope.assertActive();
+  }
+}
+export async function uploadCurrentFinancialFiles(path:string,scope:AttemptScope) {
+  const attempt=submittedAttempts.list(scope.owner).find(row=>row.path===path);
+  if(attempt)await uploadFinancialFiles(attempt,scope);
+}
+async function requestTransport<T = unknown>(path:string,body:unknown,method:'POST'|'PATCH',scope:AttemptScope):Promise<T> {
+  scope.assertActive();
   const baseUrl = getApiBaseUrl();
   const token = await readSession();
+  scope.assertActive();
   if (!baseUrl) throw new Error('Configurez l’adresse de votre instance.');
   if (!token) throw new Error('Votre session a expiré. Reconnectez-vous.');
   let response: Response;
@@ -166,23 +212,26 @@ export async function request<T = unknown>(
       redirect: 'error',
       method: body === undefined ? 'GET' : method,
       headers: {
+        'X-Expected-Account-ID':scope.accountId,
         Authorization: `Bearer ${token}`,
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }, true);
   } catch {
+    scope.assertActive();
     throw new Error('Connexion au serveur impossible. Vérifiez votre accès Internet.');
   }
+  scope.assertActive();
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
+    const payload = await scopedJson<{
       error?: string;
       conflictId?: string;
-    };
+    }>(response,scope,{});
     if (response.status === 401 && ['INVALID_SESSION', 'UNAUTHENTICATED'].includes(payload.error ?? '')) {
       await clearSession();
       sessionExpiredHandler?.();
-      throw new Error('Votre session a expiré. Reconnectez-vous.');
+      throw Object.assign(new Error('Votre session a expiré. Reconnectez-vous.'), {code:payload.error,status:response.status});
     }
     const messages: Record<string, string> = {
       PRICE_BELOW_AGREEMENT: 'Le prix est inférieur à l’accord du déposant. Modifiez l’accord dans Dépôts avec son autorisation.',
@@ -225,10 +274,10 @@ export async function request<T = unknown>(
         payload.error ||
         `Le serveur a refusé l’opération (${response.status}).`,
     );
-    Object.assign(error, { status: response.status, conflictId: payload.conflictId });
+    Object.assign(error, { code:payload.error,status: response.status, conflictId: payload.conflictId });
     throw error;
   }
-  return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
+  return response.status === 204 ? (undefined as T) : scopedJson<T>(response,scope);
 }
 
 export const listSellers = () => request<Seller[]>('/sellers');
@@ -271,10 +320,13 @@ export function createPurchase(
     gradingCertificate?: string;
     gradingNotes?: string;
     catalogueImageUrl?: string;
+    catalogueCardId?: string;
+    catalogueSetId?: string;
   }[],
   date: number,
   reference: string,
   notes: { buyerNote?: string; sellerNote?: string } = {},
+  context: AttemptContext = {},
 ) {
   return request<{ purchaseId: string; itemIds: string[] }>('/purchases', {
     ...notes,
@@ -299,9 +351,11 @@ export function createPurchase(
       gradingCertificate: entry.gradingCertificate?.trim() || undefined,
       gradingNotes: entry.gradingNotes?.trim() || undefined,
       catalogueImageUrl: entry.catalogueImageUrl,
+      catalogueCardId: entry.catalogueCardId,
+      catalogueSetId: entry.catalogueSetId,
       vatRegime: 'margin',
     })),
-  });
+  }, 'POST', context);
 }
 
 export function updatePurchaseDate(purchaseId: string, occurredAt: number) {
@@ -354,11 +408,14 @@ export function cancelSale(saleId: string) {
   return request('/sales/cancel', { operationId: Crypto.randomUUID(), saleId });
 }
 
-export async function uploadAttachment(field: 'purchaseId' | 'itemId' | 'supplierReceiptId' | 'giftId', id: string, file: AttachmentFile, operationId?: string) {
+export async function uploadAttachment(field: 'purchaseId' | 'itemId' | 'supplierReceiptId' | 'giftId', id: string, file: AttachmentFile, operationId?: string, scope?:AttemptScope) {
+  scope??=await captureAccountScope();scope.assertActive();
   const baseUrl = getApiBaseUrl();
   const token = await readSession();
+  scope.assertActive();
   if (!baseUrl || !token) throw new Error('Reconnectez-vous avant de téléverser la photo.');
   file = await optimizeAttachment(file);
+  scope.assertActive();
   const nativeFile = new File(file.uri);
   const form = attachmentForm(field, id, {
     name: file.name,
@@ -367,11 +424,12 @@ export async function uploadAttachment(field: 'purchaseId' | 'itemId' | 'supplie
   }, operationId);
   const response = await instanceFetch('/attachments', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'X-Expected-Account-ID':scope.accountId },
     body: form,
   }, true);
+  scope.assertActive();
   if (!response.ok) throw new Error(`La photo n’a pas été téléversée (${response.status}).`);
-  return response.json();
+  return scopedJson(response,scope);
 }
 
 export const uploadPurchaseAttachment = (purchaseId: string, file: AttachmentFile) =>
@@ -380,37 +438,68 @@ export const uploadItemAttachment = (itemId: string, file: AttachmentFile) =>
   uploadAttachment('itemId', itemId, file);
 
 export async function openAttachment(attachmentId: string, filename: string, contentType: string) {
+  const scope=await captureAccountScope();
   const baseUrl = getApiBaseUrl();
   const token = await readSession();
+  scope.assertActive();
   if (!baseUrl || !token) throw new Error('Reconnectez-vous avant d’ouvrir la photo.');
   const extension = filename.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'file';
-  const localUri = `${FileSystem.cacheDirectory}attachment-${attachmentId}.${extension}`;
-  const response = await instanceFetch(`/attachments/${encodeURIComponent(attachmentId)}/download`, {}, true);
+  const localUri = `${FileSystem.cacheDirectory}attachment-${Crypto.randomUUID()}.${extension}`;
+  const response = await instanceFetch(`/attachments/${encodeURIComponent(attachmentId)}/download`, {headers:{'X-Expected-Account-ID':scope.accountId}}, true);
+  scope.assertActive();
   if (!response.ok) throw new Error(`Téléchargement refusé (${response.status}).`);
-  new File(localUri).write(new Uint8Array(await response.arrayBuffer()));
-  if (!(await Sharing.isAvailableAsync())) throw new Error('Aucune app ne peut ouvrir ce fichier.');
-  await Sharing.shareAsync(localUri, { mimeType: contentType, dialogTitle: filename });
+  const bytes=await response.arrayBuffer();scope.assertActive();
+  const available=await Sharing.isAvailableAsync();scope.assertActive();
+  if(!available)throw new Error('Aucune app ne peut ouvrir ce fichier.');
+  try {
+    new File(localUri).write(new Uint8Array(bytes));
+    scope.assertActive();
+    await Sharing.shareAsync(localUri, { mimeType: contentType, dialogTitle: filename });
+    scope.assertActive();
+  } finally {await FileSystem.deleteAsync(localUri,{idempotent:true}).catch(()=>undefined);}
 }
 
 export async function purchaseReceiptPdf(input: import('./purchaseReceipt').ReceiptInput) {
+  const scope=await captureAccountScope();
   const [signatory, identity] = await Promise.all([
     request<SignatoryProfile>('/auth/profile'),
     request<ConsignmentReceiptIdentity & { logo: ReceiptLogo }>('/receipt-identity'),
   ]);
+  scope.assertActive();
   return btoa(createPurchaseReceiptPdf({ ...input, signatory }, identity.logo, identity));
 }
 
 export async function sharePurchaseReceipt(input: import('./purchaseReceipt').ReceiptInput, base64?: string) {
+  const scope=await captureAccountScope();
   const pdf = base64 ?? await purchaseReceiptPdf(input);
-  const filename = `rachat-${input.reference.replace(/[^a-z0-9-]/gi, '-')}.pdf`;
-  const uri = `${FileSystem.cacheDirectory}${filename}`;
-  if (!(await Sharing.isAvailableAsync())) throw new Error('Le partage de PDF est indisponible.');
-  await FileSystem.writeAsStringAsync(uri, pdf, { encoding: FileSystem.EncodingType.Base64 });
-  try {
-    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' });
-  } finally {
-    await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
-  }
+  scope.assertActive();
+  return shareReceiptPdf(input.reference,pdf,scope);
+}
+export async function shareReceiptPdf(reference:string,pdf:string,scope?:AttemptScope) {
+  const filename = `rachat-${reference.replace(/[^a-z0-9-]/gi, '-')}.pdf`;
+  return sharePdfFile(filename,pdf,scope);
+}
+export async function sharePdfFile(inputFilename:string,pdf:string,scope?:Awaited<ReturnType<typeof captureAccountScope>>) {
+  scope??=await captureAccountScope();scope.assertActive();
+  const filename=inputFilename.replace(/[^a-z0-9._-]/gi,'-')||'document.pdf';
+  await shareScopedFile(scope,`${FileSystem.cacheDirectory}share-${Crypto.randomUUID()}/`,filename,pdf,{
+    available:Sharing.isAvailableAsync,
+    create:directory=>FileSystem.makeDirectoryAsync(directory,{intermediates:true}),
+    write:(uri,content)=>FileSystem.writeAsStringAsync(uri,content,{encoding:FileSystem.EncodingType.Base64}),
+    share:uri=>Sharing.shareAsync(uri,{mimeType:'application/pdf',UTI:'com.adobe.pdf'}),
+    remove:directory=>FileSystem.deleteAsync(directory,{idempotent:true}),
+  });
+}
+export async function shareCsvFile(inputFilename:string,csv:string,scope:Awaited<ReturnType<typeof captureAccountScope>>) {
+  scope.assertActive();
+  const filename=inputFilename.replace(/[^a-z0-9._-]/gi,'-')||'export.csv';
+  await shareScopedFile(scope,`${FileSystem.cacheDirectory}share-${Crypto.randomUUID()}/`,filename,csv,{
+    available:Sharing.isAvailableAsync,
+    create:directory=>FileSystem.makeDirectoryAsync(directory,{intermediates:true}),
+    write:(uri,content)=>FileSystem.writeAsStringAsync(uri,content),
+    share:uri=>Sharing.shareAsync(uri,{mimeType:'text/csv',UTI:'public.comma-separated-values-text'}),
+    remove:directory=>FileSystem.deleteAsync(directory,{idempotent:true}),
+  });
 }
 
 export type Consignment = {
@@ -475,7 +564,7 @@ export const createConsignment = (input: {
   contractTerms?: {version:string;text:string};
   dueAt?: number;
   items: ConsignmentEntry[];
-}) => request<{ consignmentId: string; itemIds: string[] }>('/consignments', input);
+}, context:AttemptContext = {}) => request<{ consignmentId: string; itemIds: string[] }>('/consignments', input,'POST',context);
 export const recordConsignmentPayment = (input: {
   operationId: string;
   sellerId: string;
@@ -496,11 +585,20 @@ export const updateConsignmentTerms = (input: {
 }) => request<{ id: string }>('/consignments/terms', input);
 
 export async function shareConsignmentReceipt(deposit: Consignment, client: Seller | undefined) {
+  const scope=await captureAccountScope();
   const [signatory, identity] = await Promise.all([request<SignatoryProfile>('/auth/profile'), request<ConsignmentReceiptIdentity & { logo: ReceiptLogo }>('/receipt-identity')]);
+  scope.assertActive();
   const pdf = createConsignmentReceiptPdf({ ...deposit, client: client ?? { name: deposit.sellerName }, signatory }, identity.logo, identity);
   const filename = `depot-${deposit.reference.replace(/[^a-z0-9-]/gi, '-')}.pdf`;
-  const uri = `${FileSystem.cacheDirectory}${filename}`;
-  await FileSystem.writeAsStringAsync(uri, pdf, { encoding: FileSystem.EncodingType.UTF8 });
-  if (!(await Sharing.isAvailableAsync())) throw new Error('Le partage de PDF est indisponible.');
-  await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Bon de dépôt' });
+  const directory = `${FileSystem.cacheDirectory}share-${Crypto.randomUUID()}/`;
+  const uri = `${directory}${filename}`;
+  const available=await Sharing.isAvailableAsync();scope.assertActive();
+  if(!available)throw new Error('Le partage de PDF est indisponible.');
+  try {
+    await FileSystem.makeDirectoryAsync(directory,{intermediates:true});scope.assertActive();
+    await FileSystem.writeAsStringAsync(uri, pdf, { encoding: FileSystem.EncodingType.UTF8 });
+    scope.assertActive();
+    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Bon de dépôt' });
+    scope.assertActive();
+  } finally {await FileSystem.deleteAsync(directory,{idempotent:true}).catch(()=>undefined);}
 }

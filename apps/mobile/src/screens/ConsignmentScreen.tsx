@@ -1,3 +1,12 @@
+import { SeriesField } from '../components/SeriesField';
+import {creationBackTarget} from '../navigation/creationBack';
+import {MotionModal as Modal} from '../components/MotionModal';
+import {captureAccountScope,getSessionScope} from '../auth/session';
+import {shopDay,shopDayTimestamp} from '../data/shopCalendar';
+import {NativeDetail} from '../navigation/NativeDetail';
+import {DateField} from '../components/DateField';
+import { formatShopMoney, shopCurrency, shopTimezone } from '../theme/shopFormatting';
+import { GradingCompanyPicker } from '../components/PurchaseEditor';
 import { PageTransition } from "../components/PageTransition";
 import { useTheme, type ThemeColors } from "../theme/ThemeProvider";
 import { ConsignmentDocuments } from "../components/ConsignmentDocuments";
@@ -15,7 +24,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -37,6 +45,8 @@ import {
   type ConsignmentEntry,
   type ConsignmentPayment,
   createConsignment,
+  finishFinancialAttempt,
+  uploadCurrentFinancialFiles,
   type Item,
   listConsignmentBalances,
   listConsignments,
@@ -50,23 +60,12 @@ import {
   uploadItemAttachment,
 } from "../data/apiRepository";
 
-const money = (cents: number) =>
-  (cents / 100).toLocaleString("fr-BE", { style: "currency", currency: "EUR" });
-const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
+const money = (cents: number) => formatShopMoney(cents / 100);
+const today = shopDay;
 function dateValue(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
-    throw new Error("Saisissez une date au format AAAA-MM-JJ.");
-  const d = new Date(`${value}T12:00:00`);
-  if (
-    !Number.isFinite(d.getTime()) ||
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` !==
-      value
-  )
-    throw new Error("Cette date est invalide.");
-  return d.getTime();
+  const result=shopDayTimestamp(value);
+  if(result===undefined)throw new Error('Cette date est invalide dans le fuseau horaire de la boutique.');
+  return result;
 }
 function amount(value: string, label: string, max = Number.MAX_SAFE_INTEGER) {
   if (!/^\d+(?:[.,]\d{1,2})?$/.test(value.trim()))
@@ -169,9 +168,13 @@ export function ConsignmentScreen({
   onCreateClient,
   onFilterControlChange,
   resetVersion = 0,
+  openId,
+  openVersion,
 }: {
   active: boolean;
   resetVersion?: number;
+  openId?: string;
+  openVersion?: number;
   onFilterControlChange?: (
     control: { open: () => void; count: number } | null,
   ) => void;
@@ -196,6 +199,7 @@ export function ConsignmentScreen({
   const [dossierLoading, setDossierLoading] = useState(false);
   const creationScroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const [tab, setTab] = useState<"history" | "new" | "payments">("history");
+  useEffect(() => {if(openId){setTab("history");setDepositSnapshot(null);setFocusedDeposit(openId);}}, [openId, openVersion]);
   const [deposits, setDeposits] = useState<Consignment[]>([]);
   const [balances, setBalances] = useState<ConsignmentBalance[]>([]);
   const [payments, setPayments] = useState<ConsignmentPayment[]>([]);
@@ -330,6 +334,7 @@ export function ConsignmentScreen({
     setRevision((value) => value + 1);
   }, []);
   const run = async (action: () => Promise<void>) => {
+    const epoch=getSessionScope();
     if (running.current) return;
     running.current = true;
     setBusy(true);
@@ -337,10 +342,10 @@ export function ConsignmentScreen({
     try {
       await action();
     } catch (e) {
+      if(epoch!==getSessionScope())return;
       setMessage(e instanceof Error ? e.message : "Opération impossible.");
     } finally {
-      running.current = false;
-      setBusy(false);
+      if(epoch===getSessionScope()){running.current = false;setBusy(false);}
     }
   };
   const patch = (key: string, update: Partial<Draft>) =>
@@ -352,6 +357,7 @@ export function ConsignmentScreen({
   };
   const submit = () =>
     run(async () => {
+      const scope=await captureAccountScope();
       if (!sellerId) throw new Error("Choisissez le déposant.");
       if (!reference.trim())
         throw new Error("Saisissez une référence de dépôt.");
@@ -397,11 +403,9 @@ export function ConsignmentScreen({
       const result = await createConsignment({
         ...input,
         operationId: operation("deposit", input),
-      });
+      },{files:rows.flatMap((row,index)=>row.photo?[{target:'itemId' as const,index,file:row.photo,operationId:Crypto.randomUUID()}]:[])});
+      scope.assertActive();
       // Clear the saved draft before optional uploads: an upload failure must never duplicate the deposit.
-      const photos = rows
-        .map((r, i) => ({ file: r.photo, id: result.itemIds[i] }))
-        .filter((r) => r.file);
       setRows([fresh()]);
       setStep(0);
       setSellerId("");
@@ -415,21 +419,23 @@ export function ConsignmentScreen({
       setContractTerms("");
       setDue("");
       setTab("history");
-      let failures = 0;
-      for (const photo of photos) {
-        try {
-          if (photo.file) await uploadItemAttachment(photo.id, photo.file);
-        } catch {
-          failures++;
-        }
-      }
-      await refresh();
-      setMessage(
-        failures
-          ? `Dépôt enregistré. ${failures} pièce(s) non téléversée(s) : utilisez « Ajouter une pièce » dans l’historique.`
-          : "Dépôt enregistré. Lisez et signez le contrat pour rendre les articles disponibles à la vente.",
-      );
+      await uploadCurrentFinancialFiles('/consignments',scope);
+      scope.assertActive();
+      await finishFinancialAttempt('/consignments',scope);
+      setMessage('Dépôt enregistré. Lisez et signez le contrat pour rendre les articles disponibles à la vente.');
+      await refresh().catch(()=>{scope.assertActive();setMessage('Dépôt enregistré. Actualisez l’historique pour charger les dernières données.');});
     });
+  function closeCreation() {
+    if(busy)return;
+    const hasInput=!!(sellerId||reference.trim()||date!==today()||notes.trim()||contractTerms.trim()||due||rows.some(row=>row.name.trim()||row.photo));
+    if(hasInput)Alert.alert('Fermer le nouveau dépôt ?','Votre saisie reste en mémoire tant que ce compte reste ouvert. Aucun dépôt n’est enregistré avant la confirmation.',[{text:'Continuer la saisie',style:'cancel'},{text:'Fermer',onPress:()=>setTab('history')}]);
+    else setTab('history');
+  }
+  function backCreation() {
+    const target=creationBackTarget(step,busy);
+    if(target.kind==='close')closeCreation();
+    else if(target.kind==='step'){setStep(target.step);setMessage('');creationScroll.current?.scrollTo({y:0,animated:false});}
+  }
   function advance(next: number) {
     try {
       if (next > 0) {
@@ -661,9 +667,7 @@ export function ConsignmentScreen({
             visible
             animationType="slide"
             presentationStyle="fullScreen"
-            onRequestClose={() => {
-              if (!busy) setTab("history");
-            }}
+            onRequestClose={backCreation}
           >
             <SafeAreaView style={styles.screen}>
               <KeyboardAvoidingView
@@ -674,16 +678,18 @@ export function ConsignmentScreen({
                   <Pressable
                     accessibilityRole="button"
                     disabled={busy}
-                    onPress={() => setTab("history")}
+                    onPress={backCreation}
+                    accessibilityLabel={step>0?'Retour à l’étape précédente':'Retour aux dépôts'}
                     style={styles.chip}
                   >
                     <Text style={[{ color: colors.text }, styles.chipText]}>
-                      ‹ Dépôts
+                      ‹ Retour
                     </Text>
                   </Pressable>
-                  <Text style={[{ color: colors.text }, styles.title]}>
+                  <Text style={[{color:colors.text,flex:1},styles.title]}>
                     Nouveau dépôt
                   </Text>
+                  <Pressable accessibilityRole="button" disabled={busy} onPress={closeCreation} style={{minHeight:44,justifyContent:'center',paddingHorizontal:8}}><Text style={{color:colors.accent}}>Fermer</Text></Pressable>
                 </View>
                 <ScrollView
                   ref={creationScroll}
@@ -724,15 +730,15 @@ export function ConsignmentScreen({
                         value={reference}
                         onChangeText={setReference}
                       />
-                      <Field
-                        label="Date du dépôt (AAAA-MM-JJ)"
+                      <DateField
+                        label="Date du dépôt"
                         value={date}
-                        onChangeText={setDate}
+                        onChange={setDate}
                       />
-                      <Field
-                        label="Échéance facultative (AAAA-MM-JJ)"
+                      <DateField optional
+                        label="Échéance facultative"
                         value={due}
-                        onChangeText={setDue}
+                        onChange={setDue}
                       />
                       <Field
                         label="Conditions et notes"
@@ -764,7 +770,7 @@ export function ConsignmentScreen({
                                 style={[{ color: colors.text }, styles.hint]}
                               >
                                 {r.price
-                                  ? `${r.price} € · Commission ${r.commission} %`
+                                  ? `${r.price} ${shopCurrency()} · Commission ${r.commission} %`
                                   : "Compléter les informations"}
                               </Text>
                             </View>
@@ -862,13 +868,8 @@ export function ConsignmentScreen({
                                         patch(r.key, { description })
                                       }
                                     />
-                                    <Field
-                                      label="Série (facultatif)"
-                                      value={r.series}
-                                      onChangeText={(series) =>
-                                        patch(r.key, { series })
-                                      }
-                                    />
+                                    <SeriesField tcg={r.tcg || 'pokemon'} value={r.series}
+                                      onChangeText={(series) => patch(r.key, { series })} />
                                     <Field
                                       label="Référence ou numéro (facultatif)"
                                       value={r.identifier}
@@ -923,25 +924,7 @@ export function ConsignmentScreen({
                                               ] as const,
                                           )}
                                         />
-                                        <Choices
-                                          value={r.gradingCompany}
-                                          onChange={(gradingCompany) =>
-                                            patch(r.key, { gradingCompany })
-                                          }
-                                          values={[
-                                            "",
-                                            "PSA",
-                                            "CollectAura",
-                                            "PCA",
-                                            "CCC",
-                                          ].map(
-                                            (v) =>
-                                              [
-                                                v as Draft["gradingCompany"],
-                                                v || "Non gradée",
-                                              ] as const,
-                                          )}
-                                        />
+                                        <GradingCompanyPicker value={r.gradingCompany} onChange={gradingCompany => patch(r.key, {gradingCompany})} />
                                         {r.gradingCompany ? (
                                           <>
                                             <Field
@@ -967,7 +950,7 @@ export function ConsignmentScreen({
                                       </>
                                     )}
                                     <Field
-                                      label="Prix de vente convenu (€)"
+                                      label={`Prix de vente convenu (${shopCurrency()})`}
                                       value={r.price}
                                       onChangeText={(price) =>
                                         patch(r.key, { price })
@@ -1071,7 +1054,7 @@ export function ConsignmentScreen({
                       </Text>
                       {rows.map((row) => (
                         <Text key={row.key} style={{ color: colors.text }}>
-                          {row.name} · {row.price} € · {row.commission} %
+                          {row.name} · {row.price} {shopCurrency()} · {row.commission} %
                         </Text>
                       ))}
                       <Text style={[{ color: colors.text }, styles.hint]}>
@@ -1215,7 +1198,7 @@ export function ConsignmentScreen({
                         >
                           {d.reference}
                           {d.dueAt
-                            ? ` · ${new Date(d.dueAt).toLocaleDateString("fr-BE")}`
+                            ? ` · ${new Date(d.dueAt).toLocaleDateString("fr-BE", {timeZone: shopTimezone()})}`
                             : ""}
                         </Text>
                       </View>
@@ -1229,13 +1212,7 @@ export function ConsignmentScreen({
                       </Text>
                     </Pressable>
                   ) : (
-                    <Modal
-                      key={d._id}
-                      visible
-                      animationType="slide"
-                      presentationStyle="fullScreen"
-                      onRequestClose={() => setFocusedDeposit(null)}
-                    >
+                    <NativeDetail key={d._id} id={`consignment:${d._id}`} title={d.reference} onClose={() => setFocusedDeposit(null)}>
                       <SafeAreaView style={styles.screen}>
                         <KeyboardAvoidingView
                           style={{ flex: 1 }}
@@ -1243,19 +1220,6 @@ export function ConsignmentScreen({
                             Platform.OS === "ios" ? "padding" : undefined
                           }
                         >
-                          <View style={styles.detailNav}>
-                            <Pressable
-                              accessibilityRole="button"
-                              style={styles.inlineAction}
-                              onPress={() => setFocusedDeposit(null)}
-                            >
-                              <Text style={styles.detailBack}>‹ Dépôts</Text>
-                            </Pressable>
-                            <Text style={styles.detailNavTitle}>
-                              {d.reference}
-                            </Text>
-                            <View style={{ width: 65 }} />
-                          </View>
                           <ScrollView
                             keyboardShouldPersistTaps="handled"
                             contentContainerStyle={{ padding: 20 }}
@@ -1269,7 +1233,7 @@ export function ConsignmentScreen({
                                 "fr-BE",
                               )}
                               {d.dueAt
-                                ? ` · Échéance ${new Date(d.dueAt).toLocaleDateString("fr-BE")}`
+                                ? ` · Échéance ${new Date(d.dueAt).toLocaleDateString("fr-BE", {timeZone: shopTimezone()})}`
                                 : ""}
                             </Text>
                             {!!message && (
@@ -1384,7 +1348,7 @@ export function ConsignmentScreen({
                                       ]}
                                     >
                                       {item.name}{" "}
-                                      {expandedArticle === item._id ? "⌄" : "›"}
+                                      ›
                                     </Text>
                                   </Pressable>
                                   <Text
@@ -1406,7 +1370,7 @@ export function ConsignmentScreen({
                                         : "Disponible"}
                                   </Text>
                                   {expandedArticle === item._id && (
-                                    <>
+                                    <NativeDetail id={`consignment-item:${item._id}`} title={item.name} onClose={() => setExpandedArticle(null)}><ScrollView contentContainerStyle={{padding:20,gap:14}}>
                                       {item.description ? (
                                         <Text
                                           style={[
@@ -1443,7 +1407,7 @@ export function ConsignmentScreen({
                                         >
                                           {new Date(
                                             event.occurredAt,
-                                          ).toLocaleDateString("fr-BE")}{" "}
+                                          ).toLocaleDateString("fr-BE", {timeZone: shopTimezone()})}{" "}
                                           ·{" "}
                                           {event.kind === "return"
                                             ? "Restitution au déposant"
@@ -1507,7 +1471,7 @@ export function ConsignmentScreen({
                                       {editing?._id === item._id && (
                                         <View>
                                           <Field
-                                            label="Nouveau prix convenu (€)"
+                                            label={`Nouveau prix convenu (${shopCurrency()})`}
                                             value={termPrice}
                                             onChangeText={setTermPrice}
                                             keyboardType="decimal-pad"
@@ -1566,7 +1530,7 @@ export function ConsignmentScreen({
                                           />
                                         </View>
                                       )}
-                                    </>
+                                    </ScrollView></NativeDetail>
                                   )}
                                 </View>
                               ))}
@@ -1593,8 +1557,7 @@ export function ConsignmentScreen({
                               </Text>
                             </Pressable>
                             {documentsOpen && (
-                              <View style={styles.card}>
-                                {" "}
+                              <NativeDetail id={`consignment-documents:${d._id}`} title="Contrat et documents" onClose={() => setDocumentsOpen(false)}><ScrollView contentContainerStyle={{padding:20,gap:14}}>
                                 <ReceiptSigning
                                   kind="consignment"
                                   targetId={d._id}
@@ -1623,11 +1586,10 @@ export function ConsignmentScreen({
                                   Les reversements sont regroupés par déposant,
                                   pour l’ensemble de ses dépôts.
                                 </Text>
-                              </View>
+                              </ScrollView></NativeDetail>
                             )}
                           </ScrollView>
                           <View style={styles.footer}>
-                            {" "}
                             <Button
                               label="Voir le solde du déposant"
                               onPress={() => {
@@ -1640,7 +1602,7 @@ export function ConsignmentScreen({
                           </View>
                         </KeyboardAvoidingView>
                       </SafeAreaView>
-                    </Modal>
+                    </NativeDetail>
                   ),
                 )}
             </View>
@@ -1767,15 +1729,15 @@ export function ConsignmentScreen({
                         </Text>
                       )}
                       <Field
-                        label="Montant versé (€)"
+                        label={`Montant versé (${shopCurrency()})`}
                         value={paymentAmount}
                         onChangeText={setPaymentAmount}
                         keyboardType="decimal-pad"
                       />
-                      <Field
-                        label="Date du versement (AAAA-MM-JJ)"
+                      <DateField
+                        label="Date du versement"
                         value={paymentDate}
-                        onChangeText={setPaymentDate}
+                        onChange={setPaymentDate}
                       />
                       <Text style={[{ color: colors.text }, styles.title]}>
                         Mode du versement effectué
@@ -1805,6 +1767,7 @@ export function ConsignmentScreen({
                         }
                         onPress={() =>
                           void run(async () => {
+                            const scope=await captureAccountScope();
                             const amountCents = amount(
                               paymentAmount,
                               "Montant",
@@ -1832,12 +1795,14 @@ export function ConsignmentScreen({
                               ...input,
                               operationId: operation("payment", input),
                             });
+                            scope.assertActive();
                             attempts.current.delete(
                               `payment:${JSON.stringify(input)}`,
                             );
                             setPaymentSeller("");
-                            await load();
+                            await finishFinancialAttempt('/consignments/payments',scope);
                             setMessage("Versement enregistré.");
+                            await load().catch(()=>{scope.assertActive();setMessage('Versement enregistré. Actualisez l’historique.');});
                           })
                         }
                       />
@@ -1861,7 +1826,7 @@ export function ConsignmentScreen({
                   {p.sellerName} · {money(p.amountCents)}
                 </Text>
                 <Text style={[{ color: colors.text }, styles.hint]}>
-                  {new Date(p.occurredAt).toLocaleDateString("fr-BE")} ·{" "}
+                  {new Date(p.occurredAt).toLocaleDateString("fr-BE", {timeZone: shopTimezone()})} ·{" "}
                   {p.method}
                   {p.reference ? ` · ${p.reference}` : ""}
                 </Text>
