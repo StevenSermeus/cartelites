@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-11-23T16:42:40.001Z",
+  "api": "http://127.0.0.1:3002/api/v1",
+  "convex": "http://127.0.0.1:3220",
+  "itemId": "p17683d33aa1zf5egqgyajwj3n8jr2rs",
+  "purchaseId": "n570f71nrprt8h1rr3r8jn4mss8jsmbn",
+  "checks": {
+    "receipt": true,
+    "gift": true,
+    "identicalGiftReplay": true,
+    "giftReversal": true,
+    "dateCorrection": true,
+    "pages": 3,
+    "effects": 4,
+    "noDuplicateKeys": true,
+    "quantityDeltaSum": 2,
+    "lotQuantity": 2,
+    "remainingCostCents": 202,
+    "historyStatus": "complete",
+    "afterFullRebuildSameEffectsAndQuantity": true
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "checkedAt": "2026-11-23",
+  "target": "http://127.0.0.1:3224",
+  "import": {
+    "inserted": 0,
+    "replayed": 1334,
+    "planDigest": "ab9a5396913f130293051ab3c355c449b2aff12f64afe67ffa2712997e288d3c",
+    "reconciliation": {
+      "counts": {
+        "accounts": 1,
+        "auditEvents": 127,
+        "consignmentReturnLines": 1,
+        "consignmentReturns": 1,
+        "consignmentRevisions": 1,
+        "consignmentTerms": 1,
+        "consignments": 1,
+        "contacts": 7,
+        "depositorPayouts": 0,
+        "documentLinks": 12,
+        "documentSignatures": 12,
+        "documents": 12,
+        "emailDeliveries": 6,
+        "fileLinks": 11,
+        "files": 11,
+        "gradingCompanies": 2,
+        "itemGradings": 8,
+        "legacyMappings": 581,
+        "loginAttempts": 0,
+        "operations": 25,
+        "passwordResetTokens": 0,
+        "products": 84,
+        "purchaseLines": 83,
+        "purchases": 7,
+        "saleAllocations": 0,
+        "saleConflicts": 0,
+        "saleLines": 0,
+        "salePayments": 0,
+        "sales": 0,
+        "sessions": 0,
+        "stockItems": 84,
+        "stockLots": 84,
+        "stockMovements": 86,
+        "stockOperations": 86
+      },
+      "errors": [],
+      "status": "complete",
+      "totals": {
+        "activePaymentCents": 0,
+        "activeSalesCents": 0,
+        "collectedDepositorEntitlementCents": 0,
+        "documents": 12,
+        "files": 11,
+        "knownLotRemainingCostCents": 1175591,
+        "knownPurchaseCostCents": 1320545,
+        "lotRemainingQuantity": 82,
+        "payoutsCents": 0,
+        "signatures": 12,
+        "stockQuantity": 82,
+        "unknownLotCosts": 0,
+        "unknownPurchaseCosts": 0
+      }
+    }
+  },
+  "activity": {
+    "complete": true,
+    "phase": 4,
+    "processed": 385,
+    "immediateResumeUnchanged": true,
+    "finalReviewedCodeRestartVerified": true
+  },
+  "productionWrites": false,
+  "qa3220Activity": {
+    "complete": true,
+    "phase": 4,
+    "processed": 701,
+    "immediateResumeUnchanged": true
+  }
+}

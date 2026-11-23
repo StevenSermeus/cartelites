@@ -1,0 +1,16 @@
+{
+  "checkedAt": "2026-11-23T19:46:09.914Z",
+  "web": "http://localhost:5174",
+  "backend": "http://127.0.0.1:3210",
+  "results": [
+    {
+      "tcg": "pokemon",
+      "knownSeries": 14
+    },
+    {
+      "tcg": "riftbound",
+      "knownSeries": 1
+    }
+  ],
+  "businessWrites": 0
+}

@@ -1,0 +1,13 @@
+{
+  "checkedAt": "2026-11-23T14:34:54.403Z",
+  "api": "http://127.0.0.1:3002",
+  "convex": "http://127.0.0.1:3220",
+  "checks": {
+    "previousShopDaySameUtcDayRejected": true,
+    "rejectedStatus": 409,
+    "sameShopDayPreviousUtcDayPaymentAccepted": true,
+    "mixedPaymentCentsPreserved": true,
+    "cancellationRestoresStock": true,
+    "originalPaymentInstantPreserved": true
+  }
+}

@@ -1,0 +1,25 @@
+.public-information-page { max-width:1120px;margin:auto;padding:0 32px 72px;color:var(--foreground); }
+.public-information-page .public-navigation { flex-wrap:wrap;gap:16px; }
+.public-information-heading { display:block;max-width:760px;padding:48px 0 32px;border:0; }
+.public-information-heading>img { width:88px;height:60px;object-fit:contain;margin-bottom:20px; }
+.public-information-heading>p:first-of-type { color:var(--action-tint);font-weight:600; }
+.public-information-heading h1 { font-size:clamp(32px,5vw,52px);line-height:1.12;letter-spacing:-.035em;margin:12px 0 20px; }
+.public-information-heading>p:last-child { font-size:18px;line-height:1.65;color:var(--muted-foreground); }
+.public-journey { border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:28px 0; }
+.public-journey-steps { list-style:none;padding:0;margin:0 0 28px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px; }
+.public-journey-steps button { width:100%;white-space:normal; }
+.public-journey-content { min-height:230px;max-width:760px; }
+.public-journey-content h2 { font-size:26px;line-height:1.25;margin:12px 0; }
+.public-journey-content p { line-height:1.75; }
+.public-step-count { color:var(--muted-foreground);font-size:13px; }
+.public-journey-actions { display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap; }
+.public-information-faq { margin:40px 0;max-width:800px; }
+.public-information-faq details { padding:18px 0;border-bottom:1px solid var(--border); }
+.public-information-faq summary { cursor:pointer;font-weight:600;padding:4px 0; }
+.public-information-faq p { line-height:1.7; }
+.public-information-links { display:flex;gap:24px;flex-wrap:wrap; }
+.public-information-links a { min-height:44px;display:inline-flex;align-items:center; }
+.public-shop-contact { max-width:760px;padding:28px;background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:12px;margin-bottom:32px; }
+.public-shop-contact address { font-style:normal;line-height:1.7; }
+.public-shop-contact a { display:inline-flex;align-items:center;gap:10px;min-height:44px;overflow-wrap:anywhere; }
+@media(max-width:600px){.public-information-page{padding:0 20px 48px}.public-information-heading{padding-top:24px}.public-journey-steps{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.public-journey-content{min-height:300px}.public-shop-contact{padding:20px}.public-information-links{gap:12px}}

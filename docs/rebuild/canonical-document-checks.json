@@ -1,0 +1,91 @@
+{
+  "checkedAt": "2026-11-23T13:11:37.961Z",
+  "api": "http://127.0.0.1:3002",
+  "convex": "http://127.0.0.1:3220",
+  "storage": "Local signed-S3 fixture on 3490; no cloud R2 or email transmission",
+  "syntheticPrefix": "QA Documents 6e939db1-d555-447b-8d11-dcc22c37e3d6",
+  "checks": {
+    "signedPurchase": true,
+    "signedConsignment": true,
+    "signedReturnConsumesStockOnce": true,
+    "signedArchiveReplayExactBytes": true,
+    "partialPayoutAndStatement": true,
+    "saleTicket": true,
+    "realImageUploadAndThumbnail": true,
+    "explicitCover": true,
+    "privateEvidenceExcluded": true,
+    "publicPriceAndPrivateDataBoundary": true
+  },
+  "historicalChecks": [
+    {
+      "sha256": "4dc9eb517da3898de066615ec49b4b4aab639cfa2667d711af6a04c67384add0",
+      "bytes": 149568
+    },
+    {
+      "sha256": "83aceca017938f20a6b909e3dc194c2e8f342811f3ede3a2838d0c4f1a2e6145",
+      "bytes": 145149
+    },
+    {
+      "sha256": "6a0986205cc2d454e8a3ee3650268009ef865beb768f0c0f0320d8f4338add5a",
+      "bytes": 156709
+    },
+    {
+      "sha256": "009228bdfcee27177646a6b14279710798fcee3662a716353fc08d0497d75e96",
+      "bytes": 148133
+    },
+    {
+      "sha256": "cfc2f8c81f567b8b5f974abbc2376be711d9882cb1483322f203feafff4ce0c4",
+      "bytes": 149598
+    },
+    {
+      "sha256": "92f822d50a7508e43f3f3cea2b0be9470b0e66b9e51a9ce6c4028860f112f227",
+      "bytes": 150910
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "purchase",
+      "sha256": "dc161d8b1f29a73505478b2fb702d6ffd3c4f178793accd1fda74547d75446e4",
+      "bytes": 138768
+    },
+    {
+      "name": "consignment",
+      "sha256": "bc79d194f304522ef1beb2cfe08e3253de0b81e982e38879cae214f0d03607a7",
+      "bytes": 140008
+    },
+    {
+      "name": "sale-ticket",
+      "sha256": "6d3b1bb597a31f19fd78fa9ff02d5d001af619e1cd95253bf90b77e44bd1f005",
+      "bytes": 135996
+    },
+    {
+      "name": "statement",
+      "sha256": "4d693979a27e90155e95b2cedf0fb98b684b1afed16c583f3aab78e594b6375d",
+      "bytes": 136927
+    },
+    {
+      "name": "partial-payout",
+      "sha256": "67b16f3f64bc6b4ace7e8a9fb90da4bdb91b8a7edb4ec511df4920663b15fadf",
+      "bytes": 136909
+    },
+    {
+      "name": "return",
+      "sha256": "36dd292608af73e7c6ea4cc74922d0d1dceb600a4f53a9d3d34633f649387de3",
+      "bytes": 137213
+    }
+  ],
+  "renderedInspection": {
+    "tool": "pdftoppm -scale-to 1000 -png; pdftotext",
+    "documents": 6,
+    "pages": 6,
+    "inspected": [
+      "purchase",
+      "consignment",
+      "return",
+      "statement",
+      "partial-payout",
+      "sale-ticket"
+    ],
+    "result": "No clipping, overlap or missing signature/financial content observed."
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "checkedAt": "2026-11-23",
+  "target": "127.0.0.1:5175 → API3002/Convex3220",
+  "filters": {
+    "initialActualRows": 15,
+    "fault": "Injected503 only for documents search QA-filter-failure",
+    "failedQueryRows": 0,
+    "nextPageDisabled": true,
+    "errorVisible": true,
+    "clearingFilterActualRows": 15
+  },
+  "staleEmail": {
+    "ticketHistory": "Actual archived local QA ticket",
+    "fault": "One intercepted emailPOST returning TICKET_STALE409; never forwarded",
+    "explicitCurrentTicketActionVisible": true,
+    "obsoleteTicketSubmitDisabled": true,
+    "explicitActionClearedPendingAttempt": true,
+    "networkRestored": true,
+    "emailsSent": 0
+  },
+  "sharedEmailRecovery": {
+    "actualData": "Archived local QA ticket lists and GET delivery history",
+    "injected": "All three email POSTs intercepted; statuses unknown, unknown, accepted; zero forwarded",
+    "sequence": "Documents send → full page navigation/reload → sale history ticket dialog → same-attempt status check → accepted response → different document history503",
+    "sameTicketRecipientAndOperationIdAfterReload": true,
+    "recipientFrozenAcrossSurfaces": true,
+    "acceptedDistinguishedFromDelivered": true,
+    "failedNewPreflightPreservedFormAndRecipient": true,
+    "failedNewPreflightDidNotShowPriorAcceptedResult": true,
+    "failedNewPreflightDidNotPost": true,
+    "testIntentAndInterceptorsRemoved": true,
+    "ownVerificationTabClosed": true
+  },
+  "limits": "Browser error-contract checks use declared fault injection; actual backend pre-claim stale/unknown behavior has separate regression tests. No real provider delivery claim. Earlier interrupted tab activity excluded from the shared-recovery sequence; final sequence ran in a fresh owned tab."
+}

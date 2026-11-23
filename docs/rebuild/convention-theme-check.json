@@ -1,0 +1,120 @@
+{
+  "date": "2026-11-23",
+  "surface": "Actual Convention route on isolated web5175/API3002",
+  "scope": "Computed text/background contrast, alpha backgrounds composited through ancestors; contrasting palette is a tab-local config fixture passed through shared resolveTheme and normal Appearance control. Not full web/mobile accessibility acceptance.",
+  "before": {
+    "priceOnCard": 2.018,
+    "priceToken": "primaryHover"
+  },
+  "checks": [
+    {
+      "appearance": "light",
+      "checks": [
+        {
+          "background": "#fffdf8",
+          "color": "#795018",
+          "contrast": 6.946890049886829,
+          "height": 22.5,
+          "selector": ".public-catalogue-price"
+        },
+        {
+          "background": "#fffef8",
+          "color": "#795018",
+          "contrast": 6.989468296899073,
+          "height": 35.1953125,
+          "selector": ".public-catalogue-total strong"
+        },
+        {
+          "background": "#fbf0d9",
+          "color": "#795018",
+          "contrast": 6.244135304825769,
+          "height": 25,
+          "selector": ".public-catalogue-tags span:first-child"
+        }
+      ],
+      "shop": "Cartélites"
+    },
+    {
+      "appearance": "dark",
+      "checks": [
+        {
+          "background": "#231d17",
+          "color": "#efbd53",
+          "contrast": 9.585781180253859,
+          "height": 22.5,
+          "selector": ".public-catalogue-price"
+        },
+        {
+          "background": "#221d17",
+          "color": "#efbd53",
+          "contrast": 9.612098980070911,
+          "height": 35.1953125,
+          "selector": ".public-catalogue-total strong"
+        },
+        {
+          "background": "#33291e",
+          "color": "#fbf0d9",
+          "contrast": 12.574003191231956,
+          "height": 25,
+          "selector": ".public-catalogue-tags span:first-child"
+        }
+      ],
+      "shop": "Cartélites"
+    },
+    {
+      "appearance": "light",
+      "checks": [
+        {
+          "background": "#ffffff",
+          "color": "#0f5132",
+          "contrast": 9.361036506496546,
+          "height": 22.5,
+          "selector": ".public-catalogue-price"
+        },
+        {
+          "background": "#ffffff",
+          "color": "#0f5132",
+          "contrast": 9.361036506496546,
+          "height": 35.1953125,
+          "selector": ".public-catalogue-total strong"
+        },
+        {
+          "background": "#e4f4ed",
+          "color": "#164c36",
+          "contrast": 8.70370858554689,
+          "height": 25,
+          "selector": ".public-catalogue-tags span:first-child"
+        }
+      ],
+      "shop": "Contrasting green/navy fixture"
+    },
+    {
+      "appearance": "dark",
+      "checks": [
+        {
+          "background": "#1f2937",
+          "color": "#86efac",
+          "contrast": 10.454313558999981,
+          "height": 22.5,
+          "selector": ".public-catalogue-price"
+        },
+        {
+          "background": "#1e2937",
+          "color": "#86efac",
+          "contrast": 10.476703766457986,
+          "height": 35.1953125,
+          "selector": ".public-catalogue-total strong"
+        },
+        {
+          "background": "#273449",
+          "color": "#e2e8f0",
+          "contrast": 10.178012949655887,
+          "height": 25,
+          "selector": ".public-catalogue-tags span:first-child"
+        }
+      ],
+      "shop": "Contrasting green/navy fixture"
+    }
+  ],
+  "restored": "Original configuration and system appearance restored"
+}

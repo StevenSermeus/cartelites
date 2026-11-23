@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-23",
+  "environment": "web5175/API3002 isolated",
+  "method": "Actual UI, real history/read API; all payment/cancellation POSTs intercepted in owned browser tab. No business writes or emails.",
+  "payment": {
+    "sequence": [
+      "lost response",
+      "429",
+      "close dialog",
+      "resume original",
+      "synthetic acknowledgement"
+    ],
+    "calls": 3,
+    "sameBody": true,
+    "sameExpectedAccount": true,
+    "fieldsFrozenAfterLoss": true,
+    "releaseUnavailableAfter429": true,
+    "dialogClosed": true,
+    "recoveryCleared": true
+  },
+  "cancellation": {
+    "calls": 2,
+    "dialogClosed": true,
+    "recoveryCleared": true,
+    "sameBody": true,
+    "sameExpectedAccount": true
+  }
+}

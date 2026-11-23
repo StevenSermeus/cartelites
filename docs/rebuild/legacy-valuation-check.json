@@ -1,0 +1,9 @@
+{
+  "environment": "isolated legacy API3001/Convex3210",
+  "checkedItemsWithLots": 1,
+  "legacyLots": 1,
+  "knownCosts": 1,
+  "unknownCosts": 0,
+  "mismatches": 0,
+  "scope": "Real stock/lot DTOs evaluated through the same web export valuation helper; read-only business data. Temporary QA session revoked."
+}

@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-11-23T15:08:19.721Z",
+  "api": "http://127.0.0.1:3002/api/v1",
+  "checks": {
+    "differentAccountReadRejected": true,
+    "differentAccountWriteRejected": true,
+    "sameAccountReadAccepted": true,
+    "statusIdentifiesAuthenticatedAccount": true,
+    "corsAllowsExpectedAccount": true
+  }
+}

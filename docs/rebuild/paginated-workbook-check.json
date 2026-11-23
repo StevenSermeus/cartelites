@@ -1,0 +1,61 @@
+{
+  "checkedAt": "2026-11-23T17:46:27.825Z",
+  "source": "Actual browser workbook download from127.0.0.1:5175 → API3002/Convex3220",
+  "sheets": [
+    {
+      "name": "Achats",
+      "rows": 24
+    },
+    {
+      "name": "Ventes",
+      "rows": 1
+    },
+    {
+      "name": "Stock",
+      "rows": 18
+    },
+    {
+      "name": "Dépôts",
+      "rows": 9
+    },
+    {
+      "name": "Commissions",
+      "rows": 4
+    },
+    {
+      "name": "Reversements",
+      "rows": 4
+    },
+    {
+      "name": "Soldes déposants",
+      "rows": 5
+    },
+    {
+      "name": "Clients",
+      "rows": 25
+    },
+    {
+      "name": "Export",
+      "rows": 6
+    }
+  ],
+  "stockQuantity": 61,
+  "stockCostCents": 163171,
+  "ownedRevenueCents": 400,
+  "payoutCents": 4000,
+  "depositorEarnedCents": 9600,
+  "depositorDueCents": 5600,
+  "businessDateCells": "ISO civil date text in shop timezone",
+  "allResourcePages200": true,
+  "downloadBytes": 22622,
+  "failureProbe": {
+    "injected": "503 on second stockLots page only; other resource reads used actual API",
+    "errorVisible": true,
+    "downloadCountBefore": 1,
+    "downloadCountAfterFailure": 1,
+    "partialFileCreated": false,
+    "retryAvailable": true,
+    "retryDownloadedCompleteWorkbook": true,
+    "downloadCountAfterRetry": 2
+  }
+}

@@ -1,0 +1,51 @@
+/** Explicit synthetic-only acceptance on the dedicated loopback canonical deployment. */
+import {readFile,writeFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {randomUUID} from 'node:crypto';
+import assert from 'node:assert/strict';
+import {ConvexHttpClient} from 'convex/browser';
+import {makeFunctionReference} from 'convex/server';
+import {importPKCS8,SignJWT} from 'jose';
+import {normalize} from './normalize.js';
+import {assertIsolatedTarget} from './import-convex.js';
+import {verifyObjects} from './rehearse.js';
+export async function checkCanonicalRuntime(options:{url:string;source:string;privateKey:string;objects:string;report:string}){
+ const url=assertIsolatedTarget(options.url),client=new ConvexHttpClient(url),anonymous=new ConvexHttpClient(url);
+ const migration=normalize(JSON.parse(await readFile(options.source,'utf8'))),batch=`canonical-v1:${migration.sourceDigest}`;
+ const service=(operation:string,payload:unknown)=>client.action(makeFunctionReference<'action'>('migrationService:execute'),{secret:process.env.MIGRATION_SECRET??'',operation,payload});
+ const originalObjects=await service('objects',{batch}) as {objectKey:string;sha256?:string;contentType:string}[];
+ const restored=await verifyObjects(originalObjects,options.objects);assert.ok(restored.every(x=>x.status!=='missing'&&x.status!=='mismatch'));
+ const accountId=await service('accountBinding',{batch,stableId:migration.tables.accounts[0].id}) as string;
+ const key=await importPKCS8(await readFile(options.privateKey,'utf8'),'RS256');
+ const jti=randomUUID(),sessionVersion=migration.tables.accounts[0].sessionVersion;
+ await client.action(makeFunctionReference<'action'>('authService:execute'),{secret:process.env.CONVEX_AUTH_SECRET??'',operation:'startSession',payload:{id:accountId,jti,sessionVersion,expiresAt:Date.now()+600000,now:Date.now()}});
+ const token=await new SignJWT({sv:sessionVersion,sessionJti:jti}).setProtectedHeader({alg:'RS256',kid:'canonical-rehearsal'}).setJti(jti).setSubject(accountId).setIssuer(process.env.JWT_ISSUER!).setAudience(process.env.JWT_AUDIENCE!).setIssuedAt().setExpirationTime('10m').sign(key);
+ client.setAuth(token);
+ const mutation=(name:string,args:unknown)=>client.mutation(makeFunctionReference<'mutation'>(`transactions:${name}`),args as never);
+ const query=(name:string,args:unknown)=>client.query(makeFunctionReference<'query'>(`reads:${name}`),args as never);
+ await assert.rejects(()=>anonymous.query(makeFunctionReference<'query'>('reads:stock'),{paginationOpts:{numItems:10,cursor:null}}),/UNAUTHENTICATED/);
+ const prefix=`QA canonical ${randomUUID()}`;
+ const contactId=await mutation('saveContact',{operationId:`${prefix}:contact`,kind:'company',name:prefix});
+ const receipt=await mutation('createPurchase',{operationId:`${prefix}:receipt`,contactId,type:'supplier',reference:prefix,occurredAt:1000,lines:[{product:{type:'sealed',name:`${prefix} booster`},quantity:3,costCents:101,askingPriceCents:200,tax:{regime:'other',rateBps:2100}}]}) as {itemIds:string[]};
+ const itemId=receipt.itemIds[0];
+ await mutation('createPurchase',{operationId:`${prefix}:receipt2`,contactId,type:'supplier',reference:prefix,occurredAt:1001,lines:[{stockItemId:itemId,quantity:2,costCents:99,tax:{regime:'other',rateBps:2100}}]});
+ const saleArgs={operationId:`${prefix}:sale`,reference:prefix,occurredAt:2000,lines:[{stockItemId:itemId,quantity:4,lineTotalCents:800}],payment:{status:'received',cashCents:300,transferCents:500}};
+ const saleId=await mutation('createSale',saleArgs);assert.equal(await mutation('createSale',saleArgs),saleId);
+ const sold=await query('sale',{saleId}) as any;assert.equal(sold.lines[0].costCents,150);assert.equal(sold.payments[0].cashCents+sold.payments[0].transferCents,800);
+ await mutation('correctPayment',{operationId:`${prefix}:correction`,saleId,occurredAt:2100,payment:{status:'received',cashCents:800,transferCents:0}});
+ const corrected=await query('sale',{saleId}) as any;assert.equal(corrected.payments.filter((p:any)=>p.status==='active').length,1);assert.equal(corrected.payments.filter((p:any)=>p.status==='superseded').length,1);
+ const attempts=await Promise.allSettled([1,2].map(n=>mutation('createSale',{...saleArgs,operationId:`${prefix}:race${n}`,lines:[{stockItemId:itemId,quantity:1,lineTotalCents:200}],payment:{status:'received',cashCents:200,transferCents:0}})));
+ assert.equal(attempts.filter(a=>a.status==='fulfilled').length,1);assert.equal(attempts.filter(a=>a.status==='rejected').length,1);
+ for(const attempt of attempts)if(attempt.status==='fulfilled')await mutation('cancelSale',{operationId:`${prefix}:cancel-race`,saleId:attempt.value});
+ await mutation('cancelSale',{operationId:`${prefix}:cancel`,saleId});
+ const restoredItem=await query('product',{itemId}) as any;assert.equal(restoredItem.quantity,5);assert.equal(restoredItem.lots.reduce((n:number,l:any)=>n+l.remainingCostCents,0),200);
+ await client.mutation(makeFunctionReference<'mutation'>('operations:setStockVisibility'),{operationId:`${prefix}:visible`,itemIds:[itemId],hidden:false});
+ const catalogue=await anonymous.query(makeFunctionReference<'query'>('operations:publicCatalogue'),{paginationOpts:{numItems:20,cursor:null},search:prefix,gradingStatus:'all',gradingCompany:'',gradingGrade:'',tcg:'all'}) as any;
+ assert.ok(catalogue.page.length>0,'Privacy check must inspect actual public records');
+ for(const item of catalogue.page)for(const field of ['lots','origin','privateNotes','purchasePriceCents','costCents','depositorId','supplier','createdBy'])assert.equal(item[field],undefined);
+ const report={checkedAt:new Date().toISOString(),target:url,syntheticPrefix:prefix,checks:{authenticatedMutations:true,anonymousPrivateReadRejected:true,publicDtoPrivacy:true,mixedPayments:true,correctionChain:true,idempotentReplay:true,fifoExactCost:true,simultaneousOversellingPrevented:true,cancelRestoresAllocations:true},restoredObjects:{count:restored.length,baselineVerified:originalObjects.filter(x=>x.sha256).length,pdfs:originalObjects.filter(x=>x.contentType==='application/pdf').length},note:'Synthetic QA records remain in isolated3220; original imported business records were not edited.'};
+ await writeFile(options.report,JSON.stringify(report,null,2),{mode:0o600});return report;
+}
+async function main(){const [url,source,privateKey,objects,report]=process.argv.slice(2);if(!report)throw new Error('Usage: check-canonical-runtime.ts local-url export.json private-key.pem copied-r2 report.json');console.log(JSON.stringify(await checkCanonicalRuntime({url,source,privateKey,objects,report}),null,2));}
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch(error=>{console.error(error.message);process.exitCode=1;});

@@ -1,0 +1,162 @@
+{
+  "target": "http://127.0.0.1:3224",
+  "deployment": "canonical-rehearsal-3224",
+  "isolatedStateDirectory": "/tmp/cartelites-canonical-rehearsal/fresh3224",
+  "sourceDigest": "474f52c1c946175beb91dbab3282aff117cadd7cb8787bbf40a08a732ed2b291",
+  "planDigest": "ab9a5396913f130293051ab3c355c449b2aff12f64afe67ffa2712997e288d3c",
+  "rerun": {
+    "inserted": 0,
+    "replayed": 1334
+  },
+  "reconciliation": {
+    "counts": {
+      "accounts": 1,
+      "auditEvents": 127,
+      "consignmentReturnLines": 1,
+      "consignmentReturns": 1,
+      "consignmentRevisions": 1,
+      "consignmentTerms": 1,
+      "consignments": 1,
+      "contacts": 7,
+      "depositorPayouts": 0,
+      "documentLinks": 12,
+      "documentSignatures": 12,
+      "documents": 12,
+      "emailDeliveries": 6,
+      "fileLinks": 11,
+      "files": 11,
+      "gradingCompanies": 2,
+      "itemGradings": 8,
+      "legacyMappings": 581,
+      "loginAttempts": 0,
+      "operations": 25,
+      "passwordResetTokens": 0,
+      "products": 84,
+      "purchaseLines": 83,
+      "purchases": 7,
+      "saleAllocations": 0,
+      "saleConflicts": 0,
+      "saleLines": 0,
+      "salePayments": 0,
+      "sales": 0,
+      "sessions": 0,
+      "stockItems": 84,
+      "stockLots": 84,
+      "stockMovements": 86,
+      "stockOperations": 86
+    },
+    "errors": [],
+    "status": "complete",
+    "totals": {
+      "activePaymentCents": 0,
+      "activeSalesCents": 0,
+      "collectedDepositorEntitlementCents": 0,
+      "documents": 12,
+      "files": 11,
+      "knownLotRemainingCostCents": 1175591,
+      "knownPurchaseCostCents": 1320545,
+      "lotRemainingQuantity": 82,
+      "payoutsCents": 0,
+      "signatures": 12,
+      "stockQuantity": 82,
+      "unknownLotCosts": 0,
+      "unknownPurchaseCosts": 0
+    }
+  },
+  "liveDomainChecks": {
+    "authenticatedMutations": true,
+    "anonymousPrivateReadRejected": true,
+    "publicDtoPrivacy": true,
+    "mixedPayments": true,
+    "correctionChain": true,
+    "idempotentReplay": true,
+    "fifoExactCost": true,
+    "simultaneousOversellingPrevented": true,
+    "cancelRestoresAllocations": true
+  },
+  "restoreReferences": {
+    "count": 11,
+    "baselineVerified": 6,
+    "pdfs": 6
+  },
+  "liveApiChecks": {
+    "loginCreatesPersistentSession": true,
+    "legacyDtoReadRoutes": 6,
+    "contactCreation": true,
+    "buybackPendingValidation": true,
+    "mixedPaymentBulkSale": true,
+    "saleCancellationRestoresStock": true,
+    "realtimeReadToken": true,
+    "realtimeMutationRejected": true,
+    "logoutRevokesApiAndRealtime": true
+  },
+  "limitations": [
+    "Checks use a separate local Convex instance, not production.",
+    "Synthetic QA records were added after reconciliation; an unchanged-source import after new business writes intentionally fails reconciliation.",
+    "R2 keys were resolved from canonical file records and compared against copied bytes; API3002 cloud R2 and Brevo delivery remain unconfigured.",
+    "Canonical migration/runtime target does not yet cover every legacy HTTP endpoint. Existing API3001 remains legacy until parity is verified."
+  ],
+  "initialRehearsal": {
+    "target": "http://127.0.0.1:3220",
+    "planDigest": "e4f49d736639e5d28e2c15e3bd22fb4968c55c9dfa3118cb22446db701c9b101",
+    "rerun": {
+      "inserted": 0,
+      "replayed": 1330
+    }
+  },
+  "firstImport": {
+    "inserted": 1334,
+    "replayed": 0
+  },
+  "httpAndRealtime": {
+    "checkedAt": "2026-11-23T13:16:47.612Z",
+    "api": "http://127.0.0.1:3002",
+    "convex": "http://127.0.0.1:3220",
+    "syntheticPrefix": "QA API cb275015-8e39-450a-8532-1f2ad617fee6",
+    "checks": {
+      "loginCreatesPersistentSession": true,
+      "legacyDtoReadRoutes": 6,
+      "contactCreation": true,
+      "buybackPendingValidation": true,
+      "mixedPaymentBulkSale": true,
+      "saleCancellationRestoresStock": true,
+      "realtimeReadToken": true,
+      "realtimeMutationRejected": true,
+      "logoutRevokesApiAndRealtime": true,
+      "webSocketPushReflectsMutation": true,
+      "webSocketRevokedSubscriptionDenied": true
+    },
+    "media": "Storage uses a separate local signed-S3 fixture; no cloud media write performed."
+  },
+  "documentEvidence": "canonical-document-checks.json",
+  "previousRehearsals": [
+    {
+      "target": "http://127.0.0.1:3222",
+      "planDigest": "64e9faeaab1388a2b210bb67addf8dc3c40d8bd31bf572b15b252c7f383378ae",
+      "firstImport": {
+        "inserted": 1334,
+        "replayed": 0
+      },
+      "rerun": {
+        "inserted": 0,
+        "replayed": 1334
+      }
+    }
+  ],
+  "qaAuditPointerRepair": {
+    "target": "http://127.0.0.1:3220",
+    "change": "Only auditEvents.record for imported consignmentEvents; raw changeJSON retained.",
+    "apply": {
+      "dryRun": false,
+      "inspected": 1,
+      "repaired": 1,
+      "unchanged": 0
+    },
+    "replay": {
+      "dryRun": false,
+      "inspected": 1,
+      "repaired": 0,
+      "unchanged": 1
+    }
+  }
+}

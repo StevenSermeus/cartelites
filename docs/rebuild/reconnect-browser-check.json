@@ -1,0 +1,152 @@
+{
+  "checkedAt": "2026-11-23",
+  "target": "http://127.0.0.1:5175",
+  "api": "http://127.0.0.1:3002",
+  "convex": "http://127.0.0.1:3220",
+  "fixtureItem": "p1776981exw7vj0v264qt192zs8js7v2",
+  "race": {
+    "method": "Both UI requests held after client validation, then original requests forwarded to real isolated API; responses not mocked.",
+    "winningSaleId": "ns7d6w87vgt21h9pp6gqmb85th8jsg9s",
+    "statuses": [
+      201,
+      409
+    ],
+    "rejection": "ITEM_UNAVAILABLE",
+    "losingBasketPreserved": true,
+    "initialInterruptedAttempt": "HMR interrupted the first attempt; its one sale was cancelled and is not counted as concurrency evidence.",
+    "ledgerEvidence": "browser-race-cleanup-check.json"
+  },
+  "socketReconnect": {
+    "basket": "1 article au panier\n2,00 €\nVider\nVérifier le panier",
+    "events": [
+      {
+        "at": 1795454338493,
+        "event": "open"
+      },
+      {
+        "at": 1795454344411,
+        "event": "close"
+      },
+      {
+        "at": 1795454345040,
+        "event": "open"
+      }
+    ],
+    "rows": [],
+    "search": "QA double navigateur 263f9ba1",
+    "sockets": [
+      3,
+      1
+    ]
+  },
+  "readOnlyAuthOutage": {
+    "alert": [
+      "Vérification de la session indisponible. Votre saisie est conservée. Le service de connexion est momentanément indisponible. Réessayez dans un instant.\nRéessayer la connexion"
+    ],
+    "basket": "1 article au panier\n2,00 €\nVider\nVérifier le panier",
+    "count": 3,
+    "login": false,
+    "search": "QA double navigateur 263f9ba1"
+  },
+  "authRestored": {
+    "availabilityAlert": false,
+    "basket": "1 article au panier\n2,00 €\nVider\nVérifier le panier",
+    "login": false,
+    "rows": [
+      "Sans photo\nQA double navigateur 263f9ba1\nRéférence non renseignée\n1 disponible(s)\nFournisseur\n2,00 €\n1"
+    ],
+    "search": "QA double navigateur 263f9ba1",
+    "socketEvents": [
+      {
+        "at": 1795454338493,
+        "event": "open"
+      },
+      {
+        "at": 1795454344411,
+        "event": "close"
+      },
+      {
+        "at": 1795454345040,
+        "event": "open"
+      },
+      {
+        "at": 1795454411661,
+        "event": "close"
+      },
+      {
+        "at": 1795454411929,
+        "event": "open"
+      }
+    ]
+  },
+  "giftAfterReconnect": {
+    "basket": "1 article au panier\n2,00 €\nVider\nVérifier le panier",
+    "events": [
+      {
+        "at": 1795454338493,
+        "event": "open"
+      },
+      {
+        "at": 1795454344411,
+        "event": "close"
+      },
+      {
+        "at": 1795454345040,
+        "event": "open"
+      },
+      {
+        "at": 1795454411661,
+        "event": "close"
+      },
+      {
+        "at": 1795454411929,
+        "event": "open"
+      }
+    ],
+    "rows": [],
+    "search": "QA double navigateur 263f9ba1",
+    "url": "http://127.0.0.1:5175/admin/sales"
+  },
+  "reversalAfterReconnect": {
+    "basket": "1 article au panier\n2,00 €\nVider\nVérifier le panier",
+    "events": [
+      {
+        "at": 1795454338493,
+        "event": "open"
+      },
+      {
+        "at": 1795454344411,
+        "event": "close"
+      },
+      {
+        "at": 1795454345040,
+        "event": "open"
+      },
+      {
+        "at": 1795454411661,
+        "event": "close"
+      },
+      {
+        "at": 1795454411929,
+        "event": "open"
+      }
+    ],
+    "rows": [
+      "Sans photo\nQA double navigateur 263f9ba1\nRéférence non renseignée\n1 disponible(s)\nFournisseur\n2,00 €\n1"
+    ],
+    "search": "QA double navigateur 263f9ba1",
+    "sockets": [
+      3,
+      3,
+      1
+    ]
+  },
+  "cleanup": {
+    "originalFetchRestored": true,
+    "originalWebSocketRestored": true,
+    "rejectedAttemptReleased": true,
+    "basketCleared": true,
+    "fixtureRestoredQuantity": 1,
+    "fixtureRestoredCostCents": 101
+  }
+}

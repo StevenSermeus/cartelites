@@ -1,0 +1,130 @@
+{
+  "archiveSha256": "fc1286a8cf5cd7cdd0ab5b62178839dcefa2d6aa7eca27c0554dfb05ebc8bbb8",
+  "sourceCounts": {
+    "loginAttempts": 0,
+    "passwordResetTokens": 0,
+    "saleTicketLinks": 0,
+    "revokedSessions": 0,
+    "saleBatches": 0,
+    "stockOpenings": 0,
+    "sales": 0,
+    "salePaymentEvents": 0,
+    "ticketEmails": 0,
+    "saleConflicts": 0,
+    "inventoryReversals": 0,
+    "consignmentDocuments": 0,
+    "consignmentPayments": 0,
+    "saleTickets": 0,
+    "consignmentReturns": 0,
+    "applicationSettings": 1,
+    "stockLots": 1,
+    "consignmentEvents": 1,
+    "consignments": 1,
+    "supplierReceipts": 1,
+    "stockGifts": 1,
+    "stockVisibilityOperations": 3,
+    "sellers": 6,
+    "attachments": 5,
+    "accounts": 1,
+    "purchases": 6,
+    "items": 84,
+    "purchaseEdits": 4,
+    "signedReceipts": 12
+  },
+  "reconciliation": {
+    "stockRemaining": 20,
+    "stockRemainingCostCents": 150060,
+    "purchaseCostCents": 1162982,
+    "activeSalesCents": 0,
+    "depositorEntitlementCents": 0,
+    "depositorPayoutCents": 0,
+    "documents": 12,
+    "media": 5
+  },
+  "errors": [],
+  "warnings": [
+    "loginAttempts: preserved unchanged in legacy envelope; normalized adapter pending",
+    "passwordResetTokens: preserved unchanged in legacy envelope; normalized adapter pending",
+    "saleTicketLinks: preserved unchanged in legacy envelope; normalized adapter pending",
+    "revokedSessions: preserved unchanged in legacy envelope; normalized adapter pending",
+    "saleBatches: preserved unchanged in legacy envelope; normalized adapter pending",
+    "stockOpenings: preserved unchanged in legacy envelope; normalized adapter pending",
+    "salePaymentEvents: preserved unchanged in legacy envelope; normalized adapter pending",
+    "ticketEmails: preserved unchanged in legacy envelope; normalized adapter pending",
+    "saleConflicts: preserved unchanged in legacy envelope; normalized adapter pending",
+    "inventoryReversals: preserved unchanged in legacy envelope; normalized adapter pending",
+    "consignmentReturns: preserved unchanged in legacy envelope; normalized adapter pending",
+    "applicationSettings: preserved unchanged in legacy envelope; normalized adapter pending",
+    "consignmentEvents: preserved unchanged in legacy envelope; normalized adapter pending",
+    "supplierReceipts: preserved unchanged in legacy envelope; normalized adapter pending",
+    "stockGifts: preserved unchanged in legacy envelope; normalized adapter pending",
+    "stockVisibilityOperations: preserved unchanged in legacy envelope; normalized adapter pending",
+    "accounts: preserved unchanged in legacy envelope; normalized adapter pending",
+    "purchaseEdits: preserved unchanged in legacy envelope; normalized adapter pending"
+  ],
+  "objectChecks": {
+    "unverified-no-baseline": 5,
+    "verified": 6
+  },
+  "signedOriginalCopiedChecks": [
+    {
+      "expected": "83aceca017938f20a6b909e3dc194c2e8f342811f3ede3a2838d0c4f1a2e6145",
+      "actual": "83aceca017938f20a6b909e3dc194c2e8f342811f3ede3a2838d0c4f1a2e6145",
+      "match": true
+    },
+    {
+      "expected": "6a0986205cc2d454e8a3ee3650268009ef865beb768f0c0f0320d8f4338add5a",
+      "actual": "6a0986205cc2d454e8a3ee3650268009ef865beb768f0c0f0320d8f4338add5a",
+      "match": true
+    },
+    {
+      "expected": "92f822d50a7508e43f3f3cea2b0be9470b0e66b9e51a9ce6c4028860f112f227",
+      "actual": "92f822d50a7508e43f3f3cea2b0be9470b0e66b9e51a9ce6c4028860f112f227",
+      "match": true
+    },
+    {
+      "expected": "009228bdfcee27177646a6b14279710798fcee3662a716353fc08d0497d75e96",
+      "actual": "009228bdfcee27177646a6b14279710798fcee3662a716353fc08d0497d75e96",
+      "match": true
+    },
+    {
+      "expected": "4dc9eb517da3898de066615ec49b4b4aab639cfa2667d711af6a04c67384add0",
+      "actual": "4dc9eb517da3898de066615ec49b4b4aab639cfa2667d711af6a04c67384add0",
+      "match": true
+    },
+    {
+      "expected": "cfc2f8c81f567b8b5f974abbc2376be711d9882cb1483322f203feafff4ce0c4",
+      "actual": "cfc2f8c81f567b8b5f974abbc2376be711d9882cb1483322f203feafff4ce0c4",
+      "match": true
+    }
+  ],
+  "cutoverReady": false,
+  "limitations": [
+    "Offline local restore only; no isolated deployment import yet",
+    "Zero historical sales in supplied snapshot: sale/payment/cancellation reconciliation requires synthetic invariant fixtures",
+    "Media without saved baseline hashes cannot be authenticated against source",
+    "Full normalized target schema/import not implemented"
+  ],
+  "attachmentDecodeChecks": [
+    {
+      "readable": true,
+      "format": "PNG"
+    },
+    {
+      "readable": true,
+      "format": "WEBP"
+    },
+    {
+      "readable": true,
+      "format": "JPEG"
+    },
+    {
+      "readable": true,
+      "format": "WEBP"
+    },
+    {
+      "readable": true,
+      "format": "PNG"
+    }
+  ]
+}

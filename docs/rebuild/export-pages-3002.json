@@ -1,0 +1,55 @@
+{
+  "checkedAt": "2026-11-23T17:42:23.890Z",
+  "api": "http://127.0.0.1:3002/api/v1",
+  "convex": "http://127.0.0.1:3220",
+  "scope": "Read-only export traversal; login creates session; no business mutations",
+  "counts": {
+    "purchases": {
+      "rows": 106,
+      "pages": 5
+    },
+    "sales": {
+      "rows": 19,
+      "pages": 1
+    },
+    "stock": {
+      "rows": 19,
+      "pages": 4
+    },
+    "stockLots": {
+      "rows": 116,
+      "pages": 5
+    },
+    "consignments": {
+      "rows": 9,
+      "pages": 1
+    },
+    "payments": {
+      "rows": 4,
+      "pages": 1
+    },
+    "contacts": {
+      "rows": 25,
+      "pages": 2
+    }
+  },
+  "totals": {
+    "stockQuantity": 61,
+    "stockLotQuantity": 61,
+    "stockKnownRemainingCostCents": 163171,
+    "stockUnknownCostLots": 0,
+    "activeOwnedRevenueCents": 400,
+    "allConsignmentRevenueCents": 12000,
+    "collectedDepositorEntitlementCents": 9600,
+    "payoutCents": 4000,
+    "depositorCount": 5,
+    "dueCents": 5600,
+    "regularizationCents": 0,
+    "activePurchaseCents": 170876
+  },
+  "checks": {
+    "allCursorsExhausted": true,
+    "uniqueSourceRows": true,
+    "balancesMatchDashboard": true
+  }
+}

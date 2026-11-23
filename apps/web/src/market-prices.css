@@ -1,0 +1,214 @@
+.market-prices {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--background);
+  padding: 16px;
+  min-width: 0;
+}
+.market-prices > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  padding: 0;
+  margin: 0;
+}
+.market-prices h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.market-prices p {
+  font-size: 13px;
+  margin: 8px 0;
+  color: var(--muted-foreground);
+}
+.market-price-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+.market-price-controls label:first-child {
+  grid-column: 1 / -1;
+}
+.market-price-controls label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.market-price-controls select {
+  width: 100%;
+  min-height: 36px;
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+}
+.market-price-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.market-price-results {
+  min-height: 56px;
+}
+.market-price-results ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.market-price-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding: 16px 0;
+}
+.market-price-image {
+  width: 64px;
+  height: 86px;
+  object-fit: contain;
+  background: var(--muted);
+  border-radius: 6px;
+}
+.market-price-row h4 {
+  margin: 0;
+  font-size: 14px;
+}
+.market-price-row h4 a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.market-price-row small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.market-price-money {
+  font-size: 16px;
+  font-weight: 650;
+  text-align: right;
+}
+.market-price-money small {
+  max-width: 170px;
+  font-weight: 400;
+}
+.market-price-row details {
+  font-size: 12px;
+  margin-top: 8px;
+}
+.market-price-row details summary {
+  cursor: pointer;
+  color: var(--foreground);
+}
+.market-price-row details ul {
+  padding: 8px 0 0 15px;
+  list-style: disc;
+  color: var(--muted-foreground);
+}
+.market-price-status {
+  background: var(--muted);
+  border-radius: 8px;
+  padding: 12px;
+}
+.market-price-pages {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.market-price-badge {
+  display: inline-block;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 2px 7px;
+  margin: 5px 0;
+}
+.market-price-warning {
+  color: var(--foreground) !important;
+}
+.market-price-opener {
+  margin: 10px 0;
+}
+@media (max-width: 600px) {
+  .market-price-row {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+  .market-price-image {
+    width: 48px;
+    height: 66px;
+  }
+  .market-price-money {
+    grid-column: 2;
+    text-align: left;
+  }
+  .market-price-money small {
+    max-width: none;
+  }
+  .market-price-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+  .market-prices {
+    padding: 12px;
+  }
+}
+.market-price-controls label {
+  margin: 0;
+}
+.market-price-controls .market-product-url {
+  grid-column: 1 / -1;
+}
+.market-product-url small {
+  color: var(--muted-foreground);
+  font-weight: 400;
+  font-size: 12px;
+}
+.market-product-candidates {
+  margin: 16px 0;
+}
+.market-product-candidates h4 {
+  margin: 0;
+  font-size: 14px;
+}
+.market-product-candidates ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 10px;
+}
+.market-product-choice {
+  display: flex;
+  width: 100%;
+  height: auto !important;
+  min-height: 88px;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+  padding: 12px !important;
+  gap: 12px;
+}
+.market-product-choice img {
+  width: 44px;
+  height: 64px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.market-product-choice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.market-product-choice small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  margin-top: 6px;
+}

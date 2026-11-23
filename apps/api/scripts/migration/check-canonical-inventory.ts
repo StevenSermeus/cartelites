@@ -1,0 +1,33 @@
+/** Real isolated Hono→Convex checks. No remote target or cloud object writes. */
+import {writeFile} from 'node:fs/promises';
+import {randomUUID,randomBytes} from 'node:crypto';
+import assert from 'node:assert/strict';
+import argon2 from 'argon2';
+import {ConvexHttpClient} from 'convex/browser';
+import {makeFunctionReference} from 'convex/server';
+import {assertIsolatedTarget} from './import-convex.js';
+const [apiUrl,convexUrl,output]=process.argv.slice(2);
+if(apiUrl!=='http://127.0.0.1:3002'||!output)throw new Error('Dedicated API3002 and report path required');assertIsolatedTarget(convexUrl);
+const backend=new ConvexHttpClient(convexUrl),prefix=`QA Inventory ${randomUUID()}`,email=`inventory-${randomUUID()}@example.invalid`,password=randomBytes(24).toString('base64url');
+await backend.action(makeFunctionReference<'action'>('authService:execute'),{secret:process.env.CONVEX_AUTH_SECRET??'',operation:'createAccount',payload:{email,passwordHash:await argon2.hash(password),registrationPolicy:'open'}});
+const login=await fetch(`${apiUrl}/api/v1/auth/login`,{method:'POST',headers:{'Content-Type':'application/json','X-Client-Platform':'ios'},body:JSON.stringify({email,password})});assert.equal(login.status,200);
+const {accessToken}=await login.json() as {accessToken:string};
+async function call(path:string,method='GET',body?:unknown){const response=await fetch(`${apiUrl}/api/v1${path}`,{method,headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const content=await response.text();if(!response.ok)throw new Error(`${method} ${path}: ${response.status} ${content.slice(0,300)}`);return content?JSON.parse(content):null;}
+const now=Date.now(),product={name:`${prefix} Display`,productType:'sealed',format:'display',tcg:'pokemon',askingPriceCents:2000,taxRateBps:2100};
+const receipt={operationId:randomUUID(),supplier:prefix,reference:prefix,occurredAt:now,lines:[{product,quantity:5,unitCostCents:1001}]};
+const received=await call('/supplier-receipts','POST',receipt);assert.deepEqual(await call('/supplier-receipts','POST',receipt),received);
+const itemId=received.result.itemIds[0];assert.equal((await call(`/stock/${itemId}/lots`)).item.quantity,5);
+const preview=await call(`/stock/${itemId}/open-preview?quantity=1&packSize=36&occurredAt=${now}`);assert.deepEqual(preview.costParts,[{quantity:7,unitCostCents:27},{quantity:29,unitCostCents:28}]);
+const opening={operationId:randomUUID(),itemId,product:{...product,name:`${prefix} Booster`,format:'booster'},quantity:1,packSize:36,occurredAt:now};
+const opened=await call('/stock/open','POST',opening);assert.deepEqual(await call('/stock/open','POST',opening),opened);
+let detail=await call(`/stock/${itemId}/lots`);assert.equal(detail.item.quantity,4);const targetId=detail.openings.find((o:any)=>o._id===opened.result).targetId;
+const gift={operationId:randomUUID(),itemId:targetId,quantity:1,occurredAt:now,reason:'Isolated QA'};
+const donated=await call('/stock/donate','POST',gift);assert.deepEqual(await call('/stock/donate','POST',gift),donated);
+await assert.rejects(()=>call('/stock/reverse','POST',{operationId:randomUUID(),openingId:opened.result}),/OPENING_ALREADY_USED|500/);
+assert.equal((await call(`/stock/${targetId}/lots`)).item.quantity,35);
+await call('/stock/reverse','POST',{operationId:randomUUID(),giftId:donated.result});await call('/stock/reverse','POST',{operationId:randomUUID(),openingId:opened.result});
+detail=await call(`/stock/${itemId}/lots`);assert.equal(detail.item.quantity,5);assert.equal(detail.lots.reduce((n:number,l:any)=>n+l.remainingCostCents,0),5005);assert.equal((await call(`/stock/${targetId}/lots`)).item.quantity,0);
+for(const path of ['/inventory/products','/stock-openings','/supplier-receipts',`/gifts?from=0&to=${now+10000}`,'/documents?kind=all'])await call(path);
+await call('/auth/logout','POST',{});
+const report={checkedAt:new Date().toISOString(),api:apiUrl,convex:convexUrl,syntheticPrefix:prefix,checks:{supplierReceiveReplay:true,displayOpenReplay:true,exactCentPreview:true,giftReplay:true,usedOpeningRejectsReversal:true,giftReversal:true,openingReversal:true,quantityAndCostRestoration:true,workspaceReadRoutes:true},restored:{quantity:5,costCents:5005},cloudWrites:false};
+await writeFile(output,JSON.stringify(report,null,2),{mode:0o600});console.log(JSON.stringify(report,null,2));

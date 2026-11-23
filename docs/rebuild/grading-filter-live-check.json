@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-11-23T17:24:10.749Z",
+  "target": "http://127.0.0.1:3002/api/v1",
+  "convex": "http://127.0.0.1:3220",
+  "gradingRecordsCreated": 0,
+  "checks": [
+    {
+      "resource": "stock",
+      "status": 200,
+      "companyLength": 80,
+      "resultCount": 0,
+      "hasContinuation": true
+    },
+    {
+      "resource": "sales",
+      "status": 200,
+      "companyLength": 80,
+      "resultCount": 0,
+      "hasContinuation": true
+    }
+  ]
+}

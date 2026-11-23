@@ -1,0 +1,48 @@
+{
+  "archiveSHA256": "173603010a6e34761d1037b9ee81ace6a2ceddaae62cc5b4db54a443e004e32e",
+  "evidence": [
+    {
+      "fixture": "purchase-3",
+      "pages": 1,
+      "bytesMatch": true,
+      "contentMatch": true,
+      "renderedPagesMatch": true
+    },
+    {
+      "fixture": "purchase-10",
+      "pages": 2,
+      "bytesMatch": true,
+      "contentMatch": true,
+      "renderedPagesMatch": true
+    },
+    {
+      "fixture": "purchase-30",
+      "pages": 3,
+      "bytesMatch": true,
+      "contentMatch": true,
+      "renderedPagesMatch": true
+    },
+    {
+      "fixture": "signed-consignment",
+      "pages": 2,
+      "bytesMatch": true,
+      "contentMatch": true,
+      "renderedPagesMatch": true
+    },
+    {
+      "fixture": "signed-return",
+      "pages": 1,
+      "bytesMatch": true,
+      "contentMatch": true,
+      "renderedPagesMatch": true
+    },
+    {
+      "fixture": "mixed-payment-ticket",
+      "pages": 1,
+      "bytesMatch": true,
+      "contentMatch": true,
+      "renderedPagesMatch": true
+    }
+  ],
+  "metadata": "Fixed input timestamps. These renderers emit deterministic bytes; no metadata stripping was needed. This renderer-only script does not check historical R2 originals; separate canonical-document-checks.json records actual archive download verification."
+}

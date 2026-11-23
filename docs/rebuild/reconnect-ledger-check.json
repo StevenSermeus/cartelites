@@ -1,0 +1,19 @@
+{
+  "checkedAt": "2026-11-23T17:22:17.321Z",
+  "target": "http://127.0.0.1:3002/api/v1",
+  "convex": "http://127.0.0.1:3220",
+  "itemId": "p1776981exw7vj0v264qt192zs8js7v2",
+  "giftId": "pd7d55z71dcw6y124t6c83chqs8jrrc6",
+  "giftOperationId": "f638877d-052a-4e8e-a179-af4528973fe4",
+  "giftCreatedAt": "2026-11-23T17:21:18.274Z",
+  "reversalOperationId": "9d5cd5ec-4c95-4641-8769-6a3f57605088",
+  "reversalId": null,
+  "checks": {
+    "giftRemovedQuantity": 1,
+    "giftRemainingQuantity": 0,
+    "giftRemainingCostCents": 0,
+    "reversalRestoredQuantity": 1,
+    "reversalRestoredCostCents": 101,
+    "noBrowserActionByScript": true
+  }
+}

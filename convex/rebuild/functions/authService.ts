@@ -1,0 +1,25 @@
+'use node';
+import {timingSafeEqual} from 'node:crypto';
+import {v} from 'convex/values';
+import {makeFunctionReference} from 'convex/server';
+import {action} from './_generated/server';
+const reads=new Set(['accountByEmail','accountById','sessionIsValid','signatoryProfile']);
+export const execute=action({args:{secret:v.string(),operation:v.union(v.literal('receiptPrepare'),v.literal('receiptGet'),v.literal('receiptList'),v.literal('receiptSign'),v.literal('receiptArchive'),v.literal('receiptClaimEmail'),v.literal('receiptEmailResult'),v.literal('consignmentDocumentIdentity'),v.literal('consignmentDocumentArchive'),v.literal('ticketIdentity'),v.literal('ticketArchive'),v.literal('ticketClaimEmail'),v.literal('ticketEmailResult'),v.literal('cataloguePhotoObject'),v.literal('accountByEmail'),v.literal('accountById'),v.literal('createAccount'),v.literal('startLoginAttempt'),v.literal('clearLoginAttempts'),v.literal('startSession'),v.literal('sessionIsValid'),v.literal('revokeSession'),v.literal('createPasswordReset'),v.literal('consumePasswordReset'),v.literal('signatoryProfile'),v.literal('setSignatoryProfile')),payload:v.any()},handler:async(ctx,args):Promise<unknown>=>{
+ const expected=process.env.CONVEX_AUTH_SECRET,received=Buffer.from(args.secret),bytes=Buffer.from(expected??'');if(!expected||received.length!==bytes.length||!timingSafeEqual(received,bytes))throw new Error('UNAUTHORIZED_SERVICE');
+ if(args.operation==='receiptPrepare')return ctx.runMutation(makeFunctionReference<'mutation'>('signedReceipts:prepare'),args.payload);
+ if(args.operation==='receiptGet')return ctx.runQuery(makeFunctionReference<'query'>('signedReceipts:get'),args.payload);
+ if(args.operation==='receiptList')return ctx.runQuery(makeFunctionReference<'query'>('signedReceipts:list'),args.payload);
+ if(args.operation==='receiptSign')return ctx.runMutation(makeFunctionReference<'mutation'>('signedReceipts:sign'),args.payload);
+ if(args.operation==='receiptArchive')return ctx.runMutation(makeFunctionReference<'mutation'>('signedReceipts:archive'),args.payload);
+ if(args.operation==='receiptClaimEmail')return ctx.runMutation(makeFunctionReference<'mutation'>('signedReceipts:claimEmail'),args.payload);
+ if(args.operation==='receiptEmailResult')return ctx.runMutation(makeFunctionReference<'mutation'>('signedReceipts:emailResult'),args.payload);
+ if(args.operation==='consignmentDocumentIdentity')return ctx.runMutation(makeFunctionReference<'mutation'>('consignmentDocuments:freezeIdentity'),args.payload);
+ if(args.operation==='consignmentDocumentArchive')return ctx.runMutation(makeFunctionReference<'mutation'>('consignmentDocuments:archive'),args.payload);
+ if(args.operation==='ticketIdentity')return ctx.runMutation(makeFunctionReference<'mutation'>('saleTickets:identity'),args.payload);
+ if(args.operation==='ticketArchive')return ctx.runMutation(makeFunctionReference<'mutation'>('saleTickets:archive'),args.payload);
+ if(args.operation==='ticketClaimEmail')return ctx.runMutation(makeFunctionReference<'mutation'>('saleTickets:claimEmail'),args.payload);
+ if(args.operation==='ticketEmailResult')return ctx.runMutation(makeFunctionReference<'mutation'>('saleTickets:emailResult'),args.payload);
+ if(args.operation==='cataloguePhotoObject')return ctx.runQuery(makeFunctionReference<'query'>('operations:cataloguePhotoObject'),args.payload);
+ if(reads.has(args.operation))return ctx.runQuery(makeFunctionReference<'query'>(`auth:${args.operation}`),args.payload);
+ return ctx.runMutation(makeFunctionReference<'mutation'>(`auth:${args.operation}`),args.payload);
+}});

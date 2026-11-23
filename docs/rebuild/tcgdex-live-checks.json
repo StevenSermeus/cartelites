@@ -1,0 +1,86 @@
+[
+  {
+    "query": "60/106",
+    "language": "fr",
+    "status": "ok",
+    "count": 3,
+    "cards": [
+      {
+        "id": "ex9-60",
+        "name": "Pikachu",
+        "number": "60/106"
+      },
+      {
+        "id": "dp4-60",
+        "name": "Balbuto",
+        "number": "60/106"
+      },
+      {
+        "id": "xy2-60",
+        "name": "Foretress",
+        "number": "60/106"
+      }
+    ],
+    "message": "TCGDex · FR"
+  },
+  {
+    "query": "060/106",
+    "language": "en",
+    "status": "ok",
+    "count": 3,
+    "cards": [
+      {
+        "id": "ex9-60",
+        "name": "Pikachu",
+        "number": "60/106"
+      },
+      {
+        "id": "dp4-60",
+        "name": "Baltoy",
+        "number": "60/106"
+      },
+      {
+        "id": "xy2-60",
+        "name": "Forretress",
+        "number": "60/106"
+      }
+    ],
+    "message": "TCGDex · EN"
+  },
+  {
+    "query": "XY95",
+    "language": "fr",
+    "status": "ok",
+    "count": 1,
+    "cards": [
+      {
+        "id": "xyp-XY95",
+        "name": "Pikachu",
+        "number": "XY95"
+      }
+    ],
+    "message": "TCGDex · FR"
+  },
+  {
+    "query": "SVP001",
+    "language": "en",
+    "status": "ok",
+    "count": 1,
+    "cards": [
+      {
+        "id": "svp-001",
+        "name": "Sprigatito",
+        "number": "001"
+      }
+    ],
+    "message": "TCGDex · EN"
+  },
+  {
+    "query": "001/XY-P",
+    "language": "ja",
+    "status": "unsupported",
+    "count": 0,
+    "cards": [],
+    "message": "Série absente du catalogue TCGDex en JA. Choisissez explicitement une autre langue ou la saisie manuelle."
+  }
+]

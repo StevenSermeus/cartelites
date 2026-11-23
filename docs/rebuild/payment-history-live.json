@@ -1,0 +1,59 @@
+{
+  "checkedAt": "2026-11-23T17:00:23.847Z",
+  "api": "http://127.0.0.1:3002/api/v1",
+  "convex": "http://127.0.0.1:3220",
+  "saleId": "ns7cpppr7k4s19n5r3mhhpp8058jsej3",
+  "itemId": "p171vpcg1xf83fzapvrde00dq18jsppf",
+  "prefix": "QA history 2ab59394",
+  "checks": {
+    "initialPending": true,
+    "firstCollectionReplay": true,
+    "exactPreviousSnapshots": true,
+    "paymentRows": 2,
+    "distinctReceivedAtPreserved": true,
+    "currentEntryIdStableAfterCancellation": true,
+    "cancelledStates": [
+      "reversed",
+      "superseded"
+    ],
+    "stockRestored": 2,
+    "costRestoredCents": 202,
+    "activityFilters": true,
+    "supplierExcludedFromBuybacks": true,
+    "unsupportedFilterRejected": true
+  },
+  "rows": [
+    {
+      "id": "nn76ft6hy3knpr1mjqre5yqf6d8jsrer",
+      "state": "reversed",
+      "kind": "revision",
+      "cashCents": 80,
+      "transferCents": 120,
+      "receivedAt": 1795453221399,
+      "changedAt": 1795453223619,
+      "previous": {
+        "cashCents": 200,
+        "collectionStatus": "received",
+        "receivedAt": 1795453220399,
+        "reference": "first collection",
+        "transferCents": 0
+      }
+    },
+    {
+      "id": "nn70fs9vazx6d8jxddm55smdf58jrsmj",
+      "state": "superseded",
+      "kind": "revision",
+      "cashCents": 200,
+      "transferCents": 0,
+      "receivedAt": 1795453220399,
+      "changedAt": 1795453223566,
+      "previous": {
+        "cashCents": null,
+        "collectionStatus": "pending",
+        "receivedAt": null,
+        "reference": null,
+        "transferCents": null
+      }
+    }
+  ]
+}

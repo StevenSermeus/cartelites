@@ -1,0 +1,17 @@
+{
+  "checkedAt": "2026-11-23T19:51:53.695Z",
+  "api": "http://127.0.0.1:3001/api/v1",
+  "checks": [
+    {
+      "tcg": "pokemon",
+      "availableSeries": 3,
+      "matchedItems": 4
+    },
+    {
+      "tcg": "riftbound",
+      "availableSeries": 1,
+      "matchedItems": 1
+    }
+  ],
+  "businessWrites": 0
+}

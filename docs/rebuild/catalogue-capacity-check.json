@@ -1,0 +1,109 @@
+{
+  "items": 400,
+  "lotsPerItem": 30,
+  "pageSize": 12,
+  "metric": "returned documents (filtered scans may read more)",
+  "baseline": {
+    "contacts": {
+      "calls": 400,
+      "documents": 400
+    },
+    "fileLinks": {
+      "calls": 400,
+      "documents": 4800
+    },
+    "files": {
+      "calls": 800,
+      "documents": 800
+    },
+    "gradingCompanies": {
+      "calls": 266,
+      "documents": 266
+    },
+    "itemGradings": {
+      "calls": 400,
+      "documents": 266
+    },
+    "products": {
+      "calls": 400,
+      "documents": 400
+    },
+    "purchaseLines": {
+      "calls": 400,
+      "documents": 400
+    },
+    "purchases": {
+      "calls": 400,
+      "documents": 400
+    },
+    "stockItems": {
+      "calls": 1,
+      "documents": 400
+    },
+    "stockLots": {
+      "calls": 400,
+      "documents": 12000
+    }
+  },
+  "current": {
+    "fileLinks": {
+      "calls": 12,
+      "documents": 24
+    },
+    "files": {
+      "calls": 24,
+      "documents": 24
+    },
+    "gradingCompanies": {
+      "calls": 2,
+      "documents": 2
+    },
+    "itemGradings": {
+      "calls": 400,
+      "documents": 266
+    },
+    "migrationRuns": {
+      "calls": 1,
+      "documents": 0
+    },
+    "products": {
+      "calls": 5,
+      "documents": 5
+    },
+    "purchases": {
+      "calls": 1,
+      "documents": 1
+    },
+    "stockItems": {
+      "calls": 1,
+      "documents": 400
+    },
+    "stockLots": {
+      "calls": 400,
+      "documents": 400
+    }
+  },
+  "baselineDocuments": 20132,
+  "currentDocuments": 1122,
+  "checkedAt": "2026-11-23T14:22:05.888205+00:00",
+  "live": {
+    "api": "http://127.0.0.1:3002",
+    "convex": "http://127.0.0.1:3220",
+    "oversizedPageRejected": true,
+    "products": 7,
+    "totalCount": 7,
+    "detailParity": true,
+    "privateFieldsAbsent": true,
+    "photoResponses": 5
+  },
+  "validation": {
+    "canonicalTypecheck": "pass",
+    "canonicalTests": 28
+  },
+  "limitations": [
+    "Exact global totals/filtering/sorting/facets still require O(public stock) candidates.",
+    "Returned document counts are not billed read counts; filtered photo-link scans may read more rows.",
+    "Photos for a returned product remain complete, not silently truncated.",
+    "No schema/projection table or remote writes."
+  ]
+}

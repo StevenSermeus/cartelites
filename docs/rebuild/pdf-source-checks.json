@@ -1,0 +1,104 @@
+[
+  {
+    "file": "apps/api/src/receipts/consignmentDocument.ts",
+    "expected": "ed6e640d0164031b26aee1a401796fb94af485e3eea09779498ad5eb94acf26f",
+    "actual": "ed6e640d0164031b26aee1a401796fb94af485e3eea09779498ad5eb94acf26f",
+    "matches": true
+  },
+  {
+    "file": "apps/api/src/receipts/consignmentReceipt.ts",
+    "expected": "e928baa2f64874af7a75c9f0df951d5b30c21c723a3903d1f77ed81667246dca",
+    "actual": "e928baa2f64874af7a75c9f0df951d5b30c21c723a3903d1f77ed81667246dca",
+    "matches": true
+  },
+  {
+    "file": "apps/api/src/receipts/purchaseReceipt.ts",
+    "expected": "c272b39893e4f74ad67103ec97007e647c9c5d5b33d82dbe0f19a5313a073144",
+    "actual": "c272b39893e4f74ad67103ec97007e647c9c5d5b33d82dbe0f19a5313a073144",
+    "matches": true
+  },
+  {
+    "file": "apps/api/src/receipts/saleTicket.ts",
+    "expected": "0e33103b79a1faa49ccc73d252ff62b51e5dfe75aa5a8a9bed06f200989947b0",
+    "actual": "0e33103b79a1faa49ccc73d252ff62b51e5dfe75aa5a8a9bed06f200989947b0",
+    "matches": true
+  },
+  {
+    "file": "apps/api/src/receipts/signature.ts",
+    "expected": "50c5405cb1567665e1bd3ecdac75f261584d26dc2ab5fadf3bba45deec0e5714",
+    "actual": "50c5405cb1567665e1bd3ecdac75f261584d26dc2ab5fadf3bba45deec0e5714",
+    "matches": true
+  },
+  {
+    "file": "branding/README.md",
+    "expected": "656a5f944fc60992430b6db82714e93a64581dfc667fbca07aba5a9868cd2274",
+    "actual": "656a5f944fc60992430b6db82714e93a64581dfc667fbca07aba5a9868cd2274",
+    "matches": true
+  },
+  {
+    "file": "branding/brand.ts",
+    "expected": "68898f193aa6b1f7a482120fb247d71293f7ffab0b9617704279c30ea8ff2089",
+    "actual": "68898f193aa6b1f7a482120fb247d71293f7ffab0b9617704279c30ea8ff2089",
+    "matches": true
+  },
+  {
+    "file": "branding/generate-receipt-logo.py",
+    "expected": "8aaa8a4e49680362b23bcf85d4e7bb0c6a4de6055af9370ebf4fb22ba483066c",
+    "actual": "8aaa8a4e49680362b23bcf85d4e7bb0c6a4de6055af9370ebf4fb22ba483066c",
+    "matches": true
+  },
+  {
+    "file": "branding/legal.ts",
+    "expected": "94fe0821e5b18debb4c64a6531ce4ddbeb6e403caef2aafee049b1583651a59d",
+    "actual": "94fe0821e5b18debb4c64a6531ce4ddbeb6e403caef2aafee049b1583651a59d",
+    "matches": true
+  },
+  {
+    "file": "branding/logo.png",
+    "expected": "5e4f9711c60b7039fcb2fb894bc35db4ff45fac26087d11af278174e248b31bd",
+    "actual": "5e4f9711c60b7039fcb2fb894bc35db4ff45fac26087d11af278174e248b31bd",
+    "matches": true
+  },
+  {
+    "file": "branding/receiptLogoData.ts",
+    "expected": "c380c75ddf41790c8f35bc7472cc626bbd13a60d5b65423b43440196cc191e23",
+    "actual": "c380c75ddf41790c8f35bc7472cc626bbd13a60d5b65423b43440196cc191e23",
+    "matches": true
+  },
+  {
+    "file": "packages/domain/src/consignmentDocument.ts",
+    "expected": "4583c7c660aabddd9c3c76fcd4e24e9cd4ea949a0a47b9f0654adae767340062",
+    "actual": "4583c7c660aabddd9c3c76fcd4e24e9cd4ea949a0a47b9f0654adae767340062",
+    "matches": true
+  },
+  {
+    "file": "packages/domain/src/consignmentReceipt.ts",
+    "expected": "b017a928616450f1b16652598c6a7db55d7f50a2013e398fc329b322eba4f3e3",
+    "actual": "b017a928616450f1b16652598c6a7db55d7f50a2013e398fc329b322eba4f3e3",
+    "matches": true
+  },
+  {
+    "file": "packages/domain/src/index.ts",
+    "expected": "ef64a926633385335242cfbf901d7463c1f87a1f0e926442072250af5ea50ddd",
+    "actual": "2808be94059b95161b0ea17509d209a736432021b794318f1553352aa6fbe026",
+    "matches": false
+  },
+  {
+    "file": "packages/domain/src/purchaseReceipt.ts",
+    "expected": "a0c4e615743b665edc33587d84e0959857fb4b1b7af6845ae091f3eeae2f50ed",
+    "actual": "a0c4e615743b665edc33587d84e0959857fb4b1b7af6845ae091f3eeae2f50ed",
+    "matches": true
+  },
+  {
+    "file": "packages/domain/src/riftbound.ts",
+    "expected": "56cdff22e928f44bf1afb81689a62a139bdc028dbbeae3e361d84679ceed82b4",
+    "actual": "56cdff22e928f44bf1afb81689a62a139bdc028dbbeae3e361d84679ceed82b4",
+    "matches": true
+  },
+  {
+    "file": "packages/domain/src/signature.ts",
+    "expected": "50c5405cb1567665e1bd3ecdac75f261584d26dc2ab5fadf3bba45deec0e5714",
+    "actual": "50c5405cb1567665e1bd3ecdac75f261584d26dc2ab5fadf3bba45deec0e5714",
+    "matches": true
+  }
+]

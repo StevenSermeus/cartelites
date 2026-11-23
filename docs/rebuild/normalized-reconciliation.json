@@ -1,0 +1,105 @@
+{
+  "formatVersion": 2,
+  "sourceDigest": "474f52c1c946175beb91dbab3282aff117cadd7cb8787bbf40a08a732ed2b291",
+  "planDigest": "4c8a9dfa080539fafd07ec1e4a30df9236e63d35f9205152af3d675a7cff8e44",
+  "complete": true,
+  "records": 1330,
+  "expectedRecords": 1330,
+  "counts": {
+    "accounts": 1,
+    "sessions": 0,
+    "passwordResetTokens": 0,
+    "loginAttempts": 0,
+    "contacts": 7,
+    "gradingCompanies": 2,
+    "products": 84,
+    "stockItems": 84,
+    "itemGradings": 8,
+    "purchases": 7,
+    "purchaseLines": 83,
+    "stockLots": 84,
+    "consignments": 1,
+    "consignmentRevisions": 1,
+    "consignmentTerms": 1,
+    "consignmentReturns": 1,
+    "consignmentReturnLines": 1,
+    "depositorPayouts": 0,
+    "sales": 0,
+    "saleLines": 0,
+    "saleAllocations": 0,
+    "salePayments": 0,
+    "saleConflicts": 0,
+    "stockOperations": 85,
+    "stockMovements": 84,
+    "files": 11,
+    "fileLinks": 11,
+    "documents": 12,
+    "documentLinks": 12,
+    "documentSignatures": 12,
+    "emailDeliveries": 6,
+    "auditEvents": 127,
+    "operations": 25,
+    "legacyMappings": 580
+  },
+  "reconciliation": {
+    "stockQuantity": 82,
+    "lotRemainingQuantity": 82,
+    "knownPurchaseCostCents": 1320545,
+    "unknownPurchaseCosts": 0,
+    "knownLotRemainingCostCents": 1175591,
+    "unknownLotCosts": 0,
+    "activeSalesCents": 0,
+    "activePaymentCents": 0,
+    "collectedDepositorEntitlementCents": 0,
+    "payoutsCents": 0,
+    "documents": 12,
+    "files": 11,
+    "signatures": 12
+  },
+  "comparisons": {
+    "physicalQuantity": {
+      "before": 82,
+      "after": 82
+    },
+    "purchaseCostCents": {
+      "before": 1320545,
+      "after": 1320545
+    },
+    "activeSalesCents": {
+      "before": 0,
+      "after": 0
+    },
+    "payoutsCents": {
+      "before": 0,
+      "after": 0
+    },
+    "collectedDepositorEntitlementCents": {
+      "before": 0,
+      "after": 0
+    },
+    "documents": {
+      "before": 12,
+      "after": 12
+    },
+    "signatures": {
+      "before": 12,
+      "after": 12
+    },
+    "objectReferences": {
+      "before": 11,
+      "after": 11
+    }
+  },
+  "unmappedTables": [
+    "applicationSettings",
+    "stockVisibilityOperations",
+    "purchaseEdits"
+  ],
+  "warnings": [
+    "Legacy consignment lacks frozen agreement terms; original documents remain authoritative.",
+    "Historical stock movements were not present in legacy schema; normalized opening balances reconcile current lots, while historical operations/allocations and source records remain preserved."
+  ],
+  "networkImported": false,
+  "cutoverReady": false,
+  "packageLocation": "/Users/mew/Backups/cartelites/reimport-2026-11-23-reviewed"
+}

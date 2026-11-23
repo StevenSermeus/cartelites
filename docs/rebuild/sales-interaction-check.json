@@ -1,0 +1,227 @@
+{
+  "checkedAt": "2026-11-23",
+  "url": "http://127.0.0.1:5175/admin/sales",
+  "desktop": {
+    "toolIcon": {
+      "_tag": "website",
+      "pageUrl": "http://127.0.0.1:5175/admin/sales"
+    },
+    "value": [
+      {
+        "dock": {
+          "height": 78,
+          "top": 706,
+          "width": 985
+        },
+        "quantity": "0",
+        "rows": [
+          {
+            "height": 92,
+            "top": 381,
+            "width": 983
+          },
+          {
+            "height": 92,
+            "top": 473,
+            "width": 983
+          },
+          {
+            "height": 92,
+            "top": 565,
+            "width": 983
+          }
+        ],
+        "state": "empty"
+      },
+      {
+        "dock": {
+          "height": 78,
+          "top": 706,
+          "width": 985
+        },
+        "quantity": "1",
+        "rows": [
+          {
+            "height": 92,
+            "top": 381,
+            "width": 983
+          },
+          {
+            "height": 92,
+            "top": 473,
+            "width": 983
+          },
+          {
+            "height": 92,
+            "top": 565,
+            "width": 983
+          }
+        ],
+        "state": "one"
+      },
+      {
+        "dock": {
+          "height": 78,
+          "top": 706,
+          "width": 985
+        },
+        "plusDisabled": true,
+        "quantity": "2",
+        "rows": [
+          {
+            "height": 92,
+            "top": 381,
+            "width": 983
+          },
+          {
+            "height": 92,
+            "top": 473,
+            "width": 983
+          },
+          {
+            "height": 92,
+            "top": 565,
+            "width": 983
+          }
+        ],
+        "state": "maximum"
+      },
+      {
+        "dock": {
+          "height": 78,
+          "top": 706,
+          "width": 985
+        },
+        "quantity": "0",
+        "rows": [
+          {
+            "height": 92,
+            "top": 381,
+            "width": 983
+          },
+          {
+            "height": 92,
+            "top": 473,
+            "width": 983
+          },
+          {
+            "height": 92,
+            "top": 565,
+            "width": 983
+          }
+        ],
+        "state": "removed"
+      }
+    ]
+  },
+  "mobileAfterRepair": {
+    "toolIcon": {
+      "_tag": "website",
+      "pageUrl": "http://127.0.0.1:5175/admin/sales"
+    },
+    "value": [
+      {
+        "dock": {
+          "height": 90,
+          "top": 746,
+          "width": 335
+        },
+        "quantity": "2",
+        "rows": [
+          {
+            "height": 168.5,
+            "top": 425.6875,
+            "width": 333
+          },
+          {
+            "height": 182.375,
+            "top": 594.1875,
+            "width": 333
+          },
+          {
+            "height": 182.375,
+            "top": 776.5625,
+            "width": 333
+          }
+        ],
+        "state": "maximum"
+      },
+      {
+        "dock": {
+          "height": 90,
+          "top": 746,
+          "width": 335
+        },
+        "quantity": "1",
+        "rows": [
+          {
+            "height": 168.5,
+            "top": 425.6875,
+            "width": 333
+          },
+          {
+            "height": 182.375,
+            "top": 594.1875,
+            "width": 333
+          },
+          {
+            "height": 182.375,
+            "top": 776.5625,
+            "width": 333
+          }
+        ],
+        "state": "one"
+      },
+      {
+        "dock": {
+          "height": 90,
+          "top": 746,
+          "width": 335
+        },
+        "quantity": "0",
+        "rows": [
+          {
+            "height": 168.5,
+            "top": 425.6875,
+            "width": 333
+          },
+          {
+            "height": 182.375,
+            "top": 594.1875,
+            "width": 333
+          },
+          {
+            "height": 182.375,
+            "top": 776.5625,
+            "width": 333
+          }
+        ],
+        "state": "empty"
+      }
+    ]
+  },
+  "searchReturn": {
+    "toolIcon": {
+      "_tag": "website",
+      "pageUrl": "http://127.0.0.1:5175/admin/sales"
+    },
+    "value": {
+      "quantity": "1",
+      "rows": 1,
+      "search": "QA activity"
+    }
+  },
+  "narrow320": {
+    "horizontalOverflow": false,
+    "dockHeight": 90
+  },
+  "keyboard": {
+    "quantityEnter": true,
+    "validationErrorFocused": true,
+    "paymentRadioSpace": true,
+    "confirmationFocusTrap": true,
+    "escapeRestoresReviewButton": true
+  },
+  "businessMutations": false,
+  "changes": "Mobile-width basket dock formerly99px empty/78px selected, now90px in all checked states."
+}

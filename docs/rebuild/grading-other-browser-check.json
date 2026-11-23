@@ -1,0 +1,30 @@
+{
+  "checkedAt": "2026-11-23",
+  "target": "127.0.0.1:5175 → local API3002 / Convex3220",
+  "flow": "Stock → Modifier la fiche et les photos → Société de gradation → Autre société… → Ajouter et sélectionner → Enregistrer la fiche",
+  "fixture": "Existing synthetic QA card p176ger6mbt1sb5gtbgafbatz98js35w",
+  "checks": {
+    "otherOptionVisible": true,
+    "newNameReceivesFocus": true,
+    "companyCreationForwardedToRealLocalBackend": true,
+    "saveDisabledWhileCompanyCreationPending": true,
+    "gradeAndCertificateEditedDuringDelayedCreateRetained": true,
+    "savedCompany": "QA autre société 2648",
+    "savedGrade": "9.8",
+    "savedCertificate": "QA-CERT-LATEST",
+    "productSaveStatus": 201,
+    "authoritativeReadStatus": 200,
+    "invalidPriceDoesNotPost": true,
+    "invalidPriceLinkedInlineExplanation": true,
+    "invalidPriceFocusesErrorSummary": true
+  },
+  "cleanup": {
+    "originalUngradedCardRestored": true,
+    "syntheticCompanyArchived": true,
+    "companyId": "m171nt5xd64rg0p2wct7jt1q3h8jscyv",
+    "fetchRestored": true,
+    "ownTabClosed": true,
+    "productionChanges": false
+  },
+  "scope": "Actual browser create/save/read with a temporary delay before forwarding company creation. No fake success responses; no external calls. Shared picker also serves acquisition/correction/consignment forms; their source review is separate from this stock-editor browser check."
+}

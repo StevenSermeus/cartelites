@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-11-23T14:56:20.493Z",
+  "api": "http://127.0.0.1:3002",
+  "convex": "http://127.0.0.1:3220",
+  "checks": {
+    "dashboardRead": true,
+    "paginatedBalancesPages": 1,
+    "depositors": 5,
+    "exactDueParity": true,
+    "exactRegularizationParity": true
+  }
+}

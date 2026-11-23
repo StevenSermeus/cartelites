@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-11-23T17:19:25.872Z",
+  "target": "http://127.0.0.1:3002/api/v1",
+  "convex": "http://127.0.0.1:3220",
+  "itemId": "p1776981exw7vj0v264qt192zs8js7v2",
+  "saleId": "ns7d6w87vgt21h9pp6gqmb85th8jsg9s",
+  "checks": {
+    "activeSalesForItem": 1,
+    "totalSaleRecordsForItem": 2,
+    "quantityRemaining": 0,
+    "remainingCostCents": 0,
+    "activeAllocatedQuantity": 1,
+    "activeAllocatedCostCents": 101,
+    "salePriceCents": 200,
+    "paymentStatus": "pending",
+    "paymentRows": 0,
+    "oversell": false,
+    "cancellationPerformed": false
+  },
+  "allocation": {
+    "costCents": 101,
+    "lotId": "p5738pdnbcmvc98xrkt6fdjrx18jrkvv",
+    "quantity": 1
+  }
+}

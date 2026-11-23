@@ -1,0 +1,37 @@
+{
+  "date": "2026-11-23",
+  "environment": "isolated API3002/Convex3220",
+  "fixture": "Existing synthetic QA Native Photos Correction article",
+  "gift": {
+    "phase": "gift",
+    "sameKeyReplay": true,
+    "giftRows": 1,
+    "quantity": 2,
+    "historyStatus": "complete"
+  },
+  "restored": {
+    "phase": "restored",
+    "sameKeyReplay": true,
+    "quantity": 3,
+    "remainingCostCents": 1500,
+    "activityRows": 3,
+    "netQuantityDelta": 3,
+    "historyStatus": "complete"
+  },
+  "browser": {
+    "actualLiveGiftUpdate": true,
+    "lotQuantityAfterGift": 2,
+    "lotCostAfterGiftCents": 1000,
+    "restoredDetailQuantity": 3,
+    "restoredDetailCostCents": 1500,
+    "activityKinds": [
+      "gift-reversal",
+      "gift",
+      "acquisition"
+    ],
+    "lightAndDarkInspected": true,
+    "escapeRestoresOpener": true,
+    "originalAppearanceRestored": true
+  },
+  "limits": "Native component verified through source/tests/export and actual HTTP/realtime DTOs, not device interaction. No cloud object storage, PDF, email or production changes."
+}

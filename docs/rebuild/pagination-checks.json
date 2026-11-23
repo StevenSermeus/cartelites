@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-11-23T14:02:32.930Z",
+  "api": "http://127.0.0.1:3002",
+  "convex": "http://127.0.0.1:3220",
+  "checks": {
+    "laterSupplierPurchaseLinkedItem": true,
+    "soldZeroQuantityHistory": true,
+    "sparseSearchCursorNoDuplicates": true,
+    "pagesRead": 3,
+    "unboundedPageRejected": true,
+    "signedReceiptFilteredBeforePagination": true,
+    "receiptCount": 0,
+    "archivedReceiptFilterNonempty": true,
+    "archivedReceiptsInFirstPage": 7,
+    "documentSnapshotsPrivate": true,
+    "publicCatalogueLanguageFacetsDeployed": true
+  }
+}

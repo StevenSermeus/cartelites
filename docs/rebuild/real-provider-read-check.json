@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-11-23",
+  "mode": "read-only using existing server environment, no production mutations",
+  "r2": {
+    "signedPdf": {"status": 200, "bytes": 146506, "sha256": "876681c21937a6e1954659516686071e7df68e7519e70113ebfc29fba27b4c00", "backupChecksumMatches": true},
+    "image": {"status": 200, "bytes": 38870, "sha256": "d6c02557db2b8391118131b0492c0b664b5a57fc6135e01c24d6f0dd8fe8f38b", "backupChecksumMatches": true},
+    "writeWorkflow": "not exercised: isolated test bucket not identified"
+  },
+  "brevo": {"accountReadStatus": 403, "delivery": "not attempted", "blocker": "Existing configured credential was rejected by the provider; no provider response body or secret retained."},
+  "limits": "Representative existing-object reads verify access and backup byte equality, not new-object upload acceptance or email delivery. No external email sent.",
+  "subsequentUserInstruction": "Remaining tests local only. Do not request/use external test bucket or recipient; cloud write/delivery acceptance excluded from requested execution."
+}

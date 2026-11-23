@@ -1,0 +1,339 @@
+.purchase-correction-dialog {
+  width: min(1050px, calc(100vw - 32px));
+  max-width: 1050px;
+  max-height: 92dvh;
+  overflow: auto;
+  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px;
+}
+.purchase-correction-dialog :is(h2, h3, h4, p) {
+  margin-top: 0;
+}
+.purchase-correction-dialog p,
+.purchase-correction-dialog small {
+  color: var(--muted-foreground);
+}
+.pc-header {
+  padding-right: 30px;
+}
+.pc-header > p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+.pc-notice {
+  padding: 13px 16px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+}
+.pc-error {
+  color: var(--destructive) !important;
+  border-color: var(--destructive);
+  background: var(--card);
+}
+.pc-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pc-list {
+  display: grid;
+  gap: 12px;
+}
+.pc-card {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.pc-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--secondary);
+  padding: 13px 16px;
+}
+.pc-card-heading > div {
+  flex: 1;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.pc-card-heading strong {
+  font-size: 13px;
+}
+.pc-card-heading small {
+  font-size: 11px;
+}
+.pc-card-heading > span {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pc-card-body {
+  padding: 18px;
+}
+.pc-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.purchase-correction-dialog label {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 0;
+}
+.purchase-correction-dialog :is(input, select, textarea) {
+  width: 100%;
+  margin: 0;
+  min-height: 38px;
+  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--input);
+  border-radius: 7px;
+  box-shadow: none;
+  font-size: 13px;
+}
+.purchase-correction-dialog textarea {
+  padding: 10px 12px;
+  min-height: 80px;
+}
+.purchase-correction-dialog input:focus-visible,
+.purchase-correction-dialog select:focus-visible,
+.purchase-correction-dialog textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.purchase-correction-dialog fieldset {
+  padding: 0;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.pc-more {
+  border-top: 1px solid var(--border);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.pc-more summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.pc-more[open] summary {
+  margin-bottom: 16px;
+}
+.pc-more .pc-fields {
+  margin-bottom: 16px;
+}
+.pc-protected {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 16px;
+}
+.pc-protected > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pc-protected > p {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 14px 0;
+}
+.pc-locked-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+  font-size: 12px;
+}
+.pc-locked-row > div {
+  display: grid;
+  gap: 5px;
+}
+.pc-locked-row svg {
+  display: inline;
+  margin-right: 6px;
+}
+.pc-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+.pc-summary > div {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 16px;
+}
+.pc-summary dt {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin-bottom: 7px;
+}
+.pc-summary dd {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+  font-variant-numeric: tabular-nums;
+}
+.pc-diff {
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+.pc-diff h4 {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.pc-diff > p {
+  font-size: 12px;
+}
+.pc-diff dl {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 16px;
+  font-size: 12px;
+  margin: 0;
+}
+.pc-diff dt {
+  color: var(--muted-foreground);
+}
+.pc-diff dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pc-diff del {
+  color: var(--muted-foreground);
+}
+.pc-diff ins {
+  text-decoration: none;
+  font-weight: 600;
+}
+.pc-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+.pc-footer > span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.pc-footer button {
+  gap: 8px;
+}
+.pc-success {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.pc-success > svg {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  padding: 8px;
+  background: var(--selected);
+  color: var(--selected-foreground);
+}
+.pc-success p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.pc-review-back {
+  justify-self: start;
+}
+.pc-busy {
+  font-size: 13px;
+  padding: 24px 0;
+}
+@media (max-width: 740px) {
+  .pc-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pc-summary {
+    gap: 8px;
+  }
+  .pc-summary > div {
+    padding: 12px;
+  }
+  .pc-summary dd {
+    font-size: 17px;
+  }
+}
+@media (max-width: 480px) {
+  .purchase-correction-dialog {
+    padding: 22px;
+  }
+  .pc-fields {
+    grid-template-columns: 1fr;
+  }
+  .pc-summary {
+    grid-template-columns: 1fr;
+  }
+  .pc-summary > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .pc-summary dt {
+    margin: 0;
+  }
+  .pc-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pc-footer button {
+    width: 100%;
+  }
+  .pc-diff dl {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pc-diff dt {
+    grid-column: 1 / -1;
+    font-weight: 600;
+  }
+  .pc-card-heading {
+    flex-wrap: wrap;
+  }
+}
+[role="dialog"].purchase-correction-dialog {
+  width: min(1050px, calc(100vw - 32px));
+  max-width: 1050px;
+  padding: 28px;
+}
+.purchase-correction-dialog .pc-card {
+  display: block;
+  padding: 0;
+}
+.purchase-correction-dialog .pc-card-heading strong {
+  color: var(--foreground);
+}
+.purchase-correction-dialog .pc-header h2 {
+  white-space: normal;
+  line-height: 1.35;
+}
+@media (max-width: 480px) {
+  [role="dialog"].purchase-correction-dialog {
+    padding: 22px;
+  }
+}

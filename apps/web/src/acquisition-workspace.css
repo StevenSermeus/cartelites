@@ -1,0 +1,167 @@
+/* Scoped acquisition/account styles. Business forms keep their existing contracts. */
+.acquisition-workspace, .acquisition-settings, .acquisition-client-picker, .acquisition-client-selected, .grading-picker { color: var(--foreground); min-width: 0; }
+.purchase-workspace.acquisition-workspace { display: grid; grid-template-columns: minmax(300px, .8fr) minmax(0, 1.3fr); gap: 28px; align-items: start; margin-top: 24px; }
+.acquisition-workspace .purchase-composer, .acquisition-workspace .purchase-basket { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.acquisition-workspace .purchase-composer { position: static; padding-right: 28px; border-right: 1px solid var(--border); }
+.acquisition-workspace .purchase-section-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin: 0 0 20px; }
+.acquisition-workspace .purchase-step, .acquisition-eyebrow { display: block; color: var(--muted-foreground); font-size: 10px; font-weight: 500; letter-spacing: .09em; line-height: 1.5; }
+.acquisition-workspace .purchase-section-title h3 { margin: 7px 0 0; color: var(--foreground); font-size: 21px; line-height: 1.3; font-weight: 600; letter-spacing: -.035em; }
+.acquisition-workspace .purchase-section-title > .purchase-muted { display: none; }
+.acquisition-section-description { margin: 8px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+.acquisition-workspace .purchase-count, .acquisition-counter { display: inline-flex; align-items: center; flex-shrink: 0; min-height: 25px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--muted-foreground); font-size: 11px; font-weight: 500; }
+.acquisition-workspace label, .acquisition-settings label, .grading-picker label, .acquisition-client-picker > label { display: grid; gap: 7px; margin: 0; color: var(--foreground); font-size: 12px; font-weight: 500; line-height: 1.5; }
+.acquisition-workspace input, .acquisition-workspace select, .acquisition-workspace textarea, .acquisition-settings input, .grading-picker input, .grading-picker select, .acquisition-client-picker input { width: 100%; min-width: 0; min-height: 38px; height: auto; padding: 8px 11px; border: 1px solid var(--input); border-radius: 7px; background: var(--card); color: var(--foreground); font-size: 13px; font-weight: 400; box-shadow: none; }
+.acquisition-workspace input:focus-visible, .acquisition-workspace select:focus-visible, .acquisition-workspace textarea:focus-visible, .acquisition-settings input:focus-visible, .grading-picker input:focus-visible, .grading-picker select:focus-visible, .acquisition-client-picker input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.acquisition-workspace input::placeholder, .acquisition-settings input::placeholder, .grading-picker input::placeholder, .acquisition-client-picker input::placeholder { color: var(--muted-foreground); opacity: 1; }
+.acquisition-workspace .purchase-search-bar { display: flex; align-items: flex-end; gap: 8px; margin: 14px 0; }
+.acquisition-workspace .purchase-search-bar label { flex: 1; }
+.acquisition-workspace .purchase-search-bar > button { min-height: 38px; height: auto; padding: 8px 12px; font-size: 12px; }
+.acquisition-workspace .purchase-composer > label { margin-top: 16px; }
+.acquisition-workspace .tcg-choices { margin-bottom: 16px; }
+.acquisition-workspace .purchase-result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.acquisition-workspace .purchase-result { display: flex; height: auto; min-height: 0; flex-direction: column; align-items: flex-start; gap: 4px; white-space: normal; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--foreground); text-align: left; box-shadow: none; }
+.acquisition-workspace .purchase-result:hover { border-color: var(--ring); background: var(--selected); color: var(--selected-foreground); box-shadow: none; }
+.acquisition-workspace .purchase-result img { width: auto; height: 104px; max-width: 100%; object-fit: contain; align-self: center; margin: 0 auto 8px; }
+.acquisition-workspace .purchase-result strong { font-size: 12px; line-height: 1.5; }
+.acquisition-workspace .purchase-result span, .acquisition-workspace .purchase-result small { color: var(--muted-foreground); font-size: 10px; line-height: 1.45; }
+.acquisition-workspace .purchase-result-pages { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0; font-size: 11px; color: var(--muted-foreground); }
+.acquisition-workspace .purchase-result-pages button { min-height: 30px; height: auto; padding: 5px 8px; font-size: 11px; }
+.acquisition-workspace .purchase-muted { font-size: 11px; line-height: 1.6; color: var(--muted-foreground); }
+.acquisition-workspace .purchase-text-button { min-height: 34px; height: auto; margin: 0; padding: 6px 0; border: 0; background: transparent; color: var(--action-tint); font-size: 12px; box-shadow: none; text-align: left; white-space: normal; }
+.acquisition-workspace .purchase-text-button:hover { background: transparent; text-decoration: underline; box-shadow: none; }
+.acquisition-workspace .purchase-remove { color: var(--destructive); flex-shrink: 0; }
+.acquisition-workspace .purchase-selected-preview { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 16px 0 0; margin-top: 16px; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; }
+.acquisition-workspace .purchase-selected-preview .purchase-card-identity { grid-column: 1 / -1; }
+.acquisition-workspace .purchase-selected-preview button { min-height: 36px; height: auto; padding: 8px 12px; font-size: 12px; }
+.acquisition-workspace .purchase-empty { display: grid; min-height: 240px; align-content: center; gap: 8px; padding: 36px 24px; border: 1px dashed var(--border); border-radius: 10px; background: var(--card); text-align: center; }
+.acquisition-workspace .purchase-empty strong { color: var(--foreground); font-size: 14px; font-weight: 500; }
+.acquisition-workspace .purchase-empty p { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+.acquisition-workspace .purchase-line { margin: 0; padding: 20px 0 12px; border-top: 1px solid var(--border); }
+.acquisition-workspace .purchase-line-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.acquisition-workspace .purchase-card-identity { display: flex; min-width: 0; align-items: center; gap: 12px; }
+.acquisition-workspace .purchase-card-identity img, .acquisition-workspace .purchase-card-identity .purchase-no-image { flex-shrink: 0; width: 42px; height: 58px; object-fit: contain; border-radius: 4px; background: var(--muted); }
+.acquisition-workspace .purchase-card-identity strong { display: block; font-size: 13px; font-weight: 600; line-height: 1.5; }
+.acquisition-workspace .purchase-card-identity small { display: block; margin-top: 4px; color: var(--muted-foreground); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.acquisition-workspace .purchase-line-prices { display: grid; grid-template-columns: .8fr 1fr .85fr 1fr; gap: 10px; align-items: end; }
+.acquisition-workspace .purchase-line-prices label { font-size: 10px; }
+.acquisition-workspace .purchase-line-prices input, .acquisition-workspace .purchase-line-prices select { padding: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.acquisition-workspace .purchase-line-total { padding: 0 0 8px; text-align: right; font-variant-numeric: tabular-nums; }
+.acquisition-workspace .purchase-line-total small { margin-bottom: 12px; font-size: 10px; }
+.acquisition-workspace .purchase-line-total strong { font-size: 15px; letter-spacing: -.025em; }
+.acquisition-workspace .purchase-line-actions { display: flex; gap: 16px; align-items: center; justify-content: space-between; margin-top: 8px; }
+.acquisition-workspace .purchase-line-details { padding: 18px; margin: 12px 0 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+.acquisition-workspace .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }
+.acquisition-workspace .purchase-line-details .form-grid { margin-top: 0; }
+.acquisition-workspace .purchase-photo-preview { display: block; width: 100%; max-width: 160px; height: 140px; object-fit: contain; }
+.acquisition-workspace .acquisition-checkout { grid-column: 1 / -1; position: static; display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 18px 22px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); box-shadow: 0 4px 16px color-mix(in srgb, var(--foreground) 6%, transparent); }
+.acquisition-workspace .acquisition-checkout strong { margin-top: 4px; font-size: 28px; letter-spacing: -.04em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.acquisition-workspace .acquisition-checkout > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
+.acquisition-workspace .acquisition-checkout > div:last-child > small { flex: 1 0 100%; text-align: right; }
+.acquisition-workspace .acquisition-checkout button { min-height: 38px; height: auto; padding: 8px 14px; font-size: 12px; }
+.acquisition-total-note { display: block; margin-top: 4px; color: var(--muted-foreground); font-size: 10px; }
+/* Contact lookup is an aligned list, with a clear selected contact. */
+.purchase-client-picker.acquisition-client-picker { max-width: none; padding: 0; border: 0; background: transparent; }
+.acquisition-client-picker > input { max-width: 640px; margin-top: 8px; }
+.acquisition-client-picker .purchase-client-hint { margin: 8px 0 14px; color: var(--muted-foreground); font-size: 12px; }
+.acquisition-client-picker .purchase-client-results { display: grid; gap: 0; margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.acquisition-client-picker .purchase-client-results:empty { display: none; }
+.acquisition-client-picker .purchase-client-result { display: grid; grid-template-columns: 1fr auto; gap: 5px 16px; height: auto; min-height: 70px; padding: 14px 16px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: var(--card); color: var(--foreground); text-align: left; white-space: normal; box-shadow: none; }
+.acquisition-client-picker .purchase-client-result:last-child { border-bottom: 0; }
+.acquisition-client-picker .purchase-client-result strong { font-size: 13px; }
+.acquisition-client-picker .purchase-client-result > span { grid-column: 1; color: var(--muted-foreground); font-size: 12px; font-weight: 400; }
+.acquisition-client-picker .purchase-client-result small { grid-column: 2; grid-row: 1 / 3; align-self: center; color: var(--action-tint); font-size: 11px; font-weight: 500; }
+.acquisition-client-picker .purchase-client-result:hover { background: var(--selected); color: var(--selected-foreground); box-shadow: none; }
+.purchase-client-selected.acquisition-client-selected { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); }
+.acquisition-client-selected > div { display: grid; gap: 5px; }
+.acquisition-client-selected small { color: var(--muted-foreground); font-size: 10px; letter-spacing: .08em; }
+.acquisition-client-selected strong { font-size: 16px; font-weight: 600; }
+.acquisition-client-selected span { color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
+.acquisition-client-selected > button { flex-shrink: 0; min-height: 36px; height: auto; padding: 8px 12px; font-size: 12px; }
+/* Account and grading management share section rhythm without shared form state. */
+.acquisition-settings { padding: 24px 28px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+.acquisition-section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 22px; border-bottom: 1px solid var(--border); }
+.acquisition-section-header h2 { margin: 6px 0; font-size: 22px; font-weight: 600; letter-spacing: -.035em; }
+.acquisition-section-header p { margin: 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
+.acquisition-settings .signatory-settings { margin: 0; padding: 0; border: 0; }
+.acquisition-settings .signatory-settings fieldset { margin: 0; padding: 0; border: 0; border-radius: 0; min-width: 0; }
+.acquisition-settings .signatory-settings button { margin-top: 0; }
+.acquisition-settings .settings-form-section { display: grid; grid-template-columns: minmax(180px, .6fr) minmax(0, 1fr); gap: 40px; padding: 26px 0; border-bottom: 1px solid var(--border); }
+.acquisition-settings .settings-section-copy h3 { margin: 0 0 7px; font-size: 14px; font-weight: 600; }
+.acquisition-settings .settings-section-copy p { max-width: 340px; margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
+.acquisition-settings .settings-profile-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.acquisition-settings .settings-capacity { grid-column: 1 / -1; }
+.acquisition-settings .settings-signature-field { min-width: 0; }
+.acquisition-settings .settings-signature-field canvas { max-width: 100%; border-color: var(--border); border-radius: 8px; }
+.acquisition-settings .settings-signature-field button { min-height: 32px; height: auto; padding: 6px 10px; font-size: 11px; }
+.acquisition-settings .settings-form-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 0; }
+.acquisition-settings .settings-form-footer > span { color: var(--muted-foreground); font-size: 11px; }
+.acquisition-settings .settings-form-footer button { min-height: 38px; height: auto; font-size: 12px; }
+.acquisition-settings .settings-access-section { display: grid; grid-template-columns: minmax(180px, .6fr) minmax(0, 1fr); gap: 40px; padding-top: 26px; border-top: 1px solid var(--border); }
+.acquisition-settings .settings-access-control { display: flex; align-items: flex-start; gap: 12px; }
+.acquisition-settings .settings-access-control input { width: 18px; min-height: 18px; height: 18px; margin: 2px 0 0; padding: 0; accent-color: var(--action-tint); }
+.acquisition-settings .settings-access-control small { display: block; margin-top: 5px; color: var(--muted-foreground); font-size: 11px; font-weight: 400; }
+.acquisition-field-help, .acquisition-muted { color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+.acquisition-error { color: var(--destructive); font-size: 12px; line-height: 1.6; }
+.acquisition-notice { color: var(--foreground); font-size: 12px; line-height: 1.6; padding: 12px 14px; border-left: 2px solid var(--success); background: var(--muted); }
+.grading-picker { display: grid; gap: 6px; align-content: start; }
+.grading-picker > button { justify-self: start; min-height: 28px; height: auto; padding: 4px 0; border: 0; background: transparent; color: var(--action-tint); font-size: 11px; box-shadow: none; }
+.grading-picker > button:hover { background: transparent; text-decoration: underline; box-shadow: none; }
+.grading-create-inline { display: flex; gap: 8px; align-items: center; }
+.grading-create-inline input { flex: 1; }
+.grading-create-inline button { flex-shrink: 0; }
+.acquisition-settings .grading-create-form { display: flex; align-items: flex-end; gap: 12px; padding: 22px 0; border-bottom: 1px solid var(--border); }
+.acquisition-settings .grading-create-form label { flex: 1; max-width: 520px; }
+.acquisition-settings .grading-create-form button { min-height: 38px; height: auto; }
+.grading-company-list { margin-top: 4px; }
+.grading-record { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 0; border-bottom: 1px solid var(--border); }
+.grading-record:last-child { border-bottom: 0; padding-bottom: 0; }
+.grading-record > div { display: grid; gap: 4px; }
+.grading-record strong { font-size: 13px; font-weight: 500; }
+.grading-record span { color: var(--muted-foreground); font-size: 11px; }
+.grading-record > button { min-height: 32px; height: auto; background: transparent; color: var(--action-tint); border-color: transparent; box-shadow: none; font-size: 11px; }
+.grading-record > button:hover { background: var(--selected); color: var(--selected-foreground); box-shadow: none; }
+.grading-edit-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; width: 100%; }
+.grading-edit-form input { flex: 1 1 200px; }
+.acquisition-empty { padding: 28px 0; }
+.acquisition-empty strong { font-size: 14px; font-weight: 500; }
+.acquisition-empty p { color: var(--muted-foreground); font-size: 12px; }
+@media (max-width: 1100px) {
+  .purchase-workspace.acquisition-workspace { grid-template-columns: minmax(0, 1fr); }
+  .acquisition-workspace .purchase-composer { position: static; padding: 0 0 24px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .acquisition-workspace .purchase-result-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .acquisition-workspace .purchase-line-main { grid-template-columns: minmax(0, 1fr) minmax(320px, 1fr); }
+}
+@media (max-width: 700px) {
+  .acquisition-workspace .purchase-result-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .acquisition-workspace .purchase-line-main { grid-template-columns: minmax(0, 1fr); }
+  .acquisition-workspace .acquisition-checkout { position: static; flex-direction: column; align-items: stretch; padding: 18px; }
+  .acquisition-workspace .acquisition-checkout > div:last-child { justify-content: stretch; }
+  .acquisition-workspace .acquisition-checkout > div:last-child > button { flex: 1; white-space: normal; }
+  .acquisition-workspace .acquisition-checkout > div:last-child > small { text-align: left; }
+  .acquisition-settings { padding: 20px 16px; }
+  .acquisition-settings .settings-form-section, .acquisition-settings .settings-access-section { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .acquisition-settings .settings-form-footer { align-items: stretch; flex-direction: column; gap: 12px; }
+  .acquisition-client-picker .purchase-client-result { grid-template-columns: minmax(0, 1fr); }
+  .acquisition-client-picker .purchase-client-result small { grid-column: 1; grid-row: auto; margin-top: 4px; }
+  .purchase-client-selected.acquisition-client-selected { align-items: flex-start; flex-direction: column; gap: 14px; }
+}
+@media (max-width: 400px) {
+  .acquisition-workspace .purchase-line-prices, .acquisition-workspace .form-grid, .acquisition-settings .settings-profile-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .acquisition-workspace .purchase-search-bar { flex-direction: column; align-items: stretch; }
+  .acquisition-settings .grading-create-form { align-items: stretch; flex-direction: column; }
+}
+.acquisition-workspace .acquisition-flow-nav { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: -8px; }
+.acquisition-workspace .acquisition-flow-nav button { min-height: 32px; height: auto; padding: 4px 0; border: 0; background: transparent; color: var(--action-tint); box-shadow: none; font-size: 12px; }
+.acquisition-workspace .acquisition-flow-nav > span { color: var(--muted-foreground); font-size: 11px; }
+.acquisition-workspace .acquisition-review { grid-column: 1 / -1; min-width: 0; }
+.acquisition-workspace .acquisition-review h3:focus { outline: none; }
+.acquisition-workspace .acquisition-review-table { overflow-x: auto; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.acquisition-workspace .acquisition-review-table table { width: 100%; min-width: 560px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.acquisition-workspace .acquisition-review-table th { padding: 12px; background: var(--muted); color: var(--muted-foreground); font-size: 10px; font-weight: 500; }
+.acquisition-workspace .acquisition-review-table td { padding: 16px 12px; border-bottom: 1px solid var(--border); }
+.acquisition-workspace .acquisition-review-table tr:last-child td { border-bottom: 0; }
+.acquisition-workspace .acquisition-review-table td:not(:first-child), .acquisition-workspace .acquisition-review-table th:not(:first-child) { text-align: right; white-space: nowrap; }
+.acquisition-workspace .acquisition-review-table td:first-child { width: 50%; }
+.acquisition-workspace .acquisition-review-table small { display: block; margin-top: 5px; color: var(--muted-foreground); font-size: 11px; line-height: 1.6; }
+.acquisition-workspace .acquisition-review-note { color: var(--muted-foreground); font-size: 12px; line-height: 1.7; margin: 18px 0 0; }
+.acquisition-workspace .acquisition-flow-error { grid-column: 1 / -1; }

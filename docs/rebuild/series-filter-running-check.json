@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-11-23T19:48:08.541Z",
+  "backend": "http://127.0.0.1:3220",
+  "currentRoutesInProcess": false,
+  "allStockItems": 19,
+  "checks": [
+    {
+      "tcg": "pokemon",
+      "availableSeries": 1,
+      "knownSeries": 53,
+      "publicSeries": 1,
+      "publicItems": 4
+    },
+    {
+      "tcg": "riftbound",
+      "availableSeries": 0,
+      "knownSeries": 0,
+      "publicSeries": 0,
+      "publicItems": 0
+    }
+  ],
+  "unauthorizedStatus": 401,
+  "businessWrites": 0,
+  "externalRequests": 0
+}
