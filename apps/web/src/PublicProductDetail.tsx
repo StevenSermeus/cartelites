@@ -78,7 +78,10 @@ export function PublicProductDetail({ id, onClose }: { id: string; onClose: () =
             </Button>
           </div>
         ) : !product ? (
-          <p role="status">Chargement de la fiche…</p>
+          <div className="product-detail-grid" aria-busy="true">
+            <div className="product-gallery-main" aria-hidden="true" />
+            <p role="status">Chargement de la fiche…</p>
+          </div>
         ) : (
           <div className="product-detail-grid">
             <ProductGallery key={id} name={product.name} images={images} />

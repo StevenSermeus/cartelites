@@ -62,7 +62,7 @@ export function ShopPage() {
   useEffect(()=>{document.title=`La boutique | ${brand.name}`;},[]);
   return <main className="public-information-page"><PublicNavigation active="boutique"/><AppearanceControl/>
     <header className="public-information-heading"><BrandLogo decorative/><p>La boutique</p><h1>Parlons de votre collection.</h1><p>Une question sur une carte, un rachat ou un dépôt ? Préparez la référence du produit pour faciliter l’échange.</p></header>
-    <section className="public-shop-contact" aria-labelledby="shop-contact"><h2 id="shop-contact">{brand.name}</h2><address>{legal.address}<br/>{legal.country}</address><p><a href={`mailto:${legal.email}`}><FiMail aria-hidden="true"/>{legal.email}</a></p>{legal.phone&&<p><a href={`tel:${legal.phone.replace(/[^+\d]/g,'')}`}><FiPhone aria-hidden="true"/>{legal.phone}</a></p>}<p>Confirmez les horaires et les modalités de rendez-vous directement auprès de la boutique.</p></section>
+    <section className="public-shop-contact" aria-labelledby="shop-contact"><h2 id="shop-contact">{brand.name}</h2><p>{legal.country}</p><p><a href={`mailto:${legal.email}`}><FiMail aria-hidden="true"/>{legal.email}</a></p>{legal.phone&&<p><a href={`tel:${legal.phone.replace(/[^+\d]/g,'')}`}><FiPhone aria-hidden="true"/>{legal.phone}</a></p>}<p>Confirmez les horaires et les modalités de rendez-vous directement auprès de la boutique.</p></section>
     <div className="public-information-links"><a href="/convention">Explorer les cartes</a><a href="/rachat">Préparer un rachat</a><a href="/depot-vente">Préparer un dépôt</a></div>
   </main>;
 }

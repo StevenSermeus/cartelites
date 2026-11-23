@@ -59,7 +59,6 @@ function LegalNotice() {
           ['Nom commercial', brand.name],
           ['Dénomination légale', legal.companyName],
           ['Forme juridique', legal.legalForm],
-          ['Adresse du siège', legal.address],
           ['Pays', legal.country],
           ['Numéro d’entreprise / immatriculation', legal.registration],
           ['TVA', legal.vatNumber],
@@ -86,7 +85,13 @@ function LegalNotice() {
       <h2>Hébergement</h2>
       <p>{information(legal.hostName)}</p>
       <p>{information(legal.hostAddress)}</p>
-      <p>{information(legal.hostContact)}</p>
+      <p><a href={legal.hostContact}>Coordonnées et contact de l’hébergeur</a></p>
+      <h3>Documents PDF et images</h3>
+      <p>{legal.storageProvider}</p>
+      <p><a href="https://developers.cloudflare.com/r2/reference/data-location/">Localisation des données Cloudflare R2</a></p>
+      <h3>Base de données</h3>
+      <p>{legal.databaseProvider}</p>
+      <p><a href="https://docs.convex.dev/production/regions">Régions d’hébergement Convex</a></p>
       <h2>Présentation du service</h2>
       <p>
         {brand.name} présente un catalogue de cartes et propose un espace de gestion des stocks,
@@ -114,7 +119,7 @@ function PrivacyNotice() {
     <>
       <h2>Responsable du traitement</h2>
       <p>
-        {information(legal.companyName)} — {information(legal.address)}
+        {information(legal.companyName)} — {information(legal.country)}
       </p>
       <p>
         Contact relatif aux données personnelles :{' '}
@@ -150,12 +155,12 @@ function PrivacyNotice() {
         public affiche les cartes et leur prix, sans les fiches clients ni les justificatifs privés.
       </p>
       <h2>Bases légales</h2>
-      <p>{information(legal.legalBases)}</p>
+      {information(legal.legalBases).split('\n\n').map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
       <h2>Destinataires et prestataires</h2>
       <p>
         Les personnes autorisées à gérer le compte accèdent aux données de ce compte. Des
         prestataires techniques peuvent traiter des données pour l’hébergement, le stockage et
-        l’envoi des e-mails de réinitialisation.
+        l’envoi des e-mails transactionnels, notamment les réinitialisations de mot de passe, les documents signés et les tickets de vente.
       </p>
       <p>{information(legal.processors)}</p>
       <p>
@@ -167,7 +172,7 @@ function PrivacyNotice() {
       <h2>Transferts internationaux</h2>
       <p>{information(legal.transfers)}</p>
       <h2>Durées de conservation</h2>
-      <p>{information(legal.retention)}</p>
+      {information(legal.retention).split('\n\n').map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
       <h2>Vos droits</h2>
       <p>
         Selon les conditions prévues par le RGPD, vous pouvez demander l’accès, la rectification,

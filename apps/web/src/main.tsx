@@ -366,7 +366,7 @@ function ConventionCatalog() {
   const [series,setSeries] = useState('');
   const [language,setLanguage] = useState('');
   const [tcg, setTcg] = useState<Tcg | 'all'>('all');
-  const [totalCount, setTotalCount] = useState(0);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [minimum, setMinimum] = useState('');
   const [maximum, setMaximum] = useState('');
@@ -498,7 +498,7 @@ function ConventionCatalog() {
       <header className="public-catalogue-hero">
         <BrandIdentity catalogue />
         <div className="public-catalogue-total" aria-live="polite">
-          <strong>{totalCount}</strong>
+          <strong>{totalCount ?? '…'}</strong>
           <span>cartes en stock</span>
         </div>
       </header>
