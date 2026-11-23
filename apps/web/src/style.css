@@ -1277,3 +1277,13 @@ button.public-catalogue-image-wrap { padding:0;border:0;width:100%;background:va
 .convention-series-filter { display: block; max-width: 420px; margin: 12px 0; }
 .convention-series-filter select { width: 100%; }
 .convention-series-filter small { display: block; color: var(--muted-foreground); }
+
+/* Reserve the catalogue layout while the first page loads; keep existing cards on refresh. */
+.convention-series-status { min-height: 1lh; }
+.public-catalogue-grid[aria-busy='true'] > :not(.public-catalogue-skeleton) { opacity: .6; }
+.public-catalogue-skeleton:hover { transform: none; }
+.public-catalogue-skeleton .public-catalogue-card-details { min-height: 170px; gap: 14px; }
+.public-catalogue-skeleton-line { display: block; height: 16px; width: 85%; border-radius: 5px; background: var(--muted); }
+.public-catalogue-skeleton-line:nth-child(2) { width: 60%; }
+.public-catalogue-skeleton-line:nth-child(3) { width: 45%; }
+.public-catalogue-skeleton-line:last-child { width: 70%; margin-top: auto; }

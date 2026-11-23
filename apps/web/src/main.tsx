@@ -534,7 +534,8 @@ function ConventionCatalog() {
           </label>
         </div>
         <label className="convention-series-filter">Série / extension
-          <SeriesFilter value={series} onChange={setSeries} options={seriesOptions} loading={loading} />
+          <SeriesFilter value={series} onChange={setSeries} options={seriesOptions} />
+          <small className="convention-series-status" style={{ visibility: loading ? 'visible' : 'hidden' }} role="status">{loading ? 'Chargement des séries…' : '\u00a0'}</small>
         </label>
         <details className="convention-advanced">
           <summary>Filtres avancés · langue, prix et gradation</summary>
@@ -642,15 +643,11 @@ function ConventionCatalog() {
           <h2>Le stock est momentanément indisponible</h2>
           <p>{error}</p><Button variant="outline" onClick={()=>setCatalogueRetry(v=>v+1)}>Réessayer</Button>
         </section>
-      ) : loading ? (
-        <section className="panel public-catalogue-state" aria-live="polite">
-          <p>Chargement des cartes…</p>
-        </section>
-      ) : visible.length ? (
+      ) : loading || visible.length ? (
         <>
           <div className="public-catalogue-results-toolbar">
             <label className="catalogue-sort">Trier par<select value={catalogueSort} onChange={e=>setCatalogueSort(e.target.value as typeof catalogueSort)}><option value="recent">Ajouts récents</option><option value="name">Nom A–Z</option><option value="price-asc">Prix croissant</option><option value="price-desc">Prix décroissant</option></select></label>
-            <span className="public-catalogue-result-summary">
+            <span className="public-catalogue-result-summary" style={{ visibility: loading && !visible.length ? 'hidden' : 'visible' }}>
               {visible.length} carte{visible.length === 1 ? '' : 's'} trouvée
               {visible.length === 1 ? '' : 's'}
             </span>
@@ -694,15 +691,27 @@ function ConventionCatalog() {
             className={`public-catalogue-grid${layout === 'list' ? ' public-catalogue-list' : ''}`}
             aria-label="Cartes disponibles"
             aria-live="polite"
+            aria-busy={loading}
           >
+            {loading && !pageCards.length && Array.from({ length: pageSize }, (_, index) => (
+              <article className="public-catalogue-card public-catalogue-skeleton" key={`placeholder-${index}`} aria-hidden="true">
+                <div className="public-catalogue-image-wrap" />
+                <div className="public-catalogue-card-details">
+                  <span className="public-catalogue-skeleton-line" />
+                  <span className="public-catalogue-skeleton-line" />
+                  <span className="public-catalogue-skeleton-line" />
+                  <span className="public-catalogue-skeleton-line" />
+                </div>
+              </article>
+            ))}
             {pageCards.map((card) => (
               <article className="public-catalogue-card" key={card.id}>
-                <button type="button" className="public-catalogue-image-wrap" aria-label={`Voir ${card.name}`} onClick={()=>setDetailId(card.id)}>
+                <button type="button" className="public-catalogue-image-wrap" disabled={loading} aria-label={`Voir ${card.name}`} onClick={()=>setDetailId(card.id)}>
                   <ConventionPhoto key={`${card.id}:${card.hasPhoto}`} {...card} apiBase={API} />
                 </button>
                 <div className="public-catalogue-card-details">
                   <div className="public-catalogue-card-title">
-                    <h3><Button variant="link" className="product-detail-link" onClick={()=>setDetailId(card.id)}>{card.name}</Button></h3>
+                    <h3><Button variant="link" className="product-detail-link" disabled={loading} onClick={()=>setDetailId(card.id)}>{card.name}</Button></h3>
                     <strong className="public-catalogue-price">
                       {card.salePriceCents === undefined ? 'Ouvert aux offres' : formatPrice(card.salePriceCents)}
                     </strong>
