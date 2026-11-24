@@ -116,7 +116,7 @@ export function PublicProductDetail({ id, onClose }: { id: string; onClose: () =
                   value ? (
                     <div key={label}>
                       <dt>{label}</dt>
-                      <dd>{value}</dd>
+                      <dd>{label === 'État' ? <span className="condition-badge" data-condition={value}>{value}</span> : value}</dd>
                     </div>
                   ) : null,
                 )}

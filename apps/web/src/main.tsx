@@ -721,7 +721,7 @@ function ConventionCatalog() {
                   <div className="public-catalogue-tags">
                     {card.identifier && <span>N° {card.identifier}</span>}
                     {card.language && <span>{languageLabel(card.language)}</span>}
-                    {(!card.productType || card.productType === 'card') && <span>{conditionLabel(card.condition)}</span>}{card.productType === 'sealed' && <span>Produit scellé</span>}{card.productType === 'other' && <span>Autre article</span>}
+                    {(!card.productType || card.productType === 'card') && <span className="condition-badge" data-condition={card.condition ?? 'NM'}>{conditionLabel(card.condition)}</span>}{card.productType === 'sealed' && <span>Produit scellé</span>}{card.productType === 'other' && <span>Autre article</span>}
                   </div>
                   {card.gradingCompany && (
                     <GradingBadge company={card.gradingCompany} grade={card.gradingGrade} />

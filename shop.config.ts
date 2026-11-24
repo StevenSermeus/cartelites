@@ -1,4 +1,4 @@
-import { defaultThemes, resolveTheme } from './packages/domain/src/shopTheme';
+import { cartelitesThemes } from './branding/theme';
 import { legal } from './branding/legal';
 import { resolveShopLinks } from './packages/domain/src/shopLinks';
 // Deployment configuration. Never put credentials in this file.
@@ -11,7 +11,7 @@ export const shopConfig = {
       { label: 'Instagram', url: 'https://www.instagram.com/cartelites/', icon: 'instagram' },
       { label: 'Facebook', url: 'https://www.facebook.com/profile.php?id=61596948501271', icon: 'facebook' },
     ]),
-    theme: { appearance: 'system' as const, light: resolveTheme(defaultThemes.light, 'light'), dark: resolveTheme(defaultThemes.dark, 'dark') } },
+    theme: { appearance: 'system' as const, ...cartelitesThemes } },
 };
 // Deliberate allowlist: no legal/private configuration is sent to clients.
 export const publicShopConfig = { version: shopConfig.version, currency: shopConfig.currency, timezone: shopConfig.timezone, branding: shopConfig.branding };

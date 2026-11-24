@@ -1,15 +1,15 @@
 # Personnaliser une instance web
 
-L’identité de l’instance est définie dans `branding/brand.ts`. Elle est utilisée par la connexion, l’espace de gestion, le catalogue public, les métadonnées HTML et l’auteur des exports Excel.
+L’identité de l’instance est définie dans `branding/brand.ts`, et sa palette claire/sombre dans `branding/theme.ts`. Elle est utilisée par la connexion, l’espace de gestion, le catalogue public, les métadonnées HTML et l’auteur des exports Excel.
 
 Pour livrer l’application à un autre client :
 
 1. Modifier `name`, `tagline`, `catalogueLabel` et `description` dans `brand.ts`.
 2. Remplacer `branding/logo.png` par son logo PNG. Il est affiché sans recadrage et sert aussi de favicon.
-3. Modifier `colors` dans `brand.ts` : `primary` et `primaryHover` pour les actions, `onPrimary` pour leur texte, `accent` pour les touches de couleur, `soft` pour les fonds teintés, `canvas` pour le fond de page, `surface` pour les panneaux, `ink` et `muted` pour les textes, `border` pour les séparations. Les états utilisent `success`, `warning` et `danger`.
+3. Modifier les jetons dans `branding/theme.ts` ; `brand.ts` en dérive les couleurs des documents : `primary` et `primaryHover` pour les actions, `onPrimary` pour leur texte, `accent` pour les touches de couleur, `soft` pour les fonds teintés, `canvas` pour le fond de page, `surface` pour les panneaux, `ink` et `muted` pour les textes, `border` pour les séparations. Les états utilisent `success`, `warning` et `danger`.
 4. Exécuter `pnpm --filter @tcg-marge/web typecheck` puis `pnpm --filter @tcg-marge/web build` et déployer le résultat.
 
-Choisir des paires de couleurs lisibles : `onPrimary` sur `primary`/`primaryHover`, et `ink`/`muted` sur `surface`/`canvas`. La palette Cartélites conserve des boutons bruns avec texte blanc pour le contraste ; l’or sert d’accent. Les couleurs des certificateurs restent celles de leurs marques.
+Choisir des paires de couleurs lisibles : `onPrimary` sur `primary`/`primaryHover`, et `ink`/`muted` sur `surface`/`canvas`. La palette Cartélites associe des fonds ivoire et blancs à du texte anthracite, avec des boutons dorés à texte sombre. Le mode sombre utilise des surfaces anthracite. Les deux palettes sont validées par `resolveTheme` pour le contraste. Les couleurs des certificateurs restent celles de leurs marques.
 
 Les composants utilisent des variables CSS sémantiques `--brand-*`, injectées depuis cette configuration. Ne pas coder le nom du client ou ses couleurs directement dans les écrans. La configuration est propre au déploiement, pas au navigateur de chaque utilisateur ; sa modification nécessite une nouvelle compilation en production.
 
